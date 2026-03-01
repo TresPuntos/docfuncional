@@ -1,0 +1,1763 @@
+<!DOCTYPE html>
+<html lang="es" class="scroll-smooth">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Documento Funcional – Proyecto Web 2026 – Nextica</title>
+
+    <!-- Typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap"
+        rel="stylesheet">
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        :root {
+            --tp-primary: #5DFFBF;
+            --tp-primary-hover: #49E6A8;
+            --bg-base: #0E0E0E;
+            --bg-surface: #141414;
+            --bg-subtle: #191919;
+            --text-heading: #FFFFFF;
+            --text-primary: #B0B0B0;
+            --text-secondary: #BDBDBD;
+            --text-muted: #8A8A8A;
+            --border-base: #1F1F1F;
+            --border-subtle: #2A2A2A;
+            --font-heading: 'Plus Jakarta Sans', sans-serif;
+            --font-body: 'Inter', sans-serif;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: var(--bg-base);
+            color: var(--text-primary);
+            font-family: var(--font-body);
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        h1,
+        h2,
+        h3,
+        h4,
+        h5,
+        h6 {
+            font-family: var(--font-heading);
+            color: var(--text-heading);
+            font-weight: 700;
+            line-height: 1.2;
+        }
+
+        /* Layout */
+        .app-container {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /* Sidebar Styles */
+        aside {
+            width: 320px;
+            height: 100vh;
+            background-color: var(--bg-surface);
+            border-right: 1px solid var(--border-base);
+            position: fixed;
+            top: 0;
+            left: 0;
+            overflow-y: auto;
+            padding: 2.5rem 1.5rem;
+            z-index: 100;
+            scrollbar-width: thin;
+            scrollbar-color: var(--border-subtle) transparent;
+        }
+
+        aside::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        aside::-webkit-scrollbar-thumb {
+            background-color: var(--border-subtle);
+            border-radius: 10px;
+        }
+
+        .logo-container {
+            margin-bottom: 2.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding-left: 0.5rem;
+        }
+
+        .logo-image {
+            height: 32px;
+            width: auto;
+        }
+
+        .logo-container h2 {
+            font-size: 1.25rem;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            margin: 0;
+            padding: 0;
+        }
+
+        .logo-container h2::before {
+            display: none;
+        }
+
+        .logo-dot {
+            flex-shrink: 0;
+            width: 10px;
+            height: 10px;
+            background-color: var(--tp-primary);
+            border-radius: 50%;
+            box-shadow: 0 0 12px var(--tp-primary);
+        }
+
+        .doc-meta {
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: var(--text-muted);
+        }
+
+        nav ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .nav-item {
+            margin-bottom: 0.25rem;
+        }
+
+        .nav-link {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem 1rem;
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 0.85rem;
+            font-weight: 500;
+            border-radius: 8px;
+            transition: all 0.2s ease;
+            line-height: 1.4;
+        }
+
+        .nav-link:hover {
+            background-color: var(--bg-subtle);
+            color: #FFFFFF;
+        }
+
+        .nav-link.active {
+            background-color: rgba(93, 255, 191, 0.1);
+            color: var(--tp-primary);
+        }
+
+        .nav-link i {
+            flex-shrink: 0;
+            width: 18px;
+            height: 18px;
+        }
+
+        /* Main Content Styles */
+        main {
+            margin-left: 320px;
+            flex: 1;
+            padding: 5rem 4rem;
+            max-width: 1400px;
+            margin-right: auto;
+        }
+
+        .content-wrapper {
+            max-width: 840px;
+            margin: 0 auto;
+        }
+
+        /* Content Typography & Spacing */
+        .content-wrapper h1 {
+            font-size: 3.5rem;
+            margin-bottom: 1rem;
+            letter-spacing: -0.03em;
+        }
+
+        .content-wrapper h2 {
+            font-size: 2rem;
+            margin-top: 4.5rem;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            scroll-margin-top: 5rem;
+        }
+
+        .content-wrapper h2::before {
+            content: '';
+            flex-shrink: 0;
+            width: 16px;
+            height: 4px;
+            background-color: var(--tp-primary);
+            border-radius: 2px;
+        }
+
+        /* First H2 styling distinct */
+        .content-wrapper h2:first-of-type {
+            font-size: 1.75rem;
+            color: var(--text-secondary);
+            margin-top: 0;
+            margin-bottom: 4rem;
+            font-weight: 600;
+        }
+
+        .content-wrapper h2:first-of-type::before {
+            display: none;
+        }
+
+        .content-wrapper h3 {
+            font-size: 1.35rem;
+            margin: 2.5rem 0 1rem 0;
+            color: #FFFFFF;
+        }
+
+        .content-wrapper p {
+            margin-bottom: 1.25rem;
+            font-size: 1.05rem;
+            color: var(--text-primary);
+        }
+
+        .content-wrapper ul,
+        .content-wrapper ol {
+            margin-bottom: 1.5rem;
+            padding-left: 1.5rem;
+        }
+
+        .content-wrapper ul li,
+        .content-wrapper ol li {
+            margin-bottom: 0.5rem;
+            color: var(--text-primary);
+            font-size: 1.05rem;
+        }
+
+        .content-wrapper ul ul,
+        .content-wrapper ol ol,
+        .content-wrapper ul ol,
+        .content-wrapper ol ul {
+            margin-top: 0.5rem;
+            margin-bottom: 0;
+        }
+
+        .content-wrapper strong {
+            color: var(--tp-primary);
+            font-weight: 600;
+        }
+
+        .content-wrapper hr {
+            border: 0;
+            height: 1px;
+            background: linear-gradient(to right, var(--border-subtle), transparent);
+            margin: 4rem 0;
+        }
+
+        .progress-bar {
+            position: fixed;
+            top: 0;
+            left: 320px;
+            right: 0;
+            height: 4px;
+            background-color: var(--bg-base);
+            z-index: 1000;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background-color: var(--tp-primary);
+            width: 0%;
+            box-shadow: 0 0 10px var(--tp-primary);
+            transition: width 0.1s ease-out;
+        }
+
+        @media (max-width: 1024px) {
+            aside {
+                width: 280px;
+            }
+
+            main {
+                margin-left: 280px;
+                padding: 4rem 2rem;
+            }
+
+            .progress-bar {
+                left: 280px;
+            }
+        }
+
+        @media (max-width: 768px) {
+            aside {
+                display: none;
+            }
+
+            main {
+                margin-left: 0;
+                padding: 3rem 1.5rem;
+            }
+
+            .progress-bar {
+                left: 0;
+            }
+
+            .content-wrapper h1 {
+                font-size: 2.5rem;
+            }
+
+            .content-wrapper h2 {
+                font-size: 1.75rem;
+            }
+        }
+
+        /* Floating WhatsApp Button */
+        .whatsapp-btn {
+            position: fixed;
+            bottom: 2rem;
+            left: 2rem;
+            width: 56px;
+            height: 56px;
+            background-color: #25D366;
+            /* Color oficial WhatsApp */
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 15px rgba(37, 211, 102, 0.4);
+            cursor: pointer;
+            z-index: 1000;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            text-decoration: none;
+        }
+
+        .whatsapp-btn:hover {
+            transform: scale(1.05) translateY(-2px);
+            box-shadow: 0 6px 20px rgba(37, 211, 102, 0.6);
+        }
+
+        .whatsapp-btn svg {
+            width: 28px;
+            height: 28px;
+            fill: currentColor;
+        }
+
+        /* Final Validation Block */
+        .validation-block {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-subtle);
+            border-radius: 16px;
+            padding: 3rem;
+            margin-top: 5rem;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .validation-block::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, var(--tp-primary), #115939);
+        }
+
+        .validation-block h2 {
+            font-size: 2rem;
+            margin-top: 0;
+            margin-bottom: 1rem;
+            font-family: var(--font-heading);
+            color: #FFFFFF;
+            justify-content: center;
+        }
+
+        .validation-block h2::before {
+            display: none;
+        }
+
+        .validation-block p {
+            color: var(--text-secondary);
+            font-size: 1.05rem;
+            max-width: 600px;
+            margin: 0 auto 2.5rem;
+        }
+
+        .validation-actions {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn-decision {
+            padding: 0.875rem 1.5rem;
+            border-radius: 8px;
+            font-family: var(--font-heading);
+            font-weight: 700;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: none;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            text-decoration: none;
+        }
+
+        .btn-approve {
+            background-color: var(--tp-primary);
+            color: var(--bg-base);
+        }
+
+        .btn-approve:hover {
+            background-color: var(--tp-primary-hover);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(93, 255, 191, 0.3);
+        }
+
+        .btn-discuss {
+            background-color: transparent;
+            color: var(--text-primary);
+            border: 1px solid var(--border-subtle);
+        }
+
+        .btn-discuss:hover {
+            background-color: var(--bg-subtle);
+            color: #FFF;
+        }
+
+        /* Modal / Feedback state */
+        #validation-feedback {
+            display: none;
+            margin-top: 2rem;
+            padding: 1.5rem;
+            background-color: rgba(93, 255, 191, 0.1);
+            border: 1px solid rgba(93, 255, 191, 0.2);
+            border-radius: 8px;
+            color: var(--tp-primary);
+            font-weight: 500;
+        }
+
+        /* Modal Styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(4px);
+            z-index: 2000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-content {
+            background-color: var(--bg-surface);
+            border: 1px solid var(--border-subtle);
+            border-radius: 12px;
+            width: 100%;
+            max-width: 500px;
+            padding: 2rem;
+            position: relative;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
+
+        .modal-content h3 {
+            margin-top: 0;
+            margin-bottom: 0.5rem;
+            font-size: 1.5rem;
+            color: var(--text-heading);
+        }
+
+        .modal-content p {
+            color: var(--text-secondary);
+            margin-bottom: 1.5rem;
+        }
+
+        .feedback-input {
+            width: 100%;
+            min-height: 120px;
+            background-color: var(--bg-subtle);
+            border: 1px solid var(--border-subtle);
+            border-radius: 8px;
+            padding: 1rem;
+            color: var(--text-primary);
+            font-family: var(--font-body);
+            font-size: 1rem;
+            resize: vertical;
+            margin-bottom: 1.5rem;
+        }
+
+        .feedback-input:focus {
+            outline: none;
+            border-color: var(--tp-primary);
+        }
+
+        .modal-close {
+            position: absolute;
+            top: 1.5rem;
+            right: 1.5rem;
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: color 0.2s ease;
+        }
+
+        .modal-close:hover {
+            color: var(--text-heading);
+        }
+
+        .modal-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 1rem;
+        }
+
+        @media (max-width: 1024px) {
+            .whatsapp-btn {
+                left: 1.5rem;
+                bottom: 1.5rem;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .validation-actions {
+                flex-direction: column;
+            }
+
+            .btn-decision {
+                width: 100%;
+                justify-content: center;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="progress-bar">
+        <div class="progress-fill" id="progressFill"></div>
+    </div>
+
+    <div class="app-container">
+        <aside>
+            <div class="logo-container" style="margin-bottom: 3rem; padding-left: 0.5rem;">
+                <img src="logo-trespuntos.svg" alt="Tres Puntos" style="height: 45px; width: auto;">
+            </div>
+            <div class="project-info" style="margin-bottom: 2rem; padding-left: 0.5rem;">
+                <div class="logo-dot" style="display: inline-block; vertical-align: middle;"></div>
+                <h2 style="display: inline-block; margin-left: 8px; font-size: 1.1rem; font-weight: 800;"
+                    id="clientNameSidebar">Nextica v2
+                </h2>
+            </div>
+
+            <nav>
+                <ul id="sidebar-nav">
+                    <!-- Sidebar items will be injected here via JS to not modify HTML content manually -->
+                </ul>
+            </nav>
+        </aside>
+
+        <main>
+            <!-- NO MODIFICATIONS BELOW TO THE HTML CONTENT FROM master/nextica.html -->
+            <div class="content-wrapper">
+                <h1>Documento Funcional</h1>
+                <h2>
+                    Proyecto Web 2026 – Nextica
+                    <br>
+                    <span class="doc-meta">
+                        Fecha de envío: <span id="docFechaEnvio">Pendiente</span> ·
+                        Versión: <span id="docVersion">1.0</span>
+                    </span>
+                </h2>
+
+                <h2>1. Contexto y objetivos del proyecto</h2>
+
+                <h3>1.1 Situación actual y evolución de la firma</h3>
+                <p>
+                    Nextica Law &amp; Tax es la evolución natural de una firma con más de 30 años de trayectoria
+                    (origen en Lliteras &amp; Cia, fundada en 1977), especializada en asesoramiento legal, fiscal,
+                    financiero, tributario, contable y laboral para particulares, autónomos, pymes y empresas con
+                    estructuras complejas.
+                </p>
+                <p>La web actual cumple funciones básicas de presencia online, pero presenta limitaciones claras en:</p>
+                <ul>
+                    <li>Estructura de contenidos poco orientada al usuario.</li>
+                    <li>Jerarquía visual mejorable.</li>
+                    <li>Presentación superficial de servicios.</li>
+                    <li>Escasa orientación a conversión.</li>
+                    <li>Limitada preparación técnica para crecimiento futuro.</li>
+                </ul>
+                <p>
+                    La firma se encuentra en un momento estratégico de evolución de marca y posicionamiento, donde la
+                    presencia digital debe actuar como palanca de crecimiento y consolidación.
+                </p>
+
+                <h3>1.2 Objetivos estratégicos del nuevo proyecto web</h3>
+                <p>El proyecto web tiene como finalidad:</p>
+                <ul>
+                    <li>Reforzar posicionamiento y marca.</li>
+                    <li>Comunicar con claridad la propuesta de valor.</li>
+                    <li>Orientar la web a los públicos prioritarios (especialmente pymes y empresas internacionales).
+                    </li>
+                    <li>Convertir la web en un canal real de captación.</li>
+                    <li>Construir una base tecnológica preparada para crecimiento.</li>
+                </ul>
+
+                <h3>1.3 Alcance del proyecto</h3>
+                <p>El proyecto contempla:</p>
+                <ul>
+                    <li>Redefinición de arquitectura de información.</li>
+                    <li>Diseño UX/UI alineado con la nueva identidad.</li>
+                    <li>Definición funcional detallada.</li>
+                    <li>Desarrollo técnico completo.</li>
+                    <li>Implementación de sistema de captación con automatización vía n8n.</li>
+                    <li>Coordinación con agencia SEO para implementación correcta de contenidos.</li>
+                </ul>
+
+                <hr>
+
+                <h2>2. Posicionamiento y arquitectura estratégica</h2>
+
+                <h3>2.1 Propuesta de valor y narrativa</h3>
+                <p>
+                    La comunicación evolucionará desde una descripción técnica hacia una narrativa estratégica centrada
+                    en soluciones y acompañamiento empresarial.
+                </p>
+                <p>Pilares:</p>
+                <ul>
+                    <li>Asesoramiento integral con visión estratégica.</li>
+                    <li>Experiencia consolidada con mentalidad actual.</li>
+                    <li>Especialización por áreas y sectores.</li>
+                    <li>Partner de confianza para expansión y crecimiento.</li>
+                </ul>
+
+                <h3>2.2 Públicos objetivo</h3>
+                <p>Segmentos prioritarios:</p>
+                <ul>
+                    <li>Pymes.</li>
+                    <li>Empresas internacionales / capital extranjero.</li>
+                    <li>Autónomos.</li>
+                    <li>Particulares.</li>
+                </ul>
+                <p>Cada segmento contará con mensajes y recorridos específicos.</p>
+
+                <h3>2.3 Propuesta de Sitemap</h3>
+                <ul>
+                    <li>Home</li>
+                    <li>
+                        Soluciones
+                        <ul>
+                            <li>
+                                Por tipo de cliente
+                                <ul>
+                                    <li>Pymes</li>
+                                    <li>Empresas internacionales</li>
+                                    <li>Autónomos</li>
+                                    <li>Particulares</li>
+                                </ul>
+                            </li>
+                            <li>
+                                Por área de especialización
+                                <ul>
+                                    <li>Derecho Laboral</li>
+                                    <li>Derecho Mercantil y Comercial</li>
+                                    <li>Derecho Fiscal y Tributario</li>
+                                    <li>Asesoría Contable y Financiera</li>
+                                </ul>
+                            </li>
+                        </ul>
+                    </li>
+                    <li>
+                        Sectores
+                        <ul>
+                            <li>Farmacéutico y Healthcare</li>
+                            <li>Seguros</li>
+                            <li>Private Equity</li>
+                            <li>Hoteles y Hospitality</li>
+                            <li>Startups y Tecnología</li>
+                            <li>Industria y Empresa Familiar (a valorar)</li>
+                        </ul>
+                    </li>
+                    <li>La Firma</li>
+                    <li>
+                        Casos de éxito
+                        <ul>
+                            <li>Filtro por sector</li>
+                            <li>Filtro por área</li>
+                            <li>Filtro por tipo de cliente</li>
+                        </ul>
+                    </li>
+                    <li>Recursos</li>
+                    <li>Solicitar presupuesto</li>
+                    <li>Contacto</li>
+                </ul>
+
+                <hr>
+
+                <h2>3. Estructura funcional de la web</h2>
+
+                <h3>3.1 Home</h3>
+                <p>La Home actuará como punto estratégico de posicionamiento y conversión.</p>
+                <p>Incluye:</p>
+                <ul>
+                    <li>Hero con propuesta de valor + CTA.</li>
+                    <li>Segmentación por tipo de cliente.</li>
+                    <li>Áreas de especialización.</li>
+                    <li>Sectores destacados.</li>
+                    <li>Bloque “Cómo trabajamos”.</li>
+                    <li>Casos destacados.</li>
+                    <li>Bloque de autoridad.</li>
+                    <li>CTA final.</li>
+                </ul>
+
+                <h3>3.2 Soluciones</h3>
+                <p>Estructura dual:</p>
+                <ul>
+                    <li>
+                        Por tipo de cliente
+                        <ul>
+                            <li>Pymes</li>
+                            <li>Empresas internacionales</li>
+                            <li>Autónomos</li>
+                            <li>Particulares</li>
+                        </ul>
+                    </li>
+                    <li>
+                        Por área de especialización
+                        <ul>
+                            <li>Derecho Laboral</li>
+                            <li>Derecho Mercantil y Comercial</li>
+                            <li>Derecho Fiscal y Tributario</li>
+                            <li>Asesoría Contable y Financiera</li>
+                        </ul>
+                    </li>
+                </ul>
+                <p>Cada página incluirá:</p>
+                <ul>
+                    <li>Introducción estratégica al perfil o área.</li>
+                    <li>Problemáticas habituales.</li>
+                    <li>Enfoque y propuesta de valor.</li>
+                    <li>Servicios relacionados.</li>
+                    <li>Beneficios concretos.</li>
+                    <li>Casos de éxito vinculados.</li>
+                    <li>FAQs específicas (si aplica).</li>
+                    <li>CTA principal y CTA secundario.</li>
+                </ul>
+
+                <h3>3.3 Sectores</h3>
+                <p>
+                    Se desarrollarán landings específicas por sector, orientadas a reforzar posicionamiento y
+                    especialización.
+                </p>
+                <p><strong>Ejemplos de sectores prioritarios:</strong></p>
+                <ul>
+                    <li>Farmacéutico y Healthcare</li>
+                    <li>Seguros</li>
+                    <li>Private Equity</li>
+                    <li>Hoteles y Hospitality</li>
+                    <li>Startups y Tecnología</li>
+                    <li>Industria y Empresa Familiar (a valorar)</li>
+                </ul>
+                <p><strong>Estructura propuesta de cada página de sector:</strong></p>
+                <ul>
+                    <li>Introducción estratégica al sector.</li>
+                    <li>Problemáticas habituales y retos legales/fiscales.</li>
+                    <li>Servicios más relevantes para ese sector.</li>
+                    <li>Experiencia y enfoque diferencial.</li>
+                    <li>Casos de éxito vinculados.</li>
+                    <li>CTA sectorial (solicitar asesoramiento / presupuesto).</li>
+                </ul>
+
+                <h3>3.4 La Firma</h3>
+                <p>Sección orientada a reforzar confianza y credibilidad:</p>
+                <ul>
+                    <li>Historia y evolución.</li>
+                    <li>Misión y valores.</li>
+                    <li>Equipo.</li>
+                    <li>Metodología de trabajo.</li>
+                    <li>Cifras clave.</li>
+                </ul>
+
+                <h3>3.5 Casos de éxito</h3>
+                <p>Landing con filtros por sector, área y tipo de cliente.</p>
+                <p><strong>Estructura propuesta de cada caso de éxito:</strong></p>
+                <ul>
+                    <li>Contexto del cliente (sector y tipología).</li>
+                    <li>Situación inicial / problemática.</li>
+                    <li>Intervención realizada por Nextica.</li>
+                    <li>Enfoque estratégico aplicado.</li>
+                    <li>Resultado obtenido (impacto tangible cuando sea posible).</li>
+                    <li>Servicios relacionados.</li>
+                    <li>CTA final (solicitar asesoramiento en situación similar).</li>
+                </ul>
+
+                <h3>3.6 Recursos</h3>
+                <p>
+                    Se desarrollará un área de Recursos estructurada y optimizada para SEO que incluirá:
+                </p>
+                <ul>
+                    <li>
+                        <strong>Blog estratégico</strong>, no como repositorio, sino como centro editorial con
+                        categorías
+                        por área de especialización y por etapa empresarial (emprender, expansión, fusiones, crisis,
+                        etc.).
+                    </li>
+                    <li>Sistema de filtros (año, palabras clave, tipo de cliente).</li>
+                    <li>Artículos destacados y posts relacionados automáticos.</li>
+                    <li>Interlinking estratégico hacia páginas de servicios y sectores.</li>
+                    <li>
+                        Bloques para ebooks y guías descargables con captación integrada en el CRM o herramienta de
+                        email
+                        marketing que se defina.
+                    </li>
+                    <li>
+                        FAQs organizadas por área y perfil de usuario, con potencial landing SEO independiente.
+                    </li>
+                    <li>
+                        Implementación de marcado estructurado (Schema Markup) en las FAQs para maximizar la visibilidad
+                        en resultados enriquecidos de Google.
+                    </li>
+                    <li>
+                        Elementos de experiencia: barra de progreso de lectura, opciones de compartir, diseño limpio y
+                        comentarios desactivados.
+                    </li>
+                </ul>
+                <p>
+                    La implementación se realizará en coordinación con la agencia SEO, asegurando correcta migración de
+                    URLs, mantenimiento del histórico y preservación del posicionamiento actual.
+                </p>
+
+                <h3>3.7 Solicitar presupuesto y contacto</h3>
+                <p>La arquitectura de conversión será multicanal e incluirá:</p>
+                <ul>
+                    <li>Formulario multi-step con lógica condicional.</li>
+                    <li>Formulario simple de contacto.</li>
+                    <li>Integración de WhatsApp Business como canal directo.</li>
+                    <li>
+                        Sistema de reserva de reuniones (videollamada o presencial) mediante la herramienta que se
+                        defina.
+                    </li>
+                </ul>
+                <p>
+                    Todos los canales estarán integrados dentro del flujo de cualificación y automatización definido
+                    en el proyecto.
+                </p>
+
+                <hr>
+
+                <h2>4. Captación, conversión y automatización</h2>
+                <p>Sistema estructurado de generación y gestión de oportunidades.</p>
+
+                <h3>4.1 Formularios inteligentes</h3>
+                <ul>
+                    <li>Multi-step con lógica condicional.</li>
+                    <li>Formularios contextuales reducidos.</li>
+                    <li>
+                        Integración coordinada con WhatsApp Business y sistema de reserva de reuniones como parte del
+                        ecosistema de captación multicanal.
+                    </li>
+                </ul>
+
+                <h3>4.2 Integración con n8n (flujo propuesto de automatización)</h3>
+                <p>
+                    Se propone implementar un flujo de automatización que permita cualificar, clasificar y activar
+                    acciones comerciales de forma automática.
+                </p>
+                <p><strong>Flujo conceptual propuesto:</strong></p>
+                <ol>
+                    <li>El usuario completa el formulario multi-step en la landing.</li>
+                    <li>La información enviada se conecta con n8n a través de un webhook seguro.</li>
+                    <li>
+                        n8n analiza la información mediante un sistema de IA para generar:
+                        <ul>
+                            <li>Un nivel de cualificación del lead (score).</li>
+                            <li>Nivel de urgencia.</li>
+                            <li>Resumen estructurado del caso.</li>
+                        </ul>
+                    </li>
+                    <li>
+                        Toda la información (datos originales + análisis generado) se almacena en el CRM o en el sistema
+                        definido (por ejemplo, Google Sheets).
+                    </li>
+                    <li>
+                        En función del nivel de cualificación:
+                        <ul>
+                            <li>
+                                Si el lead tiene alto encaje, se activa automáticamente un email personalizado con
+                                análisis
+                                preliminar y llamada a la acción para agendar reunión.
+                            </li>
+                            <li>
+                                Si el lead tiene encaje medio o bajo, se puede activar una respuesta informativa o
+                                derivación
+                                interna.
+                            </li>
+                        </ul>
+                    </li>
+                </ol>
+                <p>El objetivo no es solo registrar el lead, sino:</p>
+                <ul>
+                    <li>Priorizar oportunidades estratégicas.</li>
+                    <li>Reducir tiempos de respuesta.</li>
+                    <li>Generar una primera impresión profesional y personalizada.</li>
+                    <li>Estandarizar la gestión interna de nuevas consultas.</li>
+                </ul>
+                <p>
+                    La definición final del scoring y de las acciones automatizadas dependerá de los criterios de
+                    negocio que establezca la firma.
+                </p>
+
+                <hr>
+
+                <h2>5. SEO y contenidos</h2>
+                <p>
+                    La estrategia SEO se desarrollará en coordinación directa con la agencia SEO responsable de la
+                    definición de palabras clave, arquitectura semántica y planificación editorial.
+                </p>
+
+                <h3>5.1 Arquitectura SEO</h3>
+                <p>La estructura del sitio se diseñará para:</p>
+                <ul>
+                    <li>Trabajar páginas pilar por área de especialización.</li>
+                    <li>Desarrollar clusters de contenido asociados (blog y FAQs).</li>
+                    <li>Reforzar posicionamiento por sectores estratégicos.</li>
+                    <li>Atacar intenciones de búsqueda diferenciadas según tipo de cliente.</li>
+                </ul>
+                <p>
+                    La arquitectura deberá permitir crecimiento orgánico sin necesidad de reestructuración futura.
+                </p>
+
+                <h3>5.2 Estrategia de contenidos</h3>
+                <p>
+                    Los contenidos estratégicos (textos, keywords y enfoque editorial) serán proporcionados por la
+                    agencia SEO.
+                </p>
+                <p>Desde Tres Puntos se garantizará:</p>
+                <ul>
+                    <li>Implementación correcta en la arquitectura definida.</li>
+                    <li>Coherencia entre UX, jerarquía visual y estructura SEO.</li>
+                    <li>
+                        Optimización técnica on-page (estructura de encabezados, enlazado interno, rendimiento de
+                        carga).
+                    </li>
+                    <li>Integración de CTAs y elementos de conversión dentro de los contenidos.</li>
+                </ul>
+
+                <h3>5.3 Migración y preservación del posicionamiento</h3>
+                <p>
+                    Se coordinará la migración del histórico de contenidos (incluyendo URLs del antiguo dominio),
+                    asegurando:
+                </p>
+                <ul>
+                    <li>Redirecciones 301 correctas.</li>
+                    <li>Conservación de autoridad SEO existente.</li>
+                    <li>Revisión de estructura de categorías y taxonomías.</li>
+                    <li>Control de errores de rastreo tras la publicación.</li>
+                </ul>
+
+                <h3>5.4 SEO técnico y rendimiento</h3>
+                <p>El proyecto deberá cumplir con:</p>
+                <ul>
+                    <li>Estructura semántica correcta.</li>
+                    <li>Velocidad de carga optimizada.</li>
+                    <li>
+                        Estándares de rendimiento recomendados por Google para garantizar una experiencia fluida en
+                        todos
+                        los dispositivos.
+                    </li>
+                    <li>Cumplimiento de buenas prácticas de indexación.</li>
+                </ul>
+                <p>
+                    La web se construirá preparada para medición avanzada mediante la implementación exclusiva del
+                    script de Google Tag Manager. Desde Tres Puntos se incorporará únicamente dicho script en la web,
+                    siendo la agencia SEO la responsable de gestionar e implementar dentro de Tag Manager todas las
+                    etiquetas y herramientas necesarias, con el objetivo de mantener una arquitectura limpia y optimizar
+                    la velocidad de carga.
+                </p>
+
+                <hr>
+
+                <h2>6. Requisitos técnicos y escalabilidad</h2>
+                <p>
+                    El proyecto deberá construirse bajo criterios de rendimiento, seguridad, autonomía y crecimiento
+                    futuro.
+                </p>
+
+                <h3>6.1 Stack tecnológico</h3>
+                <p>
+                    La solución tecnológica será WordPress desarrollado completamente a medida, sin uso de plantillas
+                    prefabricadas y con el mínimo número de plugins posible, priorizando desarrollos propios cuando sea
+                    necesario.
+                </p>
+                <p>
+                    El entorno deberá estar actualizado a versiones modernas y soportadas del stack tecnológico (PHP 8
+                    o superior), garantizando seguridad, rendimiento y mantenimiento a largo plazo.
+                </p>
+                <p>La arquitectura deberá garantizar:</p>
+                <ul>
+                    <li>Código limpio y estructurado.</li>
+                    <li>Arquitectura modular.</li>
+                    <li>Compatibilidad con integraciones futuras.</li>
+                    <li>Facilidad de mantenimiento por terceros cualificados.</li>
+                </ul>
+
+                <h3>6.2 Rendimiento y optimización</h3>
+                <p>El sitio deberá priorizar:</p>
+                <ul>
+                    <li>Tiempos de carga optimizados.</li>
+                    <li>Minimización de scripts externos.</li>
+                    <li>Uso exclusivo de Google Tag Manager como contenedor de etiquetas.</li>
+                    <li>
+                        Optimización de imágenes y recursos multimedia, utilizando formatos modernos como WebP para
+                        maximizar rendimiento y velocidad de carga.
+                    </li>
+                    <li>
+                        Estructura técnica optimizada para que la web cargue rápido, sea estable y responda de forma
+                        fluida en todos los dispositivos, cumpliendo los estándares de rendimiento recomendados por
+                        Google.
+                    </li>
+                </ul>
+
+                <h3>6.3 Seguridad</h3>
+                <p>La web deberá incluir:</p>
+                <ul>
+                    <li>Certificado SSL activo.</li>
+                    <li>Protección frente a ataques comunes.</li>
+                    <li>Sistema de actualizaciones controladas.</li>
+                    <li>Arquitectura preparada para copias de seguridad periódicas.</li>
+                </ul>
+
+                <h3>6.4 Escalabilidad e integraciones futuras</h3>
+                <p>La arquitectura deberá permitir en fases posteriores:</p>
+                <ul>
+                    <li>Área privada para clientes.</li>
+                    <li>Firma digital integrada.</li>
+                    <li>Automatizaciones adicionales vía n8n.</li>
+                    <li>Integración con CRM avanzado.</li>
+                    <li>Versiones multidioma si se define expansión internacional.</li>
+                </ul>
+                <p>
+                    Además, durante la fase de UX y UI se diseñará un sistema de bloques reutilizables que formará la
+                    base estructural del sitio.
+                </p>
+                <p>Este enfoque permitirá que:</p>
+                <ul>
+                    <li>El cliente pueda modificar textos e imágenes en cualquier bloque ya construido.</li>
+                    <li>
+                        Se puedan crear nuevas páginas (por ejemplo, nuevos sectores o nuevos servicios) utilizando
+                        combinaciones de bloques existentes.
+                    </li>
+                    <li>No sea necesario recurrir a desarrollos adicionales para ampliar contenido estructural.</li>
+                </ul>
+                <p>
+                    Cada bloque estará previamente definido a nivel de diseño y maquetación, garantizando coherencia
+                    visual y funcional. De esta forma, la web podrá crecer de manera autónoma sin depender
+                    constantemente de desarrollos a medida.
+                </p>
+                <p>
+                    El objetivo es dotar al cliente de autonomía real mediante un sistema de bloques definidos en la
+                    fase de UX/UI, que no serán modificables a nivel estructural para garantizar correcto funcionamiento
+                    en cualquier dispositivo. Esto permitirá independencia operativa sin comprometer coherencia visual,
+                    estabilidad técnica ni rendimiento.
+                </p>
+
+                <h3>6.5 Autonomía y mantenimiento</h3>
+                <p>El sistema deberá permitir:</p>
+                <ul>
+                    <li>Edición sencilla de contenidos.</li>
+                    <li>Gestión de nuevas páginas sin desarrollos complejos.</li>
+                    <li>Documentación clara de la estructura implementada.</li>
+                </ul>
+                <p>
+                    La solución no deberá depender de desarrollos opacos o difíciles de mantener.
+                </p>
+
+                <hr>
+
+                <h2>7. Proceso de construcción – Metodología Tres Puntos</h2>
+                <p>
+                    El proyecto se desarrollará siguiendo la metodología propia de Tres Puntos, estructurada en cuatro
+                    fases claramente definidas.
+                </p>
+
+                <h3>7.1 Análisis y preparación</h3>
+                <ul>
+                    <li>
+                        Reuniones iniciales con el equipo de Nextica para comprender en profundidad la empresa, su
+                        posicionamiento, su modelo de negocio y los objetivos del proyecto.
+                    </li>
+                    <li>Revisión estratégica del briefing.</li>
+                    <li>Validación de arquitectura y sitemap.</li>
+                    <li>Definición de requisitos funcionales y técnicos.</li>
+                    <li>Recopilación de accesos (hosting, dominio, WordPress, etc.).</li>
+                    <li>Coordinación inicial con la agencia SEO.</li>
+                </ul>
+                <p>
+                    El objetivo de esta fase es reducir incertidumbre, alinear expectativas y cerrar alcance antes de
+                    comenzar diseño y desarrollo.
+                </p>
+
+                <h3>7.2 UX/UI</h3>
+                <p>
+                    En esta fase se trabajará de manera continua y colaborativa con el responsable designado por
+                    Nextica.
+                </p>
+                <p>
+                    El diseño se desarrollará página a página, realizando los ajustes necesarios en cada iteración hasta
+                    alcanzar un prototipo validado.
+                </p>
+                <p>El proceso será el siguiente:</p>
+                <ul>
+                    <li>Se diseñará primero la versión mobile, que será la base inicial del proyecto.</li>
+                    <li>Se realizarán las revisiones necesarias junto al cliente hasta su validación completa.</li>
+                    <li>Una vez aprobada la versión mobile, se repetirá el proceso para la versión desktop.</li>
+                    <li>Se diseñarán y validarán ambas versiones (Mobile y Desktop).</li>
+                </ul>
+                <p>
+                    La línea visual evitará recursos y clichés corporativos tradicionales (apretones de manos,
+                    rascacielos, corbatas, escritorios, calculadoras u otros elementos genéricos), priorizando una
+                    estética contemporánea, sobria y alineada con el posicionamiento estratégico de la firma.
+                </p>
+                <p>
+                    De esta manera, el cliente podrá visualizar los avances de forma continua y participar activamente
+                    en el proceso de diseño, facilitando la aprobación final del UX/UI.
+                </p>
+                <p>
+                    Todos los cambios y ajustes realizados durante esta fase de diseño estarán incluidos dentro del
+                    alcance del proyecto.
+                </p>
+                <p>
+                    La validación formal por parte del cliente será necesaria para aprobar definitivamente los diseños.
+                    Una vez aprobados y comenzada la fase de desarrollo, no se podrán realizar modificaciones de diseño
+                    sin la aprobación de un presupuesto adicional.
+                </p>
+
+                <h3>7.3 Desarrollo</h3>
+                <p>
+                    Una vez aprobada la fase de UX/UI, se iniciará el desarrollo técnico del proyecto.
+                </p>
+                <ul>
+                    <li>Desarrollo WordPress 100% a medida sobre entorno de pruebas (staging).</li>
+                    <li>Maquetación fiel a los diseños aprobados.</li>
+                    <li>Implementación del sistema de bloques reutilizables.</li>
+                    <li>
+                        Configuración avanzada de rendimiento (optimización, WebP, minimización de recursos, etc.).
+                    </li>
+                    <li>Integración de formularios y automatizaciones.</li>
+                    <li>Implementación de Google Tag Manager.</li>
+                    <li>Revisión técnica interna antes de presentar al cliente.</li>
+                </ul>
+                <p>
+                    Durante esta fase no se contemplan cambios estructurales de diseño. El desarrollo se basará
+                    exclusivamente en los diseños previamente aprobados.
+                </p>
+                <p>Antes de pasar a producción, se realizará:</p>
+                <ul>
+                    <li>Validación funcional completa.</li>
+                    <li>Testeo en diferentes dispositivos y navegadores.</li>
+                    <li>Revisión final con el cliente en entorno de pruebas.</li>
+                </ul>
+                <p>
+                    La publicación en producción se realizará únicamente tras la validación final por parte del
+                    cliente.
+                </p>
+
+                <h3>7.4 Migración</h3>
+                <ul>
+                    <li>Migración de contenidos validados.</li>
+                    <li>Implementación de redirecciones.</li>
+                    <li>Revisión final SEO técnica.</li>
+                    <li>Testeo completo en distintos dispositivos.</li>
+                    <li>Publicación en entorno de producción.</li>
+                </ul>
+                <p>
+                    Cada fase incluirá validación por parte del cliente antes de avanzar a la siguiente.
+                </p>
+
+                <hr>
+
+                <h2>8. Equipo dedicado – Tres Puntos</h2>
+                <p>
+                    Para el correcto desarrollo del proyecto, Tres Puntos asignará un equipo especializado compuesto
+                    por:
+                </p>
+                <ul>
+                    <li>
+                        <strong>1 UX/UI Designer Senior</strong><br>
+                        Responsable del diseño estratégico, arquitectura de bloques y definición de experiencia de
+                        usuario.
+                    </li>
+                    <li>
+                        <strong>1 Full Stack Developer</strong><br>
+                        Responsable del desarrollo WordPress a medida, implementación técnica, rendimiento y estabilidad
+                        del sistema.
+                    </li>
+                    <li>
+                        <strong>1 Experto en automatizaciones y n8n</strong><br>
+                        Responsable de la definición e implementación de flujos de cualificación, integración con CRM y
+                        automatización de procesos.
+                    </li>
+                    <li>
+                        <strong>Dirección de proyecto</strong><br>
+                        Coordinación global del proyecto, supervisión estratégica, alineación con cliente y control de
+                        tiempos y entregables.
+                    </li>
+                </ul>
+                <p>
+                    Este equipo trabajará de forma coordinada durante todas las fases del proyecto para garantizar
+                    coherencia estratégica, calidad técnica y cumplimiento de objetivos.
+                </p>
+
+                <hr>
+
+                <h2>9. Conclusión Estratégica</h2>
+                <p>
+                    El presente proyecto no representa únicamente un rediseño web, sino una evolución estratégica en la
+                    forma en que Nextica Law &amp; Tax se posiciona, comunica y capta oportunidades en el entorno
+                    digital.
+                </p>
+                <p>La nueva plataforma permitirá:</p>
+                <ul>
+                    <li>Reforzar una imagen moderna, sólida y alineada con la nueva etapa de la firma.</li>
+                    <li>
+                        Traducir la complejidad jurídica y fiscal en propuestas claras orientadas a negocio.
+                    </li>
+                    <li>Profesionalizar la captación mediante sistemas de cualificación y automatización.</li>
+                    <li>
+                        Dotar al equipo de autonomía real gracias a una arquitectura basada en bloques reutilizables.
+                    </li>
+                </ul>
+                <p>
+                    La combinación de estrategia, diseño a medida, automatización inteligente y arquitectura preparada
+                    para el crecimiento convierte la web en una herramienta activa de desarrollo empresarial, no solo en
+                    un soporte informativo.
+                </p>
+                <p>
+                    El resultado será una base digital robusta, escalable y preparada para acompañar a la firma en su
+                    consolidación como partner estratégico para pymes, estructuras complejas y capital internacional.
+                </p>
+
+                <hr>
+
+                <h2>10. Necesidades y validaciones para presupuesto cerrado</h2>
+                <p>
+                    Para poder presentar un presupuesto definitivo y completamente ajustado al alcance real del
+                    proyecto,
+                    es necesario validar y concretar los siguientes puntos junto al cliente.
+                </p>
+
+                <h3>10.1 Validación del documento funcional</h3>
+                <ul>
+                    <li>Revisión completa del presente documento.</li>
+                    <li>Confirmación del alcance funcional definido.</li>
+                    <li>Posibilidad de añadir o eliminar funcionalidades antes del cierre económico.</li>
+                    <li>Aprobación formal del alcance acordado.</li>
+                </ul>
+                <p>
+                    La validación de este documento es imprescindible para evitar desviaciones posteriores en tiempos y
+                    costes.
+                </p>
+
+                <h3>10.2 Integraciones y herramientas actuales</h3>
+                <ul>
+                    <li>Confirmar si existe un CRM activo y cuál es.</li>
+                    <li>Verificar si será necesario conectar la web con dicho CRM.</li>
+                    <li>Confirmar herramienta de email marketing (si existe) o si debe definirse.</li>
+                    <li>Confirmar si actualmente utilizan alguna herramienta de agenda (Calendly u otra).</li>
+                    <li>Verificar si existen automatizaciones previas que deban mantenerse o migrarse.</li>
+                </ul>
+
+                <h3>10.3 Definición del formulario multi-step</h3>
+                <ul>
+                    <li>Qué información exacta se desea solicitar en el formulario avanzado.</li>
+                    <li>Qué criterios definen un lead cualificado.</li>
+                    <li>Si se desea sistema de scoring numérico o categorización por niveles.</li>
+                    <li>Qué acciones internas deben activarse tras recibir un lead.</li>
+                </ul>
+
+                <h3>10.4 Alcance de contenidos y migración</h3>
+                <ul>
+                    <li>Confirmar volumen estimado de páginas y servicios.</li>
+                    <li>Confirmar número aproximado de artículos a migrar.</li>
+                    <li>Validar si habrá versión en otros idiomas en esta fase.</li>
+                    <li>Confirmar calendario de entrega de contenidos por parte de la agencia SEO.</li>
+                </ul>
+
+                <h3>10.5 Infraestructura técnica</h3>
+                <ul>
+                    <li>Confirmar proveedor de hosting actual.</li>
+                    <li>Confirmar si el hosting actual cumple requisitos de rendimiento.</li>
+                    <li>Confirmar accesos técnicos (dominio, servidor, WordPress si aplica).</li>
+                </ul>
+
+                <h3>10.6 Evolutivos previstos</h3>
+                <ul>
+                    <li>Confirmar si se prevé desarrollo de área privada en corto o medio plazo.</li>
+                    <li>Confirmar si se contempla firma digital integrada.</li>
+                    <li>Confirmar previsión de expansión internacional.</li>
+                </ul>
+                <p>
+                    Este bloque se completará y validará antes de la emisión del presupuesto definitivo.
+                </p>
+
+                <!-- Bloque de Validación Final (Decisión) -->
+                <div class="validation-block" id="avanzamos">
+                    <div id="budgetSection" style="display:none;">
+                        <h2 id="presupuesto-sec">Presupuesto</h2>
+                        <p>Hemos elaborado el presupuesto basado en los requisitos detallados anteriormente. Puedes
+                            revisarlo a continuación:</p>
+
+                        <div class="pdf-viewer-container"
+                            style="margin-bottom: 2rem; border-radius: 12px; overflow: hidden; border: 1px solid var(--border-subtle); height: 600px; background: var(--bg-subtle);">
+                            <iframe id="budgetIframe" src="" width="100%" height="100%" style="border: none;"></iframe>
+                        </div>
+
+                        <div class="validation-actions" style="margin-bottom: 3rem;">
+                            <button class="btn-decision btn-approve" onclick="openApprovePresupuestoModal()">
+                                <i data-lucide="check-circle"></i> Aprobar Presupuesto
+                            </button>
+                            <button class="btn-decision btn-discuss" onclick="openRejectPresupuestoModal()">
+                                <i data-lucide="x-circle"></i> Solicitar Cambios
+                            </button>
+                            <a id="budgetDownload" href="" download class="btn-decision btn-discuss">
+                                <i data-lucide="download"></i> Descargar PDF
+                            </a>
+                        </div>
+                        <hr style="margin: 2rem 0;">
+                    </div>
+
+                    <h2>¿Avanzamos con el proyecto?</h2>
+                    <p>Si este documento refleja correctamente el alcance y los objetivos, podemos validarlo para
+                        preparar el presupuesto final.</p>
+                    <div class="validation-actions">
+                        <button class="btn-decision btn-approve" onclick="openApproveDocModal()">
+                            <i data-lucide="check-circle"></i> Aprobar Documento
+                        </button>
+                        <button class="btn-decision btn-discuss" onclick="openModal()">
+                            <i data-lucide="message-square"></i> Comentar Cambios
+                        </button>
+                        <!-- Calendly link -->
+                        <link href="https://assets.calendly.com/assets/external/widget.css" rel="stylesheet">
+                        <script src="https://assets.calendly.com/assets/external/widget.js" type="text/javascript"
+                            async></script>
+                        <button class="btn-decision btn-discuss"
+                            onclick="Calendly.initPopupWidget({url: 'https://calendly.com/trespuntos/tres-puntos'});return false;"
+                            style="border-color: var(--tp-primary); color: var(--tp-primary);">
+                            <i data-lucide="calendar"></i> Agendar Reunión
+                        </button>
+                    </div>
+                    <div id="validation-feedback" class="validation-feedback">
+                        <i data-lucide="send"
+                            style="display:inline-block; vertical-align:middle; width:20px; height:20px; margin-right:8px;"></i>
+                        <span id="feedback-text">¡Mensaje enviado a Jordi! Te contactaremos a la brevedad.</span>
+                    </div>
+                </div>
+
+            </div>
+            <!-- END OF UNMODIFIED CONTENT -->
+        </main>
+    </div>
+
+    <!-- Botón Whatsapp Flotante -->
+    <a href="https://wa.me/34930117733?text=Hola%20Jordi,%20estoy%20revisando%20el%20documento%20de%20Nextica%20y%20tengo%20una%20duda..."
+        class="whatsapp-btn" target="_blank" rel="noopener noreferrer">
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path
+                d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .104 5.383.101 11.936c0 2.096.549 4.14 1.595 5.945L0 24l6.335-1.652c1.746.943 3.71 1.444 5.714 1.447h.005c6.553 0 11.945-5.383 11.949-11.936a11.822 11.822 0 0 0-3.539-8.455" />
+        </svg>
+    </a>
+
+    <!-- Modal Aprobación Documento Funcional -->
+    <div class="modal-overlay" id="approveDocModal">
+        <div class="modal-content">
+            <button class="modal-close" onclick="closeApproveDocModal()"><i data-lucide="x"></i></button>
+            <h3>Aprobar documento funcional</h3>
+            <p>¿Confirmas que el documento funcional es correcto y que podemos pasar a elaborar el presupuesto?</p>
+
+            <div style="margin-bottom: 1.5rem; text-align: left;">
+                <label
+                    style="display: flex; gap: 0.75rem; cursor: pointer; color: var(--text-secondary); font-size: 0.9rem;">
+                    <input type="checkbox" id="checkApproveDoc"
+                        style="width: 18px; height: 18px; accent-color: var(--tp-primary);">
+                    <span>Confirmo que he leído y acepto el contenido del documento funcional.</span>
+                </label>
+            </div>
+
+            <div class="modal-actions">
+                <button class="btn-decision btn-discuss" onclick="closeApproveDocModal()">Cancelar</button>
+                <button class="btn-decision btn-approve" onclick="confirmApproveDoc()">Confirmar y continuar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Aprobación Presupuesto -->
+    <div class="modal-overlay" id="approvePresupuestoModal">
+        <div class="modal-content">
+            <button class="modal-close" onclick="closeApprovePresupuestoModal()"><i data-lucide="x"></i></button>
+            <h3>Aprobar Presupuesto</h3>
+            <p>¿Confirmas que aceptas el presupuesto adjunto para iniciar el proyecto?</p>
+
+            <div style="margin-bottom: 1.5rem; text-align: left;">
+                <label
+                    style="display: flex; gap: 0.75rem; cursor: pointer; color: var(--text-secondary); font-size: 0.9rem;">
+                    <input type="checkbox" id="checkApprovePresupuesto"
+                        style="width: 18px; height: 18px; accent-color: var(--tp-primary);">
+                    <span>Acepto los términos económicos y condiciones comerciales del presupuesto.</span>
+                </label>
+            </div>
+
+            <div class="modal-actions">
+                <button class="btn-decision btn-discuss" onclick="closeApprovePresupuestoModal()">Cancelar</button>
+                <button class="btn-decision btn-approve" onclick="confirmApprovePresupuesto()">Aprobar y
+                    Empezar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Rechazo/Cambios Presupuesto -->
+    <div class="modal-overlay" id="rejectPresupuestoModal">
+        <div class="modal-content">
+            <button class="modal-close" onclick="closeRejectPresupuestoModal()"><i data-lucide="x"></i></button>
+            <h3>Solicitar cambios en presupuesto</h3>
+            <p>Indícanos qué puntos te gustaría revisar o qué cambios necesitas para poder avanzar.</p>
+            <textarea id="rejectPresupuestoTextarea" class="feedback-input"
+                placeholder="Escribe aquí tus comentarios..."></textarea>
+            <div class="modal-actions">
+                <button class="btn-decision btn-discuss" onclick="closeRejectPresupuestoModal()">Cancelar</button>
+                <button class="btn-decision btn-approve" onclick="confirmRejectPresupuesto()"><i data-lucide="send"></i>
+                    Enviar Comentarios</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Feedback -->
+    <div class="modal-overlay" id="feedbackModal">
+        <div class="modal-content">
+            <button class="modal-close" onclick="closeModal()">
+                <i data-lucide="x"></i>
+            </button>
+            <h3>Comentar cambios</h3>
+            <p>Escribe aquí cualquier ajuste, duda o idea adicional. Se enviará de inmediato a Jordi (Tres Puntos).</p>
+            <textarea id="feedbackTextarea" class="feedback-input"
+                placeholder="Ej: Me gustaría cambiar el orden de la sección 3..."></textarea>
+            <div class="modal-actions">
+                <button class="btn-decision btn-discuss" onclick="closeModal()">Cancelar</button>
+                <button class="btn-decision btn-approve" onclick="submitFeedback()">
+                    <i data-lucide="send"></i> Enviar Mensaje
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Telegram Integration ---
+        const botToken = "8201699988:AAHZ6UeItc1I6EkULkrV6mozxkLO80t7j58";
+        // Chat ID real obtenido vía API
+        const chatId = "7313439878";
+
+        // --- Metadata del documento (fecha de envío y versión) ---
+        const DEFAULT_DOC_FECHA_ENVIO = '';
+        const DEFAULT_DOC_VERSION = '';
+        const DEFAULT_DOC_PROPUESTA_ID = 0;
+        const DEFAULT_DOC_PRESUPUESTO_PDF = '';
+        const DEFAULT_DOC_CLIENT_NAME = 'Nextica v2';
+        const DEFAULT_DOC_TELEGRAM_TOKEN = '';
+        const DEFAULT_DOC_TELEGRAM_CHAT_ID = '';
+
+        function applyDocumentMetadata() {
+            const params = new URLSearchParams(window.location.search);
+            const fechaEnvio = params.get('fecha_envio') || DEFAULT_DOC_FECHA_ENVIO;
+            const version = params.get('version') || DEFAULT_DOC_VERSION;
+            const presupuestoPdf = DEFAULT_DOC_PRESUPUESTO_PDF;
+            const clientName = DEFAULT_DOC_CLIENT_NAME;
+
+            const fechaNode = document.getElementById('docFechaEnvio');
+            const versionNode = document.getElementById('docVersion');
+            const clientSidebarNode = document.getElementById('clientNameSidebar');
+
+            if (fechaNode && fechaEnvio) {
+                fechaNode.textContent = fechaEnvio;
+            }
+            if (versionNode && version) {
+                versionNode.textContent = version;
+            }
+            if (clientSidebarNode && clientName) {
+                clientSidebarNode.textContent = clientName;
+            }
+
+            // Gestionar sección presupuesto
+            if (presupuestoPdf) {
+                const budgetSection = document.getElementById('budgetSection');
+                const budgetIframe = document.getElementById('budgetIframe');
+                const budgetDownload = document.getElementById('budgetDownload');
+
+                if (budgetSection && budgetIframe && budgetDownload) {
+                    budgetIframe.src = `/uploads/presupuestos/${presupuestoPdf}`;
+                    budgetDownload.href = `/uploads/presupuestos/${presupuestoPdf}`;
+                    budgetSection.style.display = 'block';
+                }
+            }
+        }
+
+        function sendTelegramFeedback(action, description) {
+            const botToken = DEFAULT_DOC_TELEGRAM_TOKEN;
+            const chatId = DEFAULT_DOC_TELEGRAM_CHAT_ID;
+            const documentName = DEFAULT_DOC_CLIENT_NAME;
+            const text = `*[${action}]* Documento: ${documentName}\n\n${description}`;
+
+            // Actualizar UI
+            const btns = document.querySelectorAll('.btn-decision');
+            btns.forEach(btn => btn.style.pointerEvents = 'none');
+            // Cambiar estilo de la card para mostrar el feedback
+            document.getElementById('validation-feedback').style.display = 'block';
+
+            // Send via Telegram API
+            fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    chat_id: chatId,
+                    text: text,
+                    parse_mode: 'Markdown'
+                })
+            }).then(response => {
+                if (!response.ok) {
+                    console.error("Error sending to telegram:", response);
+                }
+            }).catch(err => {
+                console.error("Fetch error:", err);
+            });
+        }
+
+        function openApproveDocModal() { document.getElementById('approveDocModal').style.display = 'flex'; }
+        function closeApproveDocModal() { document.getElementById('approveDocModal').style.display = 'none'; }
+
+        async function confirmApproveDoc() {
+            if (!document.getElementById('checkApproveDoc').checked) {
+                alert('Debes aceptar el contenido del documento para continuar.');
+                return;
+            }
+            try {
+                const res = await fetch('/admin.php?action=approve_document', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ propuesta_id: DEFAULT_DOC_PROPUESTA_ID })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    sendTelegramFeedback('Documento Aprobado ✅', 'El cliente ha aprobado el documento funcional.');
+                    closeApproveDocModal();
+                } else {
+                    alert('Error: ' + data.message);
+                }
+            } catch (err) { alert('Error de conexión'); }
+        }
+
+        function openApprovePresupuestoModal() { document.getElementById('approvePresupuestoModal').style.display = 'flex'; }
+        function closeApprovePresupuestoModal() { document.getElementById('approvePresupuestoModal').style.display = 'none'; }
+
+        async function confirmApprovePresupuesto() {
+            if (!document.getElementById('checkApprovePresupuesto').checked) {
+                alert('Debes aceptar el presupuesto para continuar.');
+                return;
+            }
+            try {
+                const res = await fetch('/admin.php?action=approve_presupuesto', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ propuesta_id: DEFAULT_DOC_PROPUESTA_ID })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    sendTelegramFeedback('Presupuesto Aprobado 💰', 'El cliente ha aceptado el presupuesto oficial.');
+                    closeApprovePresupuestoModal();
+                } else {
+                    alert('Error: ' + data.message);
+                }
+            } catch (err) { alert('Error de conexión'); }
+        }
+
+        function openRejectPresupuestoModal() { document.getElementById('rejectPresupuestoModal').style.display = 'flex'; }
+        function closeRejectPresupuestoModal() { document.getElementById('rejectPresupuestoModal').style.display = 'none'; }
+
+        async function confirmRejectPresupuesto() {
+            const comment = document.getElementById('rejectPresupuestoTextarea').value;
+            if (!comment.trim()) {
+                alert('Por favor, indica qué cambios necesitas.');
+                return;
+            }
+            try {
+                const res = await fetch('/admin.php?action=reject_presupuesto', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ propuesta_id: DEFAULT_DOC_PROPUESTA_ID, comentario: comment })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    sendTelegramFeedback('Cambios Presupuesto ✍️', `El cliente solicita cambios en el presupuesto:\n\n${comment}`);
+                    closeRejectPresupuestoModal();
+                    document.getElementById('rejectPresupuestoTextarea').value = '';
+                } else {
+                    alert('Error: ' + data.message);
+                }
+            } catch (err) { alert('Error de conexión'); }
+        }
+
+        function openModal() {
+            document.getElementById('feedbackModal').style.display = 'flex';
+        }
+
+        function closeModal() {
+            document.getElementById('feedbackModal').style.display = 'none';
+        }
+
+        function submitFeedback() {
+            const textareaValue = document.getElementById('feedbackTextarea').value;
+            if (!textareaValue.trim()) return;
+
+            // Enviar con Telegram y cerrar
+            sendTelegramFeedback('Feedback Cliente', textareaValue);
+            closeModal();
+            // Optional: reset textarea
+            document.getElementById('feedbackTextarea').value = '';
+        }
+
+        // Extremely robust sidebar initialization
+        function initSidebar() {
+            console.log("Sidebar: Starting initialization...");
+            const wrapper = document.querySelector('.content-wrapper');
+            const sidebarNav = document.getElementById('sidebar-nav');
+
+            if (!wrapper) {
+                console.warn("Sidebar Warning: .content-wrapper not found");
+                return [];
+            }
+            if (!sidebarNav) {
+                console.warn("Sidebar Warning: #sidebar-nav not found");
+                return [];
+            }
+
+            // Collect all possible header candidates
+            // FALLBACK: If wrapper not found or has issues, search the whole body
+            let headers = Array.from(wrapper.querySelectorAll('h1, h2, h3'));
+            if (headers.length === 0) {
+                console.log("Sidebar: No headers in wrapper, trying global search...");
+                headers = Array.from(document.querySelectorAll('main h1, main h2, main h3, .content-wrapper h1, .content-wrapper h2, .content-wrapper h3'));
+            }
+            console.log(`Sidebar: Found ${headers.length} header candidates`);
+
+            // Clear sidebar if already populated (safety)
+            sidebarNav.innerHTML = '';
+            const trackedSectionsList = [];
+            let sectionCount = 0;
+
+            headers.forEach((el, index) => {
+                const text = el.textContent.trim();
+                const tagName = el.tagName.toLowerCase();
+
+                // Skip titles, document names, or specific metadata
+                const textLower = text.toLowerCase();
+                if (textLower.includes('documentación funcional') ||
+                    textLower.includes('documento funcional') ||
+                    textLower.includes('versión:') ||
+                    textLower.includes('proyecto web') ||
+                    text.length < 3) {
+                    console.log(`Sidebar: Skipping header "${text}" (filtered)`);
+                    return;
+                }
+
+                // If it's an H1 and there are already other headers, it might be a page title we should skip
+                if (tagName === 'h1' && index < 2) return;
+
+                sectionCount++;
+                const id = el.id || 'sec-' + sectionCount;
+                el.id = id;
+                trackedSectionsList.push(el);
+
+                let iconName = 'chevron-right';
+                if (textLower.includes('contexto')) iconName = 'target';
+                else if (textLower.includes('posicionamiento')) iconName = 'compass';
+                else if (textLower.includes('estructura') || textLower.includes('objetivo') || textLower.includes('arquitectura')) iconName = 'layout';
+                else if (textLower.includes('captación') || textLower.includes('automatización') || textLower.includes('funcional')) iconName = 'zap';
+                else if (textLower.includes('seo')) iconName = 'search';
+                else if (textLower.includes('requisitos') || textLower.includes('tecnología')) iconName = 'code';
+                else if (textLower.includes('proceso') || textLower.includes('metodología') || textLower.includes('fase')) iconName = 'git-branch';
+                else if (textLower.includes('equipo')) iconName = 'users';
+                else if (textLower.includes('conclusión') || textLower.includes('fin')) iconName = 'flag';
+                else if (textLower.includes('necesidades') || textLower.includes('validaciones')) iconName = 'check-circle';
+                else if (textLower.includes('avanzamos') || textLower.includes('presupuesto')) iconName = 'arrow-right-circle';
+
+                const li = document.createElement('li');
+                li.className = 'nav-item';
+                li.style.listStyle = 'none';
+                li.style.marginBottom = '0.5rem';
+
+                li.innerHTML = `
+                  <a href="#${id}" class="nav-link" style="display: flex; align-items: center; gap: 0.75rem; text-decoration: none; color: #999; font-size: 0.9rem; padding: 0.6rem 0.75rem; border-radius: 8px; transition: all 0.2s;">
+                    <i data-lucide="${iconName}" style="width: 18px; height: 18px; flex-shrink: 0;"></i> 
+                    <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${text}</span>
+                  </a>
+                `;
+                sidebarNav.appendChild(li);
+                console.log(`Sidebar: Added item "${text}"`);
+            });
+
+            console.log(`Sidebar: Successfully populated with ${trackedSectionsList.length} items`);
+            lucide.createIcons();
+            applyDocumentMetadata();
+            return trackedSectionsList;
+        }
+
+        const trackedSections = initSidebar() || [];
+
+        // Progress Bar & Scroll Spy
+        window.addEventListener('scroll', function () {
+            // Progress bar
+            const winScroll = document.body.scrollTop || document.documentElement.scrollTop;
+            const height = document.documentElement.scrollHeight - document.documentElement.clientHeight;
+            const scrolled = (winScroll / height) * 100;
+            document.getElementById("progressFill").style.width = scrolled + "%";
+            document.getElementById("progressFill").style.width = ((winScroll / height) * 100) + "%";
+
+            let current = "";
+            trackedSections.forEach(h2 => {
+                if (h2.getBoundingClientRect().top <= window.innerHeight / 2) current = h2.getAttribute("id");
+            });
+            if (window.scrollY < 100 && trackedSections.length > 0) current = trackedSections[0].getAttribute("id");
+            document.querySelectorAll(".nav-link").forEach(link => {
+                link.classList.remove("active");
+                if (current && link.getAttribute("href") === "#" + current) {
+                    link.classList.add("active");
+                    // Opcional: enfocar el sidebar suavemente sin romper el scroll del usuario
+                    // const sidebar = document.querySelector('.sidebar');
+                    // const offset = link.offsetTop - (sidebar.clientHeight / 2);
+                    // sidebar.scrollTo({top: offset, behavior: 'smooth'});
+                }
+            });
+        });
+    </script>
+</body>
+
+</html>

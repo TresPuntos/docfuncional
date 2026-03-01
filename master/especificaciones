@@ -1,0 +1,86 @@
+# Especificaciones Técnicas y Funcionales: Proposal CRM "Tres Puntos"
+
+**Objetivo del Proyecto:** Desarrollo de un sistema interno (Dashboard + Vista Cliente) nativo, ultraligero y seguro para la creación, envío, protección y tracking de propuestas comerciales de la agencia Tres Puntos.
+**Enfoque Técnico:** Cero dependencias de servidor complejas. Sin procesos de build (React/Node). Arquitectura basada en PHP nativo y SQLite para máxima portabilidad, rapidez de despliegue y fácil mantenimiento.
+
+---
+
+## 1. Sitemap de la Herramienta
+
+La aplicación constará de una estructura minimalista de archivos en el servidor:
+
+* **`/` (Raíz del proyecto)**
+  * `database.sqlite` *(Archivo de base de datos oculto generado automáticamente)*
+  * `init_db.php` *(Script de un solo uso para inicializar la tabla, luego se elimina)*
+* **`/view.php?id=[slug-propuesta]` (Frontend - Vista Cliente)**
+  * Estado A: Pantalla de bloqueo (Petición de PIN).
+  * Estado B: Renderizado de la propuesta comercial (HTML).
+  * Estado C: Pantalla de error (Propuesta caducada o inactiva).
+* **`/admin.php` (Backend - Panel de Agencia)**
+  * Estado A: Pantalla de Login de Agencia (Contraseña maestra).
+  * Estado B: Dashboard Principal (Listado de propuestas y métricas).
+  * Estado C: Formulario de Creación/Edición de Propuesta.
+
+---
+
+## 2. Especificaciones del Dashboard (Panel de Agencia)
+
+El `admin.php` es el centro de control de Tres Puntos. Tras introducir la contraseña maestra de la agencia, se visualizará una interfaz limpia dividida en dos zonas:
+
+### A. Cabecera y Acciones Rápidas
+* Logo de Tres Puntos.
+* Botón destacado (Color Primario): **"+ Nueva Propuesta"** (Despliega un modal o ancla al formulario de creación).
+* Tarjetas de resumen (Métricas globales): Total propuestas activas, Total visualizaciones este mes.
+
+### B. Tabla de Propuestas (Data Grid)
+Una tabla ordenada por `ultima_vista` (descendente) que mostrará en cada fila:
+* **Cliente:** Nombre del prospecto (ej. *Nextica Law & Tax*).
+* **URL / Slug:** Enlace copiable con un clic (`.../view.php?id=nextica`).
+* **PIN de Acceso:** Visible para recordarlo rápidamente si el cliente lo pide.
+* **Métricas:**
+  * **Vistas:** Número entero (ej. *5*).
+  * **Última conexión:** Fecha y hora relativa (ej. *Hoy, 10:30h*).
+* **Estado (Toggle rápido):** Un interruptor visual (Verde `#5dffbf` = Activa / Gris = Revocada). Al hacer clic, actualiza la base de datos por AJAX sin recargar la página.
+* **Acciones:** Botón para Editar (recarga el HTML en el formulario) y Botón para Eliminar.
+
+### C. Formulario de Creación / Edición
+* **ID / Slug:** Campo de texto sin espacios (ej. `nextica-2026`).
+* **Nombre del Cliente:** (ej. `Nextica Law & Tax`).
+* **PIN:** Campo numérico (ej. `2026`).
+* **Contenido HTML:** Un `<textarea>` amplio donde se pegará el código HTML/Tailwind generado para la propuesta.
+* Botón de "Guardar y Publicar".
+
+---
+
+## 3. Guía de Estilos y UI/UX
+
+El diseño transmitirá innovación, tecnología y posicionamiento premium.
+
+* **Tema Base:** Dark Mode estricto. Fondos basados en la paleta `slate-900` (`#0f172a`) y `slate-950` de Tailwind. Superficies secundarias (tarjetas) en `slate-800`.
+* **Color Primario (Acento):** `#5dffbf` (Verde/Menta neón). Uso restringido a:
+  * Botones de acción principales (Login, Validar propuesta, Crear).
+  * Estados activos (Toggles encendidos).
+  * Elementos de progreso o notificaciones de éxito.
+* **Tipografías:**
+  * **Titulares (Headings):** `Plus Jakarta Sans` (Pesos: 500, 600, 700). Para nombres de clientes, títulos de sección y métricas numéricas grandes.
+  * **Cuerpo (Body):** `Inter` (Pesos: 300, 400, 500). Para párrafos, fechas, tablas y textos descriptivos.
+
+**Implementación técnica en el `<head>`:**
+```html
+<link rel="preconnect" href="[https://fonts.googleapis.com](https://fonts.googleapis.com)">
+<link rel="preconnect" href="[https://fonts.gstatic.com](https://fonts.gstatic.com)" crossorigin>
+<link href="[https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Plus+Jakarta+Sans:wght@500;600;700&display=swap](https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Plus+Jakarta+Sans:wght@500;600;700&display=swap)" rel="stylesheet">
+<script src="[https://cdn.tailwindcss.com](https://cdn.tailwindcss.com)"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: { trespuntos: '#5dffbf' },
+        fontFamily: {
+          sans: ['Inter', 'sans-serif'],
+          display: ['Plus Jakarta Sans', 'sans-serif'],
+        }
+      }
+    }
+  }
+</script>
