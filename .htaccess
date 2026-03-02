@@ -2,7 +2,11 @@
 Options +FollowSymLinks
 RewriteEngine On
 
-# Si el request es para /p/(slug) reescribirlo internamente
+# Detectar si estamos en una subcarpeta y ajustar la reescritura
+RewriteCond %{REQUEST_URI} ^/(.*)/p/([a-zA-Z0-9_-]+)/?$
+RewriteRule ^p/([a-zA-Z0-9_-]+)/?$ view.php?id=$1 [L,NC,QSA]
+
+# Si el request es para /p/(slug) en la raíz
 RewriteRule ^p/([a-zA-Z0-9_-]+)/?$ view.php?id=$1 [L,NC,QSA]
 
 # Prevenir acceso estricto a archivos base de datos (por si se ubican en root)
