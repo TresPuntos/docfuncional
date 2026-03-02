@@ -306,13 +306,13 @@ function renderWrappedContent($proposal, $slug, $isDocApproved = false, $isPdfAp
 
         /* Visual Cards System */
         .tp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; margin: 2rem 0; }
-        .tp-card { background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 20px; padding: 2rem; transition: all 0.3s ease; position: relative; overflow: hidden; }
-        .tp-card:hover { background: rgba(93, 255, 191, 0.05); border-color: rgba(93, 255, 191, 0.3); transform: translateY(-5px); }
-        .tp-card-icon { width: 48px; height: 48px; background: rgba(93, 255, 191, 0.1); border-radius: 12px; display: flex; align-items: center; justify-content: center; margin-bottom: 1.5rem; color: var(--tp-primary); }
-        .tp-card h3 { margin-top: 0 !important; font-size: 1.25rem !important; color: #FFF !important; margin-bottom: 0.75rem !important; }
-        .tp-card p { margin-bottom: 0 !important; font-size: 0.95rem !important; color: #888 !important; line-height: 1.5 !important; }
-        .tp-card-number { position: absolute; top: 1rem; right: 1.5rem; font-family: var(--font-heading); font-size: 3rem; font-weight: 800; color: rgba(255,255,255,0.03); pointer-events: none; transition: all 0.3s; }
-        .tp-card:hover .tp-card-number { color: rgba(93, 255, 191, 0.08); }
+        .tp-card { background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 20px; padding: 2.5rem 2rem; transition: all 0.3s ease; position: relative; overflow: hidden; }
+        .tp-card:hover { background: rgba(93, 255, 191, 0.08); border-color: rgba(93, 255, 191, 0.3); transform: translateY(-5px); box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        .tp-card-icon { width: 56px; height: 56px; background: rgba(93, 255, 191, 0.15); border-radius: 14px; display: flex; align-items: center; justify-content: center; margin-bottom: 1.5rem; color: var(--tp-primary); box-shadow: inset 0 0 0 1px rgba(93, 255, 191, 0.3); }
+        .tp-card h3 { margin-top: 0 !important; font-size: 1.3rem !important; color: #FFF !important; margin-bottom: 0.75rem !important; }
+        .tp-card p { margin-bottom: 0 !important; font-size: 1rem !important; color: #AAA !important; line-height: 1.6 !important; }
+        .tp-card-number { position: absolute; top: 1.5rem; right: 1.5rem; font-family: var(--font-heading); font-size: 4rem; font-weight: 800; color: rgba(255,255,255,0.04); pointer-events: none; transition: all 0.3s; line-height: 1; }
+        .tp-card:hover .tp-card-number { color: rgba(93, 255, 191, 0.1); }
 
         /* Mobile Header */
         .mobile-header { display: none; position: fixed; top: 0; left: 0; right: 0; height: 64px; background: rgba(14, 14, 14, 0.8); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border-base); z-index: 1000; align-items: center; justify-content: space-between; padding: 0 1.5rem; }
@@ -360,12 +360,12 @@ function renderWrappedContent($proposal, $slug, $isDocApproved = false, $isPdfAp
         <main>
             <div class="content-wrapper">
                 <?php
-    if (!empty($proposal['created_at'])) {
-        $createdAt = strtotime($proposal['created_at']);
+    $dateToUse = !empty($proposal['sent_date']) ? $proposal['sent_date'] : $proposal['created_at'];
+    if (!empty($dateToUse)) {
+        $timeStr = strtotime($dateToUse);
         $meses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-        $formattedDate = date('j', $createdAt) . ' de ' . $meses[date('n', $createdAt) - 1] . ' de ' . date('Y', $createdAt);
-    }
-    else {
+        $formattedDate = date('j', $timeStr) . ' de ' . $meses[date('n', $timeStr) - 1] . ' de ' . date('Y', $timeStr);
+    } else {
         $formattedDate = date('Y');
     }
 ?>
@@ -705,7 +705,6 @@ function renderWrappedContent($proposal, $slug, $isDocApproved = false, $isPdfAp
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ chat_id: CHAT_ID, text: text, parse_mode: 'HTML' })
             }).catch(e => console.error('Telegram error:', e));
-            });
         }
 
         async function apiCall(action, params = {}) {
