@@ -283,6 +283,7 @@ if (isset($_GET['logout'])) {
 
 $is_logged_in = isset($_SESSION['is_admin']) && $_SESSION['is_admin'] === true;
 $pdo = getDBConnection();
+$base_path = rtrim(dirname($_SERVER['PHP_SELF']), '/\\');
 
 // --- CRUD & DATA ---
 if ($is_logged_in) {
@@ -653,15 +654,16 @@ else: ?>
                                 </td>
                                 <td class="px-6 py-5 whitespace-nowrap">
                                     <div class="flex items-center gap-2 group">
-                                        <a href="/p/<?php echo htmlspecialchars($p['slug']); ?>" target="_blank"
+                                        <a href="<?php echo htmlspecialchars($base_path); ?>/p/<?php echo htmlspecialchars($p['slug']); ?>"
+                                            target="_blank"
                                             class="text-xs font-mono text-text-secondary hover:text-white group-hover:text-tp-primary transition-colors flex items-center gap-1.5">
-                                            /p/
+                                            <?php echo htmlspecialchars($base_path); ?>/p/
                                             <?php echo htmlspecialchars($p['slug']); ?>
                                             <i data-lucide="external-link"
                                                 class="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity"></i>
                                         </a>
                                         <button
-                                            onclick="copyToClipboard('<?php echo 'https://' . $_SERVER['HTTP_HOST'] . '/p/' . $p['slug']; ?>')"
+                                            onclick="copyToClipboard('<?php echo 'https://' . $_SERVER['HTTP_HOST'] . $base_path . '/p/' . $p['slug']; ?>')"
                                             class="text-text-muted hover:text-white opacity-0 group-hover:opacity-100 transition-all ml-1">
                                             <i data-lucide="copy" class="w-3.5 h-3.5"></i>
                                         </button>
