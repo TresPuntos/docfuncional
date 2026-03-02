@@ -34,7 +34,11 @@ try {
         views_count INTEGER DEFAULT 0,
         status INTEGER DEFAULT 1,
         last_accessed_at DATETIME,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        sent_date DATE,
+        version TEXT DEFAULT 'v1.0',
+        equipo_ids TEXT DEFAULT '[]',
+        presupuesto_pdf TEXT DEFAULT NULL
     );
     ";
 
@@ -82,14 +86,23 @@ try {
     $pdo->exec($sql_feedback);
     echo "Tabla 'feedback_presupuesto' creada correctamente (o ya existía).<br>\n";
 
-    // Añadir columna presupuesto_pdf a propuestas si no existe
-    try {
-        $pdo->exec("ALTER TABLE propuestas ADD COLUMN presupuesto_pdf TEXT DEFAULT NULL");
-        echo "Columna 'presupuesto_pdf' añadida a 'propuestas'.<br>\n";
-    }
-    catch (Exception $e) {
-        // La columna ya existe, ignorar
-        echo "Columna 'presupuesto_pdf' ya existente, omitiendo.<br>\n";
+    // Migración: Añadir columnas faltantes si ya existe la tabla
+    $missing_cols = [
+        "sent_date DATE",
+        "version TEXT DEFAULT 'v1.0'",
+        "equipo_ids TEXT DEFAULT '[]'",
+        "presupuesto_pdf TEXT DEFAULT NULL"
+    ];
+
+    foreach ($missing_cols as $col_def) {
+        $col_name = explode(' ', $col_def)[0];
+        try {
+            $pdo->exec("ALTER TABLE propuestas ADD COLUMN $col_def");
+            echo "Columna '$col_name' añadida a 'propuestas'.<br>\n";
+        }
+        catch (Exception $e) {
+            // Ignorar si ya existe
+        }
     }
 
     // Opcional: Insertar dato mockeado para pruebas
