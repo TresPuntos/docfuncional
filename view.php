@@ -291,6 +291,74 @@ function renderWrappedContent($proposal, $slug, $isDocApproved = false, $isPdfAp
         .progress-bar { position: fixed; top: 0; left: 320px; right: 0; height: 3px; background: rgba(0,0,0,0.5); z-index: 1000; }
         .progress-fill { height: 100%; background: var(--tp-primary); width: 0%; transition: width 0.1s; }
 
+        /* Content Cards (tp-grid & tp-card) */
+        .tp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1.5rem; margin: 2.5rem 0; width: 100%; }
+        .tp-card {
+            background: rgba(255, 255, 255, 0.03); 
+            border: 1px solid rgba(255, 255, 255, 0.08); 
+            border-radius: 20px; 
+            padding: 2rem; 
+            position: relative; 
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        .tp-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, var(--tp-primary), transparent);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        .tp-card:hover { 
+            transform: translateY(-5px); 
+            background: rgba(255, 255, 255, 0.05); 
+            border-color: rgba(93, 255, 191, 0.3); 
+            box-shadow: 0 12px 30px rgba(0,0,0,0.5), 0 0 20px rgba(93, 255, 191, 0.05);
+        }
+        .tp-card:hover::before { opacity: 1; }
+        .tp-card-icon {
+            display: inline-flex;
+            align-items: center; justify-content: center;
+            width: 48px; height: 48px;
+            border-radius: 14px;
+            background: rgba(93, 255, 191, 0.1);
+            color: var(--tp-primary);
+            margin-bottom: 1.5rem;
+        }
+        .tp-card-icon svg { width: 24px; height: 24px; }
+        .tp-card-number {
+            position: absolute;
+            top: 1.5rem; right: 1.5rem;
+            font-family: var(--font-heading);
+            font-size: 3rem;
+            font-weight: 800;
+            line-height: 1;
+            color: rgba(255, 255, 255, 0.04);
+            pointer-events: none;
+        }
+        .tp-card h3 { 
+            font-family: var(--font-heading); 
+            font-size: 1.3rem !important; 
+            color: #FFF !important; 
+            margin: 0 0 0.75rem 0 !important; 
+        }
+        .tp-card p { 
+            margin-bottom: 0 !important; 
+            font-size: 1.15rem !important; 
+            color: #FFF !important; 
+            line-height: 1.6 !important; 
+            font-weight: 500 !important; 
+        }
+        .tp-card h3 + p { 
+            font-size: 1rem !important; 
+            color: #AAA !important; 
+            font-weight: 400 !important; 
+        }
+
         /* Team Cards */
         .team-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1.5rem; margin: 3rem 0; width: 100%; }
         .team-card { background: #141414; border: 1px solid #1F1F1F; border-radius: 20px; overflow: hidden; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); position: relative; max-width: 280px; margin: 0 auto; }
@@ -365,7 +433,8 @@ function renderWrappedContent($proposal, $slug, $isDocApproved = false, $isPdfAp
         $timeStr = strtotime($dateToUse);
         $meses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
         $formattedDate = date('j', $timeStr) . ' de ' . $meses[date('n', $timeStr) - 1] . ' de ' . date('Y', $timeStr);
-    } else {
+    }
+    else {
         $formattedDate = date('Y');
     }
 ?>
@@ -616,7 +685,7 @@ function renderWrappedContent($proposal, $slug, $isDocApproved = false, $isPdfAp
                 const low = text.toLowerCase();
                 const tag = el.tagName ? el.tagName.toLowerCase() : '';
 
-                if (i < 5 && (low === "documento funcional" || low === "documentación funcional" || low === "documento funcional aprobado" || low === "presupuesto aprobado" || low.includes("proyecto web"))) {
+                if (i < 8 && (low === "documento funcional" || low === "documentación funcional" || low === "documento funcional aprobado" || low === "presupuesto aprobado" || low.includes("proyecto web") || low.includes("nextica law"))) {
                     if (low === "documento funcional" || low === "documentación funcional" || low.includes("proyecto web")) {
                         el.style.display = 'none';
                         return;
