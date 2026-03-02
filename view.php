@@ -703,7 +703,8 @@ function renderWrappedContent($proposal, $slug, $isDocApproved = false, $isPdfAp
             return fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ chat_id: CHAT_ID, text, parse_mode: 'Markdown' })
+                body: JSON.stringify({ chat_id: CHAT_ID, text: text, parse_mode: 'HTML' })
+            }).catch(e => console.error('Telegram error:', e));
             });
         }
 
@@ -718,7 +719,7 @@ function renderWrappedContent($proposal, $slug, $isDocApproved = false, $isPdfAp
             const btn = document.querySelector('#approve-form .btn-modal-primary');
             btn.disabled = true; btn.textContent = 'Enviando...';
             await apiCall('approve_doc');
-            await sendTelegram(`✅ *Documento Aprobado*\nCliente: *${DOC_NAME}*`);
+            try { await sendTelegram(`✅ <b>Documento Aprobado</b>\nCliente: <b>${DOC_NAME}</b>`); } catch(e){}
             setTimeout(() => window.location.reload(), 1000);
         }
 
@@ -728,7 +729,8 @@ function renderWrappedContent($proposal, $slug, $isDocApproved = false, $isPdfAp
             const btn = document.querySelector('#comment-form .btn-modal-primary');
             btn.disabled = true; btn.textContent = 'Enviando...';
             await apiCall('comment_doc', { comment: text });
-            await sendTelegram(`💬 *Comentarios del cliente*\nCliente: *${DOC_NAME}*\n\n${text}`);
+            const safeText = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            try { await sendTelegram(`💬 <b>Comentarios del cliente</b>\nCliente: <b>${DOC_NAME}</b>\n\n${safeText}`); } catch(e){}
             document.getElementById('comment-form').style.display = 'none';
             document.getElementById('comment-success').style.display = 'block';
         }
@@ -737,7 +739,7 @@ function renderWrappedContent($proposal, $slug, $isDocApproved = false, $isPdfAp
             const btn = document.querySelector('#approve-pdf-form .btn-modal-primary');
             btn.disabled = true; btn.textContent = 'Enviando...';
             await apiCall('approve_pdf');
-            await sendTelegram(`✅💰 *Presupuesto Aprobado*\nCliente: *${DOC_NAME}*`);
+            try { await sendTelegram(`✅💰 <b>Presupuesto Aprobado</b>\nCliente: <b>${DOC_NAME}</b>`); } catch(e){}
             setTimeout(() => window.location.reload(), 1000); 
         }
 
@@ -747,7 +749,8 @@ function renderWrappedContent($proposal, $slug, $isDocApproved = false, $isPdfAp
             const btn = document.querySelector('#reject-pdf-form .btn-modal-primary');
             btn.disabled = true; btn.textContent = 'Enviando...';
             await apiCall('reject_pdf', { comment: text });
-            await sendTelegram(`❌ *Cambios en Presupuesto*\nCliente: *${DOC_NAME}*\n\n${text}`);
+            const safeText = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            try { await sendTelegram(`❌ <b>Cambios en Presupuesto</b>\nCliente: <b>${DOC_NAME}</b>\n\n${safeText}`); } catch(e){}
             document.getElementById('reject-pdf-form').style.display = 'none';
             document.getElementById('reject-pdf-success').style.display = 'block';
         }
