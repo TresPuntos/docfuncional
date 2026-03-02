@@ -360,8 +360,8 @@ function renderWrappedContent($proposal, $slug, $isDocApproved = false, $isPdfAp
         <main>
             <div class="content-wrapper">
                 <?php
-    $dateToUse = !empty($proposal['sent_date']) ? $proposal['sent_date'] : $proposal['created_at'];
-    if (!empty($dateToUse)) {
+    $dateToUse = !empty($proposal['sent_date']) ? $proposal['sent_date'] : ($proposal['created_at'] ?? '');
+    if (!empty($dateToUse) && strtotime($dateToUse)) {
         $timeStr = strtotime($dateToUse);
         $meses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
         $formattedDate = date('j', $timeStr) . ' de ' . $meses[date('n', $timeStr) - 1] . ' de ' . date('Y', $timeStr);
