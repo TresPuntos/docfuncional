@@ -99,50 +99,51 @@ if ($is_unlocked) {
     $content = preg_replace('/<aside[^>]*>.*?<\/aside>/is', '', $content);
     $content = preg_replace('/<nav[^>]*>.*?<\/nav>/is', '', $content);
     $content = preg_replace('/<script[^>]*>.*?<\/script>/is', '', $content);
-        $content = preg_replace('/<style[^>]*>.*?<\/style>/is', '', $content);
-        $content = preg_replace('/<main[^>]*>/is', '', $content);
-        $content = preg_replace('/<\/main>/is', '', $content);
-        $content = preg_replace('/<header[^>]*>.*?<\/header>/is', '', $content);
-        $content = preg_replace('/<footer[^>]*>.*?<\/footer>/is', '', $content);
-        $content = preg_replace('/<div[^>]*class=["\']content-wrapper["\'][^>]*>/is', '<div>', $content);
-        $content = preg_replace('/<div[^>]*id=["\']content-wrapper["\'][^>]*>/is', '<div>', $content);
-        $content = preg_replace('/<div[^>]*class=["\']app-container["\'][^>]*>/is', '<div>', $content);
+    $content = preg_replace('/<style[^>]*>.*?<\/style>/is', '', $content);
+    $content = preg_replace('/<main[^>]*>/is', '', $content);
+    $content = preg_replace('/<\/main>/is', '', $content);
+    $content = preg_replace('/<header[^>]*>.*?<\/header>/is', '', $content);
+    $content = preg_replace('/<footer[^>]*>.*?<\/footer>/is', '', $content);
+    $content = preg_replace('/<div[^>]*class=["\']content-wrapper["\'][^>]*>/is', '<div>', $content);
+    $content = preg_replace('/<div[^>]*id=["\']content-wrapper["\'][^>]*>/is', '<div>', $content);
+    $content = preg_replace('/<div[^>]*class=["\']app-container["\'][^>]*>/is', '<div>', $content);
 
-        $proposal['html_content'] = trim($content);
+    $proposal['html_content'] = trim($content);
 
-        $isDocApproved = false;
-        $isPdfApproved = false;
-        $stmtObj = $pdo -> prepare("SELECT tipo FROM aprobaciones WHERE propuesta_id = ?");
-        $stmtObj -> execute([$proposal['id']]);
-        while ($row = $stmtObj -> fetch(PDO:: FETCH_ASSOC)) {
-            if ($row['tipo'] === 'documento_funcional')
-                $isDocApproved = true;
-            if ($row['tipo'] === 'presupuesto')
-                $isPdfApproved = true;
-        }
-        $hasPdf = !empty($proposal['presupuesto_pdf']);
+    $isDocApproved = false;
+    $isPdfApproved = false;
+    $stmtObj = $pdo->prepare("SELECT tipo FROM aprobaciones WHERE propuesta_id = ?");
+    $stmtObj->execute([$proposal['id']]);
+    while ($row = $stmtObj->fetch(PDO::FETCH_ASSOC)) {
+        if ($row['tipo'] === 'documento_funcional')
+            $isDocApproved = true;
+        if ($row['tipo'] === 'presupuesto')
+            $isPdfApproved = true;
+    }
+    $hasPdf = !empty($proposal['presupuesto_pdf']);
 
-        // Load Team
-        $equipo_ids_json = $proposal['equipo_ids'] ?? '[]';
-        $equipo_ids = json_decode($equipo_ids_json, true);
-        if (!is_array($equipo_ids))
-            $equipo_ids = [];
+    // Load Team
+    $equipo_ids_json = $proposal['equipo_ids'] ?? '[]';
+    $equipo_ids = json_decode($equipo_ids_json, true);
+    if (!is_array($equipo_ids))
+        $equipo_ids = [];
 
-        if (empty($equipo_ids)) {
-            $team = [];
-        }
-        else {
-            $placeholders = implode(',', array_fill(0, count($equipo_ids), '?'));
-            $stmtTeam = $pdo -> prepare("SELECT * FROM equipo WHERE id IN ($placeholders) ORDER BY orden ASC, created_at DESC");
-            $stmtTeam -> execute($equipo_ids);
-            $team = $stmtTeam -> fetchAll(PDO:: FETCH_ASSOC);
-        }
-        renderWrappedContent($proposal, $slug, $isDocApproved, $isPdfApproved, $hasPdf, $team, $base_path);
-        exit;
+    if (empty($equipo_ids)) {
+        $team = [];
+    }
+    else {
+        $placeholders = implode(',', array_fill(0, count($equipo_ids), '?'));
+        $stmtTeam = $pdo->prepare("SELECT * FROM equipo WHERE id IN ($placeholders) ORDER BY orden ASC, created_at DESC");
+        $stmtTeam->execute($equipo_ids);
+        $team = $stmtTeam->fetchAll(PDO::FETCH_ASSOC);
+    }
+    renderWrappedContent($proposal, $slug, $isDocApproved, $isPdfApproved, $hasPdf, $team, $base_path);
+    exit;
 }
 
-        // Función de error
-        function showError($title, $message) {
+// Función de error
+function showError($title, $message)
+{
 ?>
 < !DOCTYPE html >
 <html lang="es">
@@ -184,10 +185,11 @@ if ($is_unlocked) {
     exit;
 }
 
-        renderPinGate($proposal, $error_pin, $base_path);
-        exit;
+renderPinGate($proposal, $error_pin, $base_path);
+exit;
 
-        function renderPinGate($proposal, $error_pin, $base_path) {
+function renderPinGate($proposal, $error_pin, $base_path)
+{
 ?>
 < !DOCTYPE html >
                 <html lang="es" class="dark">
@@ -303,8 +305,8 @@ if ($is_unlocked) {
                             <?php
 }
 
-                            function renderWrappedContent($proposal, $slug, $isDocApproved = false, $isPdfApproved = false, $hasPdf = false, $team = [], $base_path = '')
-                            {
+function renderWrappedContent($proposal, $slug, $isDocApproved = false, $isPdfApproved = false, $hasPdf = false, $team = [], $base_path = '')
+{
 ?>
 < !DOCTYPE html>
                             <html lang="es" class="scroll-smooth">
@@ -1148,6 +1150,20 @@ if ($is_unlocked) {
                     <?php echo htmlspecialchars($proposal['version'] ?? '1.0'); ?> · Enviado el
                     <?php echo $formattedDate; ?>
                 </p>
+                <style>
+                /* Card Styles - Inline Failsafe */
+                .tp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1.5rem; margin: 2.5rem 0; width: 100%; }
+                .tp-card { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 20px; padding: 2rem; position: relative; transition: all 0.3s cubic-bezier(0.4,0,0.2,1); overflow: hidden; display: flex; flex-direction: column; }
+                .tp-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, transparent, var(--tp-primary, #5DFFBF), transparent); opacity: 0; transition: opacity 0.3s ease; }
+                .tp-card:hover { transform: translateY(-5px); background: rgba(255,255,255,0.05); border-color: rgba(93,255,191,0.3); box-shadow: 0 12px 30px rgba(0,0,0,0.5), 0 0 20px rgba(93,255,191,0.05); }
+                .tp-card:hover::before { opacity: 1; }
+                .tp-card-icon { display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: 14px; background: rgba(93,255,191,0.1); color: var(--tp-primary, #5DFFBF); margin-bottom: 1.5rem; }
+                .tp-card-icon svg { width: 24px; height: 24px; }
+                .tp-card-number { position: absolute; top: 1.5rem; right: 1.5rem; font-family: 'Plus Jakarta Sans', sans-serif; font-size: 3rem; font-weight: 800; line-height: 1; color: rgba(255,255,255,0.04); pointer-events: none; }
+                .tp-card h3 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.3rem !important; color: #FFF !important; margin: 0 0 0.75rem 0 !important; }
+                .tp-card p { margin-bottom: 0 !important; font-size: 1.15rem !important; color: #FFF !important; line-height: 1.6 !important; font-weight: 500 !important; }
+                .tp-card h3 + p { font-size: 1rem !important; color: #AAA !important; font-weight: 400 !important; }
+                </style>
                 <div id="content-area">
                     <?php echo $proposal['html_content']; ?>
                 </div>
