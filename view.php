@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once __DIR__ . '/config.php';
+$base_path = rtrim(dirname($_SERVER['PHP_SELF']), '/\\');
 
 if (!isset($_GET['id']) || empty($_GET['id'])) {
     showError("Acceso Denegado", "El enlace no es válido o ha expirado.");
@@ -26,7 +27,8 @@ $error_pin = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['pin'])) {
     if ($_POST['pin'] === $proposal['pin']) {
         $_SESSION[$session_key] = true;
-        header("Location: http://" . $_SERVER['HTTP_HOST'] . "/p/" . $slug);
+        $protocol = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http';
+        header("Location: $protocol://" . $_SERVER['HTTP_HOST'] . $base_path . "/p/" . $slug);
         exit;
     }
     else {
@@ -132,14 +134,14 @@ if ($is_unlocked) {
         $stmtTeam->execute($equipo_ids);
         $team = $stmtTeam->fetchAll(PDO::FETCH_ASSOC);
     }
-    renderWrappedContent($proposal, $slug, $isDocApproved, $isPdfApproved, $hasPdf, $team);
+    renderWrappedContent($proposal, $slug, $isDocApproved, $isPdfApproved, $hasPdf, $team, $base_path);
     exit;
 }
 
-renderPinGate($proposal, $error_pin);
+renderPinGate($proposal, $error_pin, $base_path);
 exit;
 
-function renderPinGate($proposal, $error_pin)
+function renderPinGate($proposal, $error_pin, $base_path)
 {
 ?>
 <!DOCTYPE html>
@@ -163,7 +165,7 @@ function renderPinGate($proposal, $error_pin)
 </head>
 <body>
     <div class="gate-container">
-        <img src="/logo-trespuntos.svg" alt="Tres Puntos" style="height: 32px; margin-bottom: 2rem;">
+        <img src="<?php echo htmlspecialchars($base_path); ?>/logo-trespuntos.svg" alt="Tres Puntos" style="height: 32px; margin-bottom: 2rem;">
         <h2 class="gate-label">Propuesta Confidencial</h2>
         <form method="POST">
             <input type="password" name="pin" maxlength="10" placeholder="••••" required autofocus class="pin-input">
@@ -177,7 +179,7 @@ function renderPinGate($proposal, $error_pin)
 <?php
 }
 
-function renderWrappedContent($proposal, $slug, $isDocApproved = false, $isPdfApproved = false, $hasPdf = false, $team = [])
+function renderWrappedContent($proposal, $slug, $isDocApproved = false, $isPdfApproved = false, $hasPdf = false, $team = [], $base_path = '')
 {
 ?>
 <!DOCTYPE html>
@@ -306,13 +308,13 @@ function renderWrappedContent($proposal, $slug, $isDocApproved = false, $isPdfAp
 </head>
 <body>
     <div class="mobile-header">
-        <img src="/logo-trespuntos.svg" alt="Tres Puntos" class="mobile-logo">
+        <img src="<?php echo htmlspecialchars($base_path); ?>/logo-trespuntos.svg" alt="Tres Puntos" class="mobile-logo">
         <button class="menu-toggle" onclick="toggleMobileMenu()"><i data-lucide="menu"></i></button>
     </div>
 
     <div class="mobile-nav-overlay" id="mobileNav">
         <div class="mobile-nav-header">
-            <img src="/logo-trespuntos.svg" alt="Tres Puntos" style="height: 24px;">
+            <img src="<?php echo htmlspecialchars($base_path); ?>/logo-trespuntos.svg" alt="Tres Puntos" style="height: 24px;">
             <button class="menu-toggle" onclick="toggleMobileMenu()"><i data-lucide="x"></i></button>
         </div>
         <ul class="mobile-nav-list" id="mobile-nav-container"></ul>
@@ -320,7 +322,7 @@ function renderWrappedContent($proposal, $slug, $isDocApproved = false, $isPdfAp
     <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
     <div class="app-container">
         <aside>
-            <div class="sidebar-brand"><img src="/logo-trespuntos.svg" alt="Tres Puntos" style="height: 38px;"></div>
+            <div class="sidebar-brand"><img src="<?php echo htmlspecialchars($base_path); ?>/logo-trespuntos.svg" alt="Tres Puntos" style="height: 38px;"></div>
             <div class="sidebar-nav-container">
                 <ul id="sidebar-nav"></ul>
             </div>
@@ -375,7 +377,7 @@ function renderWrappedContent($proposal, $slug, $isDocApproved = false, $isPdfAp
                         <div class="cta-block" id="sec-presupuesto" style="margin-top: 4rem;">
                             <h2 style="font-family: var(--font-heading); font-size: 2.5rem; color: #FFF; margin-bottom: 1rem; margin-top: 0; display: block;">Presupuesto de Proyecto</h2>
                             <div style="background: var(--bg-surface); padding: 1rem; border-radius: 16px; border: 1px solid var(--border-base); margin-bottom: 3rem; height: 800px;">
-                                <iframe src="/uploads/presupuestos/<?php echo htmlspecialchars($proposal['presupuesto_pdf']); ?>" width="100%" height="100%" style="border:none; border-radius: 8px;"></iframe>
+                                <iframe src="<?php echo htmlspecialchars($base_path); ?>/uploads/presupuestos/<?php echo htmlspecialchars($proposal['presupuesto_pdf']); ?>" width="100%" height="100%" style="border:none; border-radius: 8px;"></iframe>
                             </div>
                             
                             <?php if (!$isPdfApproved): ?>
@@ -383,7 +385,7 @@ function renderWrappedContent($proposal, $slug, $isDocApproved = false, $isPdfAp
                                 <div class="cta-buttons">
                                     <button class="btn-cta-primary" onclick="openModal('approve-pdf')"><i data-lucide="check-circle"></i> Aprobar Presupuesto</button>
                                     <button class="btn-cta-secondary" onclick="openModal('reject-pdf')"><i data-lucide="x-circle"></i> Denegar / Cambios</button>
-                                    <a href="/uploads/presupuestos/<?php echo htmlspecialchars($proposal['presupuesto_pdf']); ?>" download class="btn-cta-secondary"><i data-lucide="download"></i> Descargar PDF</a>
+                                    <a href="<?php echo htmlspecialchars($base_path); ?>/uploads/presupuestos/<?php echo htmlspecialchars($proposal['presupuesto_pdf']); ?>" download class="btn-cta-secondary"><i data-lucide="download"></i> Descargar PDF</a>
                                     <button class="btn-cta-secondary" onclick="Calendly.initPopupWidget({url: 'https://calendly.com/trespuntos/tres-puntos'});return false;"><i data-lucide="calendar"></i> Agendar videollamada</button>
                                 </div>
                             <?php
@@ -392,7 +394,7 @@ function renderWrappedContent($proposal, $slug, $isDocApproved = false, $isPdfAp
                                 <h2 style="font-size: 1.8rem; color: var(--tp-primary);">Presupuesto Aprobado</h2>
                                 <p>🎉 ¡Gracias por tu confianza! Estamos listos para comenzar con el desarrollo. Nos pondremos en contacto contigo para agendar el kickoff del proyecto.</p>
                                 <div class="cta-buttons" style="margin-top: 2rem;">
-                                    <a href="/uploads/presupuestos/<?php echo htmlspecialchars($proposal['presupuesto_pdf']); ?>" download class="btn-cta-secondary"><i data-lucide="download"></i> Descargar copia PDF</a>
+                                    <a href="<?php echo htmlspecialchars($base_path); ?>/uploads/presupuestos/<?php echo htmlspecialchars($proposal['presupuesto_pdf']); ?>" download class="btn-cta-secondary"><i data-lucide="download"></i> Descargar copia PDF</a>
                                     <button class="btn-cta-secondary" onclick="Calendly.initPopupWidget({url: 'https://calendly.com/trespuntos/tres-puntos'});return false;"><i data-lucide="calendar"></i> Agendar videollamada</button>
                                 </div>
                             <?php
