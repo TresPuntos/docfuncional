@@ -99,52 +99,53 @@ if ($is_unlocked) {
     $content = preg_replace('/<aside[^>]*>.*?<\/aside>/is', '', $content);
     $content = preg_replace('/<nav[^>]*>.*?<\/nav>/is', '', $content);
     $content = preg_replace('/<script[^>]*>.*?<\/script>/is', '', $content);
-        $content = preg_replace('/<style[^>]*>.*?<\/style>/is', '', $content);
-        $content = preg_replace('/<main[^>]*>/is', '', $content);
-        $content = preg_replace('/<\/main>/is', '', $content);
-        $content = preg_replace('/<header[^>]*>.*?<\/header>/is', '', $content);
-        $content = preg_replace('/<footer[^>]*>.*?<\/footer>/is', '', $content);
-        $content = preg_replace('/<div[^>]*class=["\']content-wrapper["\'][^>]*>/is', '<div>', $content);
-        $content = preg_replace('/<div[^>]*id=["\']content-wrapper["\'][^>]*>/is', '<div>', $content);
-        $content = preg_replace('/<div[^>]*class=["\']app-container["\'][^>]*>/is', '<div>', $content);
+    $content = preg_replace('/<style[^>]*>.*?<\/style>/is', '', $content);
+    $content = preg_replace('/<main[^>]*>/is', '', $content);
+    $content = preg_replace('/<\/main>/is', '', $content);
+    $content = preg_replace('/<header[^>]*>.*?<\/header>/is', '', $content);
+    $content = preg_replace('/<footer[^>]*>.*?<\/footer>/is', '', $content);
+    $content = preg_replace('/<div[^>]*class=["\']content-wrapper["\'][^>]*>/is', '<div>', $content);
+    $content = preg_replace('/<div[^>]*id=["\']content-wrapper["\'][^>]*>/is', '<div>', $content);
+    $content = preg_replace('/<div[^>]*class=["\']app-container["\'][^>]*>/is', '<div>', $content);
 
-        $proposal['html_content'] = trim($content);
+    $proposal['html_content'] = trim($content);
 
-        $isDocApproved = false;
-        $isPdfApproved = false;
-        $stmtObj = $pdo -> prepare("SELECT tipo FROM aprobaciones WHERE propuesta_id = ?");
-        $stmtObj -> execute([$proposal['id']]);
-        while ($row = $stmtObj -> fetch(PDO:: FETCH_ASSOC)) {
-            if ($row['tipo'] === 'documento_funcional')
-                $isDocApproved = true;
-            if ($row['tipo'] === 'presupuesto')
-                $isPdfApproved = true;
-        }
-        $hasPdf = !empty($proposal['presupuesto_pdf']);
+    $isDocApproved = false;
+    $isPdfApproved = false;
+    $stmtObj = $pdo->prepare("SELECT tipo FROM aprobaciones WHERE propuesta_id = ?");
+    $stmtObj->execute([$proposal['id']]);
+    while ($row = $stmtObj->fetch(PDO::FETCH_ASSOC)) {
+        if ($row['tipo'] === 'documento_funcional')
+            $isDocApproved = true;
+        if ($row['tipo'] === 'presupuesto')
+            $isPdfApproved = true;
+    }
+    $hasPdf = !empty($proposal['presupuesto_pdf']);
 
-        // Load Team
-        $equipo_ids_json = $proposal['equipo_ids'] ?? '[]';
-        $equipo_ids = json_decode($equipo_ids_json, true);
-        if (!is_array($equipo_ids))
-            $equipo_ids = [];
+    // Load Team
+    $equipo_ids_json = $proposal['equipo_ids'] ?? '[]';
+    $equipo_ids = json_decode($equipo_ids_json, true);
+    if (!is_array($equipo_ids))
+        $equipo_ids = [];
 
-        if (empty($equipo_ids)) {
-            $team = [];
-        }
-        else {
-            $placeholders = implode(',', array_fill(0, count($equipo_ids), '?'));
-            $stmtTeam = $pdo -> prepare("SELECT * FROM equipo WHERE id IN ($placeholders) ORDER BY orden ASC, created_at DESC");
-            $stmtTeam -> execute($equipo_ids);
-            $team = $stmtTeam -> fetchAll(PDO:: FETCH_ASSOC);
-        }
-        renderWrappedContent($proposal, $slug, $isDocApproved, $isPdfApproved, $hasPdf, $team, $base_path);
-        exit;
+    if (empty($equipo_ids)) {
+        $team = [];
+    }
+    else {
+        $placeholders = implode(',', array_fill(0, count($equipo_ids), '?'));
+        $stmtTeam = $pdo->prepare("SELECT * FROM equipo WHERE id IN ($placeholders) ORDER BY orden ASC, created_at DESC");
+        $stmtTeam->execute($equipo_ids);
+        $team = $stmtTeam->fetchAll(PDO::FETCH_ASSOC);
+    }
+    renderWrappedContent($proposal, $slug, $isDocApproved, $isPdfApproved, $hasPdf, $team, $base_path);
+    exit;
 }
 
-        // Función de error
-        function showError($title, $message) {
+// Función de error
+function showError($title, $message)
+{
 ?>
-< !DOCTYPE html >
+<!DOCTYPE html>
     <html lang="es">
 
     <head>
@@ -184,12 +185,13 @@ if ($is_unlocked) {
     exit;
 }
 
-        renderPinGate($proposal, $error_pin, $base_path);
-        exit;
+renderPinGate($proposal, $error_pin, $base_path);
+exit;
 
-        function renderPinGate($proposal, $error_pin, $base_path) {
+function renderPinGate($proposal, $error_pin, $base_path)
+{
 ?>
-    < !DOCTYPE html >
+    <!DOCTYPE html>
                 <html lang="es" class="dark">
 
                     <head>
@@ -304,10 +306,10 @@ if ($is_unlocked) {
                             <?php
 }
 
-                            function renderWrappedContent($proposal, $slug, $isDocApproved = false, $isPdfApproved = false, $hasPdf = false, $team = [], $base_path = '')
-                            {
+function renderWrappedContent($proposal, $slug, $isDocApproved = false, $isPdfApproved = false, $hasPdf = false, $team = [], $base_path = '')
+{
 ?>
-        < !DOCTYPE html>
+        <!DOCTYPE html>
                             <html lang="es" class="scroll-smooth">
 
                                 <head>
