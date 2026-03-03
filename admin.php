@@ -717,7 +717,7 @@ else: ?>
                                             <label class="relative inline-flex items-center cursor-pointer">
                                                 <input type="checkbox" class="sr-only peer"
                                                     onchange="toggleApproval(<?php echo $p['id']; ?>, 'documento_funcional', this.checked, this)"
-                                                    <?php echo $doc_approved ? 'checked' : '' ; ?>>
+                                                    <?php echo $doc_approved ? 'checked' : ''; ?>>
                                                 <div
                                                     class="w-7 h-4 bg-bg-base border border-border-base rounded-full peer peer-checked:after:translate-x-[12px] after:content-[''] after:absolute after:top-[3px] after:left-[3px] after:bg-text-muted after:rounded-full after:h-2 after:w-2 after:transition-all peer-checked:after:bg-bg-base peer-checked:bg-tp-primary peer-checked:border-tp-primary">
                                                 </div>
@@ -731,7 +731,7 @@ else: ?>
                                             <label class="relative inline-flex items-center cursor-pointer">
                                                 <input type="checkbox" class="sr-only peer"
                                                     onchange="toggleApproval(<?php echo $p['id']; ?>, 'presupuesto', this.checked, this)"
-                                                    <?php echo $pres_approved ? 'checked' : '' ; ?>>
+                                                    <?php echo $pres_approved ? 'checked' : ''; ?>>
                                                 <div
                                                     class="w-7 h-4 bg-bg-base border border-border-base rounded-full peer peer-checked:after:translate-x-[12px] after:content-[''] after:absolute after:top-[3px] after:left-[3px] after:bg-text-muted after:rounded-full after:h-2 after:w-2 after:transition-all peer-checked:after:bg-bg-base peer-checked:bg-tp-primary peer-checked:border-tp-primary">
                                                 </div>
@@ -766,7 +766,7 @@ else: ?>
                                     <label class="relative inline-flex items-center cursor-pointer">
                                         <input type="checkbox" class="sr-only peer"
                                             onchange="toggleStatus(<?php echo $p['id']; ?>, this.checked)" <?php echo
-                                            $p['status']==1 ? 'checked' : '' ; ?>>
+                $p['status'] == 1 ? 'checked' : ''; ?>>
                                         <div
                                             class="w-10 h-5 bg-bg-base border border-border-base rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[4px] after:left-[4px] after:bg-text-muted after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:after:bg-bg-base peer-checked:bg-tp-primary peer-checked:border-tp-primary">
                                         </div>
@@ -1278,6 +1278,22 @@ else: ?>
             document.getElementById('html_content').value = p.html_content;
             document.getElementById('sent_date').value = p.sent_date || '';
             document.getElementById('version').value = p.version || 'v1.0';
+
+            document.querySelectorAll('input[name="equipo_ids[]"]').forEach(cb => cb.checked = false);
+            try {
+                if (p.equipo_ids) {
+                    const parsed = typeof p.equipo_ids === 'string' ? JSON.parse(p.equipo_ids) : p.equipo_ids;
+                    if (Array.isArray(parsed)) {
+                        parsed.forEach(id => {
+                            const cb = document.getElementById('equipo_' + id);
+                            if (cb) cb.checked = true;
+                        });
+                    }
+                }
+            } catch (e) {
+                console.error('Error parsing equipo_ids:', e);
+            }
+
             openDrawer('hs-overlay-create');
         }
 
@@ -1296,6 +1312,7 @@ else: ?>
             document.getElementById('proposal-form').reset();
             document.getElementById('form-id').value = '';
             document.getElementById('html_content').value = '';
+            document.querySelectorAll('input[name="equipo_ids[]"]').forEach(cb => cb.checked = false);
             openDrawer('hs-overlay-create');
         }
 
