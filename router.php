@@ -1,22 +1,19 @@
 <?php
-/**
- * Router script for the PHP built-in web server.
- * This simulates the .htaccess rewrite rule: /p/(slug) -> view.php?id=(slug)
- */
+// router.php for local development
+$uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 
-$uri = $_SERVER['REQUEST_URI'];
-
-// Si el request es para /p/(slug)
-if (preg_match('/^\/p\/([a-zA-Z0-9_-]+)\/?/', $uri, $matches)) {
-    $_GET['id'] = $matches[1];
+// If it's a /p/slug request, route to view.php
+if (preg_match('/^\/p\/([a-zA-Z0-9_-]+)/', $uri, $matches)) {
+    $slug = $matches[1];
+    $_GET['id'] = $slug;
     include __DIR__ . '/view.php';
-    return true;
+    exit;
 }
 
-// Si el archivo existe físicamente, dejar que el servidor lo sirva
+// Default behavior for other files
 if (file_exists(__DIR__ . $uri) && !is_dir(__DIR__ . $uri)) {
-    return false;
+    return false; // let the built-in server serve the static file
 }
 
-// Comportamiento por defecto
+// Route everything else
 return false;

@@ -1261,6 +1261,8 @@ if ($is_unlocked) {
                             </div>
 
                             <div id="content-areas-extensions">
+                                <?php include __DIR__ . '/metodologia.php'; ?>
+                                <div id="equipo-extension-area" style="margin-top: 4rem;"></div>
                                 <div class="cta-block" id="sec-avanzamos-doc">
                                     <?php if (!$isDocApproved): ?>
                                     <h2
@@ -1536,15 +1538,26 @@ if ($is_unlocked) {
                                             current.remove();
                                             current = next;
                 }
-                                            teamHeader.after(grid);
             } else if (mountPoint) {
                 const internalElements = Array.from(mountPoint.children);
                 internalElements.forEach(el => {
                     if (el.tagName !== 'H2' && el.tagName !== 'H3') el.remove();
                 });
+            }
+
+                                            const wrapper = document.getElementById('equipo-extension-area');
+                                            if (wrapper) {
+                if (mountPoint && mountPoint.id === 'equipo') {
+                                                wrapper.appendChild(mountPoint);
                                             mountPoint.appendChild(grid);
+                } else {
+                                                wrapper.appendChild(teamHeader);
+                                            wrapper.appendChild(grid);
+                }
             } else {
-                                                area.appendChild(grid);
+                if (mountPoint) mountPoint.appendChild(grid);
+                                            else if (teamHeader) teamHeader.after(grid);
+                                            else area.appendChild(grid);
             }
         }
 
