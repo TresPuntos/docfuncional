@@ -12,6 +12,9 @@ if (basename($_SERVER['PHP_SELF']) === 'config.php') {
 // Contraseña de acceso al panel de administración
 define('ADMIN_PASSWORD', 'TresPuntos2026!'); // Cambiar por una contraseña segura
 
+// === API TOKEN PARA AGENTES IA ===
+define('API_TOKEN', 'tp_f06125ce7729d6b8dde738b7fb1a43cd27492aee332a325cb504bb27a73315e7');
+
 // === CONFIGURACIÓN DE BASE DE DATOS ===
 define('DB_PATH', __DIR__ . '/database/database.sqlite'); // Archivo oculto en subdirectorio
 

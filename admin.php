@@ -71,6 +71,37 @@ if (isset($_GET['action'])) {
         exit;
     }
 
+    // Historial de versiones (API ADMIN)
+    if ($_GET['action'] === 'get_history' && $_SERVER['REQUEST_METHOD'] === 'GET') {
+        if (isset($_GET['id'])) {
+            try {
+                $stmt = $pdo->prepare("SELECT id, version, created_at FROM propuestas_history WHERE propuesta_id = ? ORDER BY created_at DESC");
+                $stmt->execute([(int)$_GET['id']]);
+                $history = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                echo json_encode(['success' => true, 'history' => $history]);
+            }
+            catch (Exception $e) {
+                echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+            }
+        }
+        exit;
+    }
+
+    if ($_GET['action'] === 'get_history_html' && $_SERVER['REQUEST_METHOD'] === 'GET') {
+        if (isset($_GET['history_id'])) {
+            try {
+                $stmt = $pdo->prepare("SELECT html_content FROM propuestas_history WHERE id = ?");
+                $stmt->execute([(int)$_GET['history_id']]);
+                $html = $stmt->fetchColumn();
+                echo json_encode(['success' => true, 'html' => $html]);
+            }
+            catch (Exception $e) {
+                echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+            }
+        }
+        exit;
+    }
+
     // --- ENDPOINTS PARA ADMIN (Requieren sesión activa) ---
     if (!isset($_SESSION['is_admin']) || !$_SESSION['is_admin']) {
         echo json_encode(['success' => false, 'message' => 'No autorizado']);
@@ -106,6 +137,22 @@ if (isset($_GET['action'])) {
                     $stmt = $pdo->prepare("DELETE FROM aprobaciones WHERE propuesta_id = :pid AND tipo = :tipo");
                     $stmt->execute([':pid' => (int)$data['propuesta_id'], ':tipo' => $data['tipo']]);
                 }
+                echo json_encode(['success' => true]);
+            }
+            catch (Exception $e) {
+                echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+            }
+        }
+        exit;
+    }
+
+    // Resetear visitas
+    if ($_GET['action'] === 'reset_views' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        $data = json_decode(file_get_contents('php://input'), true);
+        if (isset($data['id'])) {
+            try {
+                $stmt = $pdo->prepare("UPDATE propuestas SET views_count = 0 WHERE id = :id");
+                $stmt->execute([':id' => (int)$data['id']]);
                 echo json_encode(['success' => true]);
             }
             catch (Exception $e) {
@@ -717,7 +764,7 @@ else: ?>
                                             <label class="relative inline-flex items-center cursor-pointer">
                                                 <input type="checkbox" class="sr-only peer"
                                                     onchange="toggleApproval(<?php echo $p['id']; ?>, 'documento_funcional', this.checked, this)"
-                                                    <?php echo $doc_approved ? 'checked' : ''; ?>>
+                                                    <?php echo $doc_approved ? 'checked' : '' ; ?>>
                                                 <div
                                                     class="w-7 h-4 bg-bg-base border border-border-base rounded-full peer peer-checked:after:translate-x-[12px] after:content-[''] after:absolute after:top-[3px] after:left-[3px] after:bg-text-muted after:rounded-full after:h-2 after:w-2 after:transition-all peer-checked:after:bg-bg-base peer-checked:bg-tp-primary peer-checked:border-tp-primary">
                                                 </div>
@@ -731,7 +778,7 @@ else: ?>
                                             <label class="relative inline-flex items-center cursor-pointer">
                                                 <input type="checkbox" class="sr-only peer"
                                                     onchange="toggleApproval(<?php echo $p['id']; ?>, 'presupuesto', this.checked, this)"
-                                                    <?php echo $pres_approved ? 'checked' : ''; ?>>
+                                                    <?php echo $pres_approved ? 'checked' : '' ; ?>>
                                                 <div
                                                     class="w-7 h-4 bg-bg-base border border-border-base rounded-full peer peer-checked:after:translate-x-[12px] after:content-[''] after:absolute after:top-[3px] after:left-[3px] after:bg-text-muted after:rounded-full after:h-2 after:w-2 after:transition-all peer-checked:after:bg-bg-base peer-checked:bg-tp-primary peer-checked:border-tp-primary">
                                                 </div>
@@ -766,14 +813,24 @@ else: ?>
                                     <label class="relative inline-flex items-center cursor-pointer">
                                         <input type="checkbox" class="sr-only peer"
                                             onchange="toggleStatus(<?php echo $p['id']; ?>, this.checked)" <?php echo
-                $p['status'] == 1 ? 'checked' : ''; ?>>
+                                            $p['status']==1 ? 'checked' : '' ; ?>>
                                         <div
                                             class="w-10 h-5 bg-bg-base border border-border-base rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[4px] after:left-[4px] after:bg-text-muted after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:after:bg-bg-base peer-checked:bg-tp-primary peer-checked:border-tp-primary">
                                         </div>
                                     </label>
                                 </td>
                                 <td class="px-6 py-5 whitespace-nowrap font-heading font-bold text-white text-center">
-                                    <?php echo $p['views_count']; ?>
+                                    <div class="flex items-center gap-2 justify-center">
+                                        <span>
+                                            <?php echo $p['views_count']; ?>
+                                        </span>
+                                        <button
+                                            onclick="resetViews(<?php echo $p['id']; ?>, '<?php echo addslashes($p['client_name']); ?>')"
+                                            class="text-tp-primary/40 hover:text-tp-primary transition-colors cursor-pointer"
+                                            title="Resetear visitas">
+                                            <i data-lucide="refresh-cw" class="w-3 h-3"></i>
+                                        </button>
+                                    </div>
                                 </td>
                                 <td class="px-6 py-5 whitespace-nowrap text-end text-sm">
                                     <div class="flex items-center justify-end gap-3">
@@ -996,10 +1053,16 @@ else: ?>
                     <div>
                         <div class="flex justify-between items-center mb-2">
                             <label class="block text-sm font-semibold text-text-secondary">Contenido HTML</label>
-                            <button type="button" onclick="document.getElementById('file_upload').click()"
-                                class="text-xs bg-tp-primary/10 text-tp-primary border border-tp-primary/30 px-3 py-1.5 rounded hover:bg-tp-primary/20 transition-colors flex items-center gap-2">
-                                <i data-lucide="upload" class="w-4 h-4"></i> Subir HTML
-                            </button>
+                            <div class="flex items-center gap-2">
+                                <button type="button" onclick="openFullscreenEditor()"
+                                    class="text-xs bg-tp-primary/10 text-tp-primary border border-tp-primary/30 px-3 py-1.5 rounded hover:bg-tp-primary/20 transition-colors flex items-center gap-2">
+                                    <i data-lucide="maximize" class="w-4 h-4"></i> Pantalla Completa
+                                </button>
+                                <button type="button" onclick="document.getElementById('file_upload').click()"
+                                    class="text-xs bg-tp-primary/10 text-tp-primary border border-tp-primary/30 px-3 py-1.5 rounded hover:bg-tp-primary/20 transition-colors flex items-center gap-2">
+                                    <i data-lucide="upload" class="w-4 h-4"></i> Subir HTML
+                                </button>
+                            </div>
                             <input type="file" id="file_upload" accept=".html,.htm" class="hidden"
                                 onchange="handleFileUpload(event)">
                         </div>
@@ -1158,13 +1221,192 @@ else: ?>
         </div>
     </div>
 
+    <!-- Fullscreen Editor Overlay -->
+    <div id="fs-editor-overlay" class="fixed inset-0 bg-bg-base z-[100] hidden flex-col">
+        <!-- Topbar -->
+        <div class="h-16 border-b border-border-base flex items-center justify-between px-6 bg-bg-surface shrink-0">
+            <div class="flex items-center gap-4">
+                <button type="button" onclick="closeFullscreenEditor()"
+                    class="text-text-muted hover:text-white transition-colors flex items-center gap-2 text-sm font-semibold">
+                    <i data-lucide="arrow-left" class="w-4 h-4"></i> <span class="hidden sm:inline">Volver</span>
+                </button>
+            </div>
+
+            <div class="flex items-center gap-4">
+                <!-- Select history -->
+                <div class="flex items-center gap-2" id="fs-history-container" style="display: none;">
+                    <label class="text-xs font-semibold text-text-muted hidden sm:block"><i data-lucide="history"
+                            class="w-3.5 h-3.5 inline mr-1"></i> Recuperar:</label>
+                    <select id="fs-history-select" onchange="loadHistoryVersion(this.value)"
+                        class="bg-bg-base border border-border-base text-white text-xs rounded-lg px-2 py-1.5 outline-none focus:border-tp-primary transition-colors max-w-[150px]">
+                        <option value="">Actual</option>
+                    </select>
+                </div>
+
+                <button type="button" onclick="applyFromFullscreen()"
+                    class="bg-tp-primary text-bg-base font-bold hover:bg-tp-primary-hover transition-colors rounded-xl px-4 py-2 text-sm flex items-center gap-2">
+                    <i data-lucide="check" class="w-4 h-4"></i> <span class="hidden sm:inline">Aplicar al
+                        Formulario</span><span class="sm:hidden">Aplicar</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Split Screen Content -->
+        <div class="flex-1 flex flex-col md:flex-row overflow-hidden relative">
+            <!-- Left: Editor ACE -->
+            <div class="w-full h-1/2 md:h-full md:w-1/2 flex flex-col border-b md:border-b-0 md:border-r border-border-base"
+                style="background-color: #1e1e1e;">
+                <div id="ace-editor" class="w-full h-full"></div>
+            </div>
+
+            <!-- Right: Live Preview -->
+            <div class="w-full h-1/2 md:h-full md:w-1/2 flex flex-col relative bg-white">
+                <iframe id="fs-preview" class="w-full h-full border-0 bg-white"></iframe>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/preline/dist/preline.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/lucide/dist/umd/lucide.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.7/ace.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.7/ext-language_tools.js"></script>
     <script>
         lucide.createIcons();
 
+        // --- Fullscreen Editor Logic ---
+        let editor = null;
+        let previewTimer = null;
+
+        function initAceEditor() {
+            if (editor) return;
+
+            ace.require("ace/ext/language_tools");
+            editor = ace.edit("ace-editor");
+            editor.setTheme("ace/theme/tomorrow_night_eighties");
+            editor.session.setMode("ace/mode/html");
+            editor.setOptions({
+                fontSize: "13px",
+                showPrintMargin: false,
+                highlightActiveLine: true,
+                enableBasicAutocompletion: true,
+                enableLiveAutocompletion: true,
+                wrap: true,
+                useWorker: false
+            });
+
+            editor.session.on('change', function () {
+                clearTimeout(previewTimer);
+                previewTimer = setTimeout(updatePreview, 500);
+            });
+        }
+
+        function updatePreview() {
+            const html = editor.getValue();
+            const iframe = document.getElementById('fs-preview');
+            const doc = iframe.contentDocument || iframe.contentWindow.document;
+            doc.open();
+            doc.write(html);
+            doc.close();
+        }
+
+        async function fetchHistory(propuesta_id) {
+            const select = document.getElementById('fs-history-select');
+            const container = document.getElementById('fs-history-container');
+            select.innerHTML = '<option value="">Actual</option>';
+
+            if (!propuesta_id) {
+                container.style.display = 'none';
+                return;
+            }
+
+            try {
+                const res = await fetch(`admin.php?action=get_history&id=${propuesta_id}`);
+                const data = await res.json();
+                if (data.success && data.history.length > 0) {
+                    container.style.display = 'flex';
+                    data.history.forEach(h => {
+                        const date = new Date(h.created_at).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
+                        select.innerHTML += `<option value="${h.id}">${h.version} (${date})</option>`;
+                    });
+                } else {
+                    container.style.display = 'none';
+                }
+            } catch (e) {
+                console.error("Error cargando historial:", e);
+                container.style.display = 'none';
+            }
+        }
+
+        async function loadHistoryVersion(history_id) {
+            if (!history_id) return;
+            if (!confirm('¿Cargar versión anterior en el editor?')) {
+                document.getElementById('fs-history-select').value = "";
+                return;
+            }
+
+            try {
+                const res = await fetch(`admin.php?action=get_history_html&history_id=${history_id}`);
+                const data = await res.json();
+                if (data.success) {
+                    editor.setValue(data.html, -1);
+                    updatePreview();
+                } else {
+                    alert('No se pudo cargar la versión.');
+                }
+            } catch (e) {
+                console.error(e);
+            }
+            document.getElementById('fs-history-select').value = "";
+        }
+
+        function openFullscreenEditor() {
+            initAceEditor();
+
+            const proposalId = document.getElementById('form-id').value;
+            const currentHTML = document.getElementById('html_content').value;
+            editor.setValue(currentHTML, -1);
+            updatePreview();
+
+            fetchHistory(proposalId);
+
+            document.getElementById('fs-editor-overlay').classList.remove('hidden');
+            document.getElementById('fs-editor-overlay').classList.add('flex');
+
+            if (window.lucide) lucide.createIcons();
+
+            setTimeout(() => editor.resize(), 100);
+        }
+
+        function closeFullscreenEditor() {
+            document.getElementById('fs-editor-overlay').classList.remove('flex');
+            document.getElementById('fs-editor-overlay').classList.add('hidden');
+        }
+
+        function applyFromFullscreen() {
+            document.getElementById('html_content').value = editor.getValue();
+            closeFullscreenEditor();
+        }
+        // --- End Fullscreen Editor Logic ---
+
         function copyToClipboard(text) {
             navigator.clipboard.writeText(text).then(() => alert('Enlace copiado'));
+        }
+
+        async function resetViews(id, name) {
+            if (!confirm(`¿Estás seguro de que quieres resetear a 0 las visitas de ${name}?`)) return;
+            try {
+                const res = await fetch('admin.php?action=reset_views', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id })
+                });
+                const data = await res.json();
+                if (data.success) window.location.reload();
+                else alert(data.message);
+            } catch (err) {
+                console.error(err);
+                alert("Error de conexión al resetear vistas.");
+            }
         }
 
         async function toggleStatus(id, active) {
@@ -1278,6 +1520,7 @@ else: ?>
             document.getElementById('html_content').value = p.html_content;
             document.getElementById('sent_date').value = p.sent_date || '';
             document.getElementById('version').value = p.version || 'v1.0';
+            if (document.getElementById('new_version')) document.getElementById('new_version').checked = false;
 
             document.querySelectorAll('input[name="equipo_ids[]"]').forEach(cb => cb.checked = false);
             try {
@@ -1312,6 +1555,7 @@ else: ?>
             document.getElementById('proposal-form').reset();
             document.getElementById('form-id').value = '';
             document.getElementById('html_content').value = '';
+            if (document.getElementById('new_version')) document.getElementById('new_version').checked = false;
             document.querySelectorAll('input[name="equipo_ids[]"]').forEach(cb => cb.checked = false);
             openDrawer('hs-overlay-create');
         }

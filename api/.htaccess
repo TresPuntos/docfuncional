@@ -1,0 +1,9 @@
+# Proteger directorio API
+# Solo permitir acceso a proposals.php
+<Files "*">
+    Deny from all
+</Files>
+
+<Files "proposals.php">
+    Allow from all
+</Files>
