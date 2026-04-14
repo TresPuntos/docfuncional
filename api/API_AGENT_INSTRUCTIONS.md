@@ -85,13 +85,26 @@ Content-Type: application/json
 ```
 When `save_version` is true, the current document is archived in history BEFORE being overwritten. Use this ONLY when the document is finalized and you want to create an official new version (v1.1, v2.0, etc).
 
-### 6. List team members
+### 6. Restore a previous version
+```
+POST /api/proposals.php?id={id}&action=restore
+Content-Type: application/json
+
+{"history_id": 3}
+```
+Or by version label:
+```json
+{"version": "v1.0"}
+```
+This saves the current version to history BEFORE restoring, so nothing is ever lost. Use `GET ?id={id}&history=1` first to see available versions.
+
+### 7. List team members
 ```
 GET /api/proposals.php?action=team
 ```
 Returns: available team members with id, nombre, cargo. Use their IDs in `equipo_ids` when creating/updating proposals.
 
-### 7. Get API schema
+### 8. Get API schema
 ```
 GET /api/proposals.php?action=schema
 ```

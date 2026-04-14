@@ -1001,13 +1001,20 @@ else: ?>
                                 class="bg-bg-base border border-border-base text-tp-primary rounded-xl focus:border-border-focus focus:ring-1 focus:ring-border-focus transition-all w-full px-4 py-3 font-mono text-lg tracking-widest outline-none"
                                 required>
                         </div>
-                        <div class="flex items-end pb-3">
+                        <div class="flex flex-col gap-3 pb-3">
                             <label class="flex items-center space-x-3 cursor-pointer">
                                 <input type="checkbox" name="new_version" id="new_version" value="1"
                                     class="w-5 h-5 rounded border-border-base bg-bg-base text-tp-primary focus:ring-tp-primary focus:ring-offset-bg-surface">
                                 <span class="text-sm font-semibold text-text-secondary">Guardar como nueva
                                     versión</span>
                             </label>
+                            <div id="form-history-container" style="display: none;" class="flex items-center gap-2">
+                                <i data-lucide="history" class="w-4 h-4 text-text-muted"></i>
+                                <select id="form-history-select" onchange="restoreVersionFromForm(this.value)"
+                                    class="bg-bg-base border border-border-base text-white text-xs rounded-lg px-2 py-1.5 outline-none focus:border-tp-primary transition-colors">
+                                    <option value="">Restaurar versión anterior...</option>
+                                </select>
+                            </div>
                         </div>
                     </div>
                     <div>
@@ -1537,7 +1544,56 @@ else: ?>
                 console.error('Error parsing equipo_ids:', e);
             }
 
+            fetchFormHistory(p.id);
             openDrawer('hs-overlay-create');
+        }
+
+        async function fetchFormHistory(propuestaId) {
+            const select = document.getElementById('form-history-select');
+            const container = document.getElementById('form-history-container');
+            select.innerHTML = '<option value="">Restaurar versión anterior...</option>';
+
+            if (!propuestaId) {
+                container.style.display = 'none';
+                return;
+            }
+
+            try {
+                const res = await fetch(`admin.php?action=get_history&id=${propuestaId}`);
+                const data = await res.json();
+                if (data.success && data.history.length > 0) {
+                    container.style.display = 'flex';
+                    data.history.forEach(h => {
+                        const date = new Date(h.created_at).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
+                        select.innerHTML += `<option value="${h.id}">${h.version} (${date})</option>`;
+                    });
+                } else {
+                    container.style.display = 'none';
+                }
+            } catch (e) {
+                container.style.display = 'none';
+            }
+        }
+
+        async function restoreVersionFromForm(historyId) {
+            if (!historyId) return;
+            if (!confirm('¿Restaurar esta versión? El contenido actual del editor será reemplazado.')) {
+                document.getElementById('form-history-select').value = '';
+                return;
+            }
+
+            try {
+                const res = await fetch(`admin.php?action=get_history_html&history_id=${historyId}`);
+                const data = await res.json();
+                if (data.success) {
+                    document.getElementById('html_content').value = data.html;
+                } else {
+                    alert('No se pudo cargar la versión.');
+                }
+            } catch (e) {
+                alert('Error al restaurar versión.');
+            }
+            document.getElementById('form-history-select').value = '';
         }
 
         function openDrawer(id) {
@@ -1557,6 +1613,7 @@ else: ?>
             document.getElementById('html_content').value = '';
             if (document.getElementById('new_version')) document.getElementById('new_version').checked = false;
             document.querySelectorAll('input[name="equipo_ids[]"]').forEach(cb => cb.checked = false);
+            document.getElementById('form-history-container').style.display = 'none';
             openDrawer('hs-overlay-create');
         }
 

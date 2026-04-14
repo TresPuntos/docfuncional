@@ -92,6 +92,11 @@ if ($method === 'GET' && $action === 'team') {
     handleTeam($pdo);
 }
 
+// --- POST: Restore version ---
+if ($method === 'POST' && $action === 'restore' && $id) {
+    handleRestore($pdo, $id);
+}
+
 // --- CRUD ---
 switch ($method) {
     case 'GET':
@@ -192,6 +197,57 @@ function handleGetOne(PDO $pdo, int $id): void {
 /**
  * GET /api/proposals.php?id=X&history=1 — Historial de versiones
  */
+/**
+ * POST /api/proposals.php?id=X&action=restore — Restaurar version del historial
+ * Body: {"history_id": 3} o {"version": "v1.0"}
+ */
+function handleRestore(PDO $pdo, int $id): void {
+    $input = json_decode(file_get_contents('php://input'), true);
+
+    // Verificar propuesta existe
+    $current = $pdo->prepare("SELECT * FROM propuestas WHERE id = ?");
+    $current->execute([$id]);
+    $proposal = $current->fetch(PDO::FETCH_ASSOC);
+    if (!$proposal) {
+        jsonError('Proposal not found', 404);
+    }
+
+    // Buscar version a restaurar: por history_id o por version label
+    if (!empty($input['history_id'])) {
+        $stmt = $pdo->prepare("SELECT id, version, html_content FROM propuestas_history WHERE id = ? AND propuesta_id = ?");
+        $stmt->execute([(int)$input['history_id'], $id]);
+    } elseif (!empty($input['version'])) {
+        $stmt = $pdo->prepare("SELECT id, version, html_content FROM propuestas_history WHERE version = ? AND propuesta_id = ? ORDER BY created_at DESC LIMIT 1");
+        $stmt->execute([trim($input['version']), $id]);
+    } else {
+        jsonError('Provide history_id or version to restore');
+    }
+
+    $historyRecord = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$historyRecord) {
+        jsonError('Version not found in history', 404);
+    }
+
+    // Guardar version actual en historial antes de restaurar
+    $saveHistory = $pdo->prepare("INSERT INTO propuestas_history (propuesta_id, version, html_content) VALUES (?, ?, ?)");
+    $saveHistory->execute([$id, $proposal['version'], $proposal['html_content']]);
+
+    // Restaurar
+    $update = $pdo->prepare("UPDATE propuestas SET html_content = :html, version = :version WHERE id = :id");
+    $update->execute([
+        ':html' => $historyRecord['html_content'],
+        ':version' => $historyRecord['version'],
+        ':id' => $id
+    ]);
+
+    jsonSuccess([
+        'id' => $id,
+        'restored_version' => $historyRecord['version'],
+        'previous_version_saved' => $proposal['version'],
+        'message' => "Restored to {$historyRecord['version']}. Previous version ({$proposal['version']}) saved to history."
+    ]);
+}
+
 function handleGetHistory(PDO $pdo, int $id): void {
     // Verificar que existe
     $check = $pdo->prepare("SELECT id, slug, client_name FROM propuestas WHERE id = ?");
@@ -424,6 +480,11 @@ function handleSchema(): void {
                 'method' => 'GET',
                 'path' => '/api/proposals.php?action=team',
                 'description' => 'Listar miembros del equipo disponibles'
+            ],
+            [
+                'method' => 'POST',
+                'path' => '/api/proposals.php?id={id}&action=restore',
+                'description' => 'Restaurar una version anterior. Body: {"history_id": X} o {"version": "v1.0"}. Guarda la version actual en historial antes de restaurar.'
             ]
         ],
         'create_fields' => [
