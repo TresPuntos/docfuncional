@@ -64,10 +64,13 @@ Historial guardado: v1.1, v1.2 (restaurables vía API o admin).
   - Prep reunión: `3401b33b-8b21-8155-87db-c3f4f8a1eedc`
 
 ### 🎯 Siguiente paso natural
-1. Commit + push de los cambios tipográficos (H1/H2 reducidos) a GitHub.
-2. Crear la **skill `create-functional-doc`** para que futuros documentos se generen con la librería.
-3. Validar `h2bhipotecas-1` v1.3 con el cliente y generar presupuesto por fases.
-4. Limpiar cuenta FTP `claude3` de Hostinger cuando dejemos de subir archivos.
+1. ~~Commit + push de los cambios tipográficos (H1/H2 reducidos) a GitHub.~~ ✅ (bd781ac · 8c2555d)
+2. ~~h2bhipotecas v1.4 con Resumen ejecutivo, accordion D admin, phase-tags, polish exec-summary.~~ ✅ (750713c)
+3. ~~Light mode + toggle en sidebar + protección anti-copia en /p/{slug}.~~ ✅ (4215969)
+4. Validar `h2bhipotecas-1` v1.4 con Jordi y promocionar a v1.5 con `save_version: true` cuando esté OK.
+5. Enviar a Jennifer tras validación.
+6. Crear la **skill `create-functional-doc`** para futuros documentos funcionales.
+7. Limpiar cuenta FTP `claude3` de Hostinger cuando dejemos de subir archivos.
 
 ---
 
@@ -124,7 +127,11 @@ Historial guardado: v1.1, v1.2 (restaurables vía API o admin).
 | `tp-timeline` | ✅ en library |
 | `tp-stat` | ✅ en library |
 | `tp-section-divider` | ✅ en library |
-| `tp-stack` (accordion FAQ) | pendiente P1 |
+| `tp-stack` (accordion FAQ) | ✅ en library |
+| `exec-summary` + `exec-phase` | ✅ en library |
+| `phase-tag` (Fase 1/2 en H2) | ✅ en library |
+| Light mode tokens + overrides | ✅ en library |
+| `@media print` (bloqueo) | ✅ en library |
 | `tp-toc-inline` | pendiente P1 |
 | `tp-diff` | pendiente P2 |
 
