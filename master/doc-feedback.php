@@ -341,12 +341,16 @@
             if (e.key === 'Escape' && document.getElementById('tp-drawer').classList.contains('open')) closeDrawer();
         });
 
-        // Reinyectar botones si el DOM cambia (team-grid, sitemap, etc.)
-        const area = document.getElementById('content-area');
+        // Los IDs de los H2/H3 se asignan por JS después del DOMContentLoaded (ver nav dinámico
+        // en view.php), así que reintentamos y observamos también cambios de atributo `id`.
+        const area = document.getElementById('content-area') || document.querySelector('article.doc-main');
         if (area && window.MutationObserver) {
             const mo = new MutationObserver(() => injectSectionButtons());
-            mo.observe(area, { childList: true, subtree: true });
+            mo.observe(area, { childList: true, subtree: true, attributes: true, attributeFilter: ['id'] });
         }
+        // Reintentos programados por si el nav script corre tarde.
+        [100, 400, 1200, 2500].forEach(ms => setTimeout(injectSectionButtons, ms));
+        window.addEventListener('load', injectSectionButtons);
     }
 
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
