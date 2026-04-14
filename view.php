@@ -194,14 +194,18 @@ if ($is_unlocked) {
                 ]);
             $id = (int)$pdo->lastInsertId();
 
-            $tgHeader = $parentId ? "💬 <b>Respuesta del cliente</b>" : "💬 <b>Comentario en sección</b>";
+            $tgHeader = $parentId ? "💬 Respuesta" : "💬 Nuevo comentario";
             $sectionUrl = $viewUrl . '#' . urlencode($anchor);
+            $sectionLabel = $title !== '' ? $title : $anchor;
+            // Resumen corto: 80 primeros caracteres sin romper palabras
+            $resumen = mb_substr($texto, 0, 80);
+            if (mb_strlen($texto) > 80) $resumen .= '…';
             sendTelegramNotification(
-                $tgHeader . "\nCliente: <b>" . htmlspecialchars($clientName, ENT_QUOTES, 'UTF-8') . "</b>"
-                . "\nAutor: <b>" . htmlspecialchars($signer['nombre'] . ' ' . $signer['apellidos'], ENT_QUOTES, 'UTF-8') . "</b>"
-                . "\nSección: <i>" . htmlspecialchars($title !== '' ? $title : $anchor, ENT_QUOTES, 'UTF-8') . "</i>"
-                . "\n\n" . htmlspecialchars(mb_substr($texto, 0, 600), ENT_QUOTES, 'UTF-8')
-                . "\n\n<a href=\"" . htmlspecialchars($sectionUrl, ENT_QUOTES) . "\">Ver sección</a> · <a href=\"" . htmlspecialchars($adminFeedbackUrl, ENT_QUOTES) . "\">Abrir en admin</a>"
+                $tgHeader . " · <b>" . htmlspecialchars($clientName, ENT_QUOTES, 'UTF-8') . "</b>"
+                . "\n<i>" . htmlspecialchars($sectionLabel, ENT_QUOTES, 'UTF-8') . "</i>"
+                . " · " . htmlspecialchars($signer['nombre'], ENT_QUOTES, 'UTF-8')
+                . "\n" . htmlspecialchars($resumen, ENT_QUOTES, 'UTF-8')
+                . "\n<a href=\"" . htmlspecialchars($sectionUrl, ENT_QUOTES) . "\">Ver</a> · <a href=\"" . htmlspecialchars($adminFeedbackUrl, ENT_QUOTES) . "\">Admin</a>"
             );
 
             echo json_encode(['success' => true, 'id' => $id, 'created_at' => date('c')]);
@@ -234,12 +238,13 @@ if ($is_unlocked) {
                 $texto = trim($_POST['texto'] ?? '');
                 if ($texto === '' || mb_strlen($texto) > 4000) { echo json_encode(['success' => false, 'error' => 'Texto inválido.']); exit; }
                 $pdo->prepare("UPDATE comentarios_seccion SET texto = ? WHERE id = ?")->execute([$texto, $id]);
+                $resumenEdit = mb_substr($texto, 0, 80);
+                if (mb_strlen($texto) > 80) $resumenEdit .= '…';
                 sendTelegramNotification(
-                    "✏️ <b>Comentario editado</b>"
-                    . "\nCliente: <b>" . htmlspecialchars($clientName, ENT_QUOTES, 'UTF-8') . "</b>"
-                    . "\nAutor: <b>" . htmlspecialchars($signer['nombre'] . ' ' . $signer['apellidos'], ENT_QUOTES, 'UTF-8') . "</b>"
-                    . "\n\n" . htmlspecialchars(mb_substr($texto, 0, 600), ENT_QUOTES, 'UTF-8')
-                    . "\n\n<a href=\"" . htmlspecialchars($adminFeedbackUrl, ENT_QUOTES) . "\">Abrir en admin</a>"
+                    "✏️ Editado · <b>" . htmlspecialchars($clientName, ENT_QUOTES, 'UTF-8') . "</b>"
+                    . " · " . htmlspecialchars($signer['nombre'], ENT_QUOTES, 'UTF-8')
+                    . "\n" . htmlspecialchars($resumenEdit, ENT_QUOTES, 'UTF-8')
+                    . "\n<a href=\"" . htmlspecialchars($adminFeedbackUrl, ENT_QUOTES) . "\">Admin</a>"
                 );
                 echo json_encode(['success' => true]);
                 exit;
@@ -247,9 +252,8 @@ if ($is_unlocked) {
             // delete
             $pdo->prepare("DELETE FROM comentarios_seccion WHERE id = ?")->execute([$id]);
             sendTelegramNotification(
-                "🗑️ <b>Comentario eliminado</b>"
-                . "\nCliente: <b>" . htmlspecialchars($clientName, ENT_QUOTES, 'UTF-8') . "</b>"
-                . "\nAutor: <b>" . htmlspecialchars($signer['nombre'] . ' ' . $signer['apellidos'], ENT_QUOTES, 'UTF-8') . "</b>"
+                "🗑️ Eliminado · <b>" . htmlspecialchars($clientName, ENT_QUOTES, 'UTF-8') . "</b>"
+                . " · " . htmlspecialchars($signer['nombre'], ENT_QUOTES, 'UTF-8')
             );
             echo json_encode(['success' => true]);
             exit;
