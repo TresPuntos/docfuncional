@@ -364,18 +364,57 @@ if ($is_unlocked) {
                                                 href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@700;800&family=JetBrains+Mono:wght@400;500&display=swap"
                                                 rel="stylesheet">
                                                 <link rel="stylesheet" href="/master/doc-library.css?v=<?php echo @filemtime(__DIR__.'/master/doc-library.css'); ?>">
+                                                <script>
+                                                    // Theme init antes del render para evitar FOUC
+                                                    (function() {
+                                                        try {
+                                                            var stored = localStorage.getItem('tp-theme');
+                                                            var sysLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+                                                            var theme = stored || (sysLight ? 'light' : 'dark');
+                                                            document.documentElement.setAttribute('data-theme', theme);
+                                                        } catch(e) {
+                                                            document.documentElement.setAttribute('data-theme', 'dark');
+                                                        }
+                                                    })();
+                                                </script>
                                                 <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         :root {
             --tp-primary: #5DFFBF;
+            --tp-primary-rgb: 93, 255, 191;
             --bg-base: #0E0E0E;
             --bg-surface: #141414;
+            --bg-nav-hover: #1A1A1A;
+            --bg-nav-active: #2A2A2A;
             --text-primary: #F5F5F5;
             --text-secondary: #B3B3B3;
             --text-muted: #8A8A8A;
             --border-base: #1F1F1F;
             --border-strong: #2A2A2A;
             --font-heading: 'Plus Jakarta Sans', sans-serif;
+            --overlay-scrim: rgba(0, 0, 0, 0.75);
+        }
+
+        [data-theme="light"] {
+            --tp-primary: #0FA36C;
+            --tp-primary-rgb: 15, 163, 108;
+            --bg-base: #F7F6F3;
+            --bg-surface: #FFFFFF;
+            --bg-nav-hover: #F0EFEB;
+            --bg-nav-active: #E8E6E0;
+            --text-primary: #141414;
+            --text-secondary: #4A4A4A;
+            --text-muted: #6E6E6E;
+            --border-base: #E4E2DC;
+            --border-strong: #D0CEC6;
+            --overlay-scrim: rgba(20, 20, 20, 0.4);
+        }
+
+        html {
+            color-scheme: dark;
+        }
+        [data-theme="light"] {
+            color-scheme: light;
         }
 
         * {
@@ -448,13 +487,13 @@ if ($is_unlocked) {
         }
 
         .nav-link:hover {
-            background: #1A1A1A;
-            color: #FFF;
+            background: var(--bg-nav-hover);
+            color: var(--text-primary);
         }
 
         .nav-link.active {
-            background: #2A2A2A;
-            color: #FFF;
+            background: var(--bg-nav-active);
+            color: var(--text-primary);
             font-weight: 600;
         }
 
@@ -469,23 +508,23 @@ if ($is_unlocked) {
             font-weight: 600;
             border-radius: 8px;
             transition: all 0.2s;
-            background: rgba(93, 255, 191, 0.08);
+            background: rgba(var(--tp-primary-rgb), 0.08);
             margin-top: 1rem;
             margin-bottom: 1rem;
             text-align: center;
-            border: 1px solid rgba(93, 255, 191, 0.2);
+            border: 1px solid rgba(var(--tp-primary-rgb), 0.2);
         }
 
         .nav-link-cta:hover {
-            background: rgba(93, 255, 191, 0.15);
-            border-color: rgba(93, 255, 191, 0.4);
+            background: rgba(var(--tp-primary-rgb), 0.15);
+            border-color: rgba(var(--tp-primary-rgb), 0.4);
         }
 
         .nav-link-cta.active {
-            background: rgba(93, 255, 191, 0.2);
+            background: rgba(var(--tp-primary-rgb), 0.2);
             border-color: var(--tp-primary);
             font-weight: 700;
-            box-shadow: 0 0 15px rgba(93, 255, 191, 0.1);
+            box-shadow: 0 0 15px rgba(var(--tp-primary-rgb), 0.1);
         }
 
         /* Modals */
@@ -506,7 +545,7 @@ if ($is_unlocked) {
         }
 
         .modal-box {
-            background: #141414;
+            background: var(--bg-surface);
             border: 1px solid #2A2A2A;
             border-radius: 20px;
             padding: 3rem;
@@ -542,7 +581,7 @@ if ($is_unlocked) {
         }
 
         .modal-close:hover {
-            color: #FFF;
+            color: var(--text-primary);
         }
 
         .modal-icon {
@@ -568,7 +607,7 @@ if ($is_unlocked) {
         .modal-box h3 {
             font-family: var(--font-heading);
             font-size: 1.6rem;
-            color: #FFF;
+            color: var(--text-primary);
             margin-bottom: 0.75rem;
         }
 
@@ -581,7 +620,7 @@ if ($is_unlocked) {
 
         .modal-textarea {
             width: 100%;
-            background: #0E0E0E;
+            background: var(--bg-base);
             border: 1px solid #2A2A2A;
             border-radius: 12px;
             padding: 1.25rem;
@@ -644,7 +683,7 @@ if ($is_unlocked) {
         }
 
         .btn-modal-secondary:hover {
-            color: #FFF;
+            color: var(--text-primary);
             border-color: #444;
         }
 
@@ -662,7 +701,7 @@ if ($is_unlocked) {
         .modal-success h4 {
             font-family: var(--font-heading);
             font-size: 1.3rem;
-            color: #FFF;
+            color: var(--text-primary);
             margin-bottom: 0.5rem;
         }
 
@@ -700,7 +739,7 @@ if ($is_unlocked) {
         .cta-block h2 {
             font-family: var(--font-heading);
             font-size: 2.5rem;
-            color: #FFF;
+            color: var(--text-primary);
             margin-bottom: 1rem;
             margin-top: 0;
             display: flex;
@@ -769,8 +808,8 @@ if ($is_unlocked) {
         }
 
         .btn-cta-secondary:hover {
-            background: #1A1A1A;
-            color: #FFF;
+            background: var(--bg-nav-hover);
+            color: var(--text-primary);
             border-color: #444;
         }
 
@@ -806,14 +845,14 @@ if ($is_unlocked) {
             font-family: var(--font-heading);
             font-size: 2.6rem;
             font-weight: 800;
-            color: #FFF;
+            color: var(--text-primary);
             letter-spacing: -0.03em;
             margin-bottom: 1rem;
         }
 
         .doc-meta {
             font-size: 1rem;
-            color: #666;
+            color: var(--text-muted);
             margin-bottom: 5rem;
         }
 
@@ -822,7 +861,7 @@ if ($is_unlocked) {
             font-size: 1.7rem;
             margin-top: 4.5rem;
             margin-bottom: 1.75rem;
-            color: #FFF;
+            color: var(--text-primary);
             display: flex;
             align-items: center;
             gap: 1rem;
@@ -841,7 +880,7 @@ if ($is_unlocked) {
             font-family: var(--font-heading);
             font-size: 1.4rem;
             margin: 3rem 0 1rem;
-            color: #EEE;
+            color: var(--text-primary);
         }
 
         .content-wrapper p {
@@ -909,6 +948,82 @@ if ($is_unlocked) {
 
         @media (max-width: 768px) {
             .progress-label { display: none; }
+        }
+
+        /* Theme toggle · en sidebar */
+        .theme-toggle {
+            display: flex;
+            align-items: center;
+            gap: .65rem;
+            padding: .7rem .9rem;
+            margin-top: 1rem;
+            background: transparent;
+            border: 1px solid var(--border-base);
+            border-radius: 8px;
+            color: var(--text-muted);
+            font-family: inherit;
+            font-size: .8rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all .18s ease;
+            width: 100%;
+            text-align: left;
+        }
+        .theme-toggle:hover {
+            color: var(--text-primary);
+            border-color: var(--border-strong);
+            background: var(--bg-nav-hover);
+        }
+        .theme-toggle__icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 18px;
+            height: 18px;
+            color: var(--tp-primary);
+            flex-shrink: 0;
+        }
+        .theme-toggle__icon i[data-lucide] {
+            width: 16px;
+            height: 16px;
+            stroke-width: 2;
+        }
+        [data-theme="dark"] .theme-toggle__icon--light,
+        :root:not([data-theme="light"]) .theme-toggle__icon--light {
+            display: none;
+        }
+        [data-theme="light"] .theme-toggle__icon--dark {
+            display: none;
+        }
+        .theme-toggle__label::before {
+            content: 'Tema claro';
+        }
+        [data-theme="light"] .theme-toggle__label::before {
+            content: 'Tema oscuro';
+        }
+
+        /* Light-mode overrides para hardcodes residuales del shell */
+        [data-theme="light"] .modal-box { box-shadow: 0 20px 60px -20px rgba(20, 20, 20, .2); }
+        [data-theme="light"] .mobile-header { border-bottom-color: var(--border-base); }
+        [data-theme="light"] .mobile-nav-overlay { background: var(--bg-base); }
+        [data-theme="light"] .progress-bar { background: var(--bg-nav-hover); }
+        [data-theme="light"] .progress-label {
+            background: var(--bg-surface);
+            color: var(--text-primary);
+            border: 1px solid var(--border-base);
+            box-shadow: 0 4px 16px -4px rgba(20, 20, 20, .1);
+        }
+        [data-theme="light"] aside { border-right-color: var(--border-base); }
+        [data-theme="light"] .team-card,
+        [data-theme="light"] .cta-block {
+            background: var(--bg-surface);
+            border-color: var(--border-base);
+            box-shadow: 0 1px 2px rgba(20, 20, 20, .04);
+        }
+        [data-theme="light"] code,
+        [data-theme="light"] pre {
+            background: var(--bg-nav-hover);
+            color: var(--text-primary);
         }
 
         /* Hierarchical sidebar nav — H2 parents + H3 children */
@@ -999,7 +1114,7 @@ if ($is_unlocked) {
         }
 
         .team-card {
-            background: #141414;
+            background: var(--bg-surface);
             border: 1px solid #1F1F1F;
             border-radius: 20px;
             overflow: hidden;
@@ -1020,7 +1135,7 @@ if ($is_unlocked) {
             width: 100%;
             aspect-ratio: 1/1;
             overflow: hidden;
-            background: #0A0A0A;
+            background: var(--bg-base);
         }
 
         .team-photo-container img {
@@ -1067,7 +1182,7 @@ if ($is_unlocked) {
             font-family: var(--font-heading);
             font-size: 1.15rem;
             font-weight: 800;
-            color: #FFF;
+            color: var(--text-primary);
             margin-bottom: 0.5rem;
         }
 
@@ -1103,7 +1218,7 @@ if ($is_unlocked) {
         .menu-toggle {
             background: none;
             border: none;
-            color: #FFF;
+            color: var(--text-primary);
             cursor: pointer;
             padding: 0.5rem;
             display: flex;
@@ -1142,7 +1257,7 @@ if ($is_unlocked) {
             display: flex;
             align-items: center;
             padding: 1.25rem 0.5rem;
-            color: #FFF;
+            color: var(--text-primary);
             text-decoration: none;
             font-size: 1.1rem;
             font-weight: 600;
@@ -1213,6 +1328,11 @@ if ($is_unlocked) {
             <div class="sidebar-nav-container">
                 <ul id="sidebar-nav"></ul>
             </div>
+            <button class="theme-toggle" id="themeToggle" type="button" aria-label="Cambiar entre tema claro y oscuro">
+                <span class="theme-toggle__icon theme-toggle__icon--dark"><i data-lucide="moon"></i></span>
+                <span class="theme-toggle__icon theme-toggle__icon--light"><i data-lucide="sun"></i></span>
+                <span class="theme-toggle__label"></span>
+            </button>
         </aside>
         <main>
             <div class="content-wrapper">
@@ -1244,7 +1364,7 @@ if ($is_unlocked) {
                     <div class="cta-block" id="sec-avanzamos-doc">
                         <?php if (!$isDocApproved): ?>
                         <h2
-                            style="font-family: var(--font-heading); font-size: 2.5rem; color: #FFF; margin-bottom: 1rem; margin-top: 0; display: block;">
+                            style="font-family: var(--font-heading); font-size: 2.5rem; color: var(--text-primary); margin-bottom: 1rem; margin-top: 0; display: block;">
                             ¿Avanzamos con el proyecto?</h2>
                         <p>Si este documento refleja correctamente el alcance y los objetivos, podemos
                             validarlo y
@@ -1287,7 +1407,7 @@ if ($is_unlocked) {
                     <?php if ($hasPdf): ?>
                     <div class="cta-block" id="sec-presupuesto" style="margin-top: 4rem;">
                         <h2
-                            style="font-family: var(--font-heading); font-size: 2.5rem; color: #FFF; margin-bottom: 1rem; margin-top: 0; display: block;">
+                            style="font-family: var(--font-heading); font-size: 2.5rem; color: var(--text-primary); margin-bottom: 1rem; margin-top: 0; display: block;">
                             Presupuesto de Proyecto</h2>
                         <div
                             style="background: var(--bg-surface); padding: 1rem; border-radius: 16px; border: 1px solid var(--border-base); margin-bottom: 3rem; height: 800px;">
@@ -1723,7 +1843,24 @@ if ($is_unlocked) {
             if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
             setupSitemapInteractions();
             setupContentProtection();
+            setupThemeToggle();
         });
+
+        /**
+         * Theme toggle: alterna light/dark y persiste en localStorage.
+         * El init inline del <head> ya aplica el tema antes del render.
+         */
+        function setupThemeToggle() {
+            const btn = document.getElementById('themeToggle');
+            if (!btn) return;
+            btn.addEventListener('click', () => {
+                const current = document.documentElement.getAttribute('data-theme') || 'dark';
+                const next = current === 'dark' ? 'light' : 'dark';
+                document.documentElement.setAttribute('data-theme', next);
+                try { localStorage.setItem('tp-theme', next); } catch(e) {}
+                if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
+            });
+        }
 
         /**
          * Protección de contenido: bloquea copia, menú contextual, arrastre
