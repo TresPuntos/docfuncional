@@ -1896,7 +1896,17 @@ if ($is_unlocked) {
             const menu = document.getElementById('mobileNav');
             const isOpen = menu.classList.contains('open');
             if (isOpen) { menu.classList.remove('open'); document.body.style.overflow = ''; }
-            else { menu.classList.add('open'); document.body.style.overflow = 'hidden'; }
+            else {
+                // Colapsa todas las secciones desplegadas al abrir
+                menu.querySelectorAll('.mobile-nav-item.is-open').forEach(item => {
+                    item.classList.remove('is-open');
+                    const caret = item.querySelector('.mobile-nav-caret');
+                    if (caret) caret.setAttribute('aria-expanded', 'false');
+                });
+                menu.scrollTop = 0;
+                menu.classList.add('open');
+                document.body.style.overflow = 'hidden';
+            }
         }
 
         /**
