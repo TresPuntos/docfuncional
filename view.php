@@ -1249,19 +1249,125 @@ if ($is_unlocked) {
         }
 
         .mobile-nav-item {
-            margin-bottom: 0.5rem;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+            margin-bottom: 0.15rem;
+            border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.04));
+        }
+
+        .mobile-nav-row {
+            display: flex;
+            align-items: stretch;
+            gap: 0.25rem;
         }
 
         .mobile-nav-link {
             display: flex;
             align-items: center;
-            padding: 1.25rem 0.5rem;
+            flex: 1;
+            min-width: 0;
+            padding: 1.15rem 0.5rem;
             color: var(--text-primary);
             text-decoration: none;
-            font-size: 1.1rem;
+            font-size: 1.05rem;
             font-weight: 600;
             font-family: var(--font-heading);
+            gap: 0.75rem;
+        }
+        .mobile-nav-link span {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .mobile-nav-link.active {
+            color: var(--tp-primary);
+        }
+
+        .mobile-nav-caret {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 48px;
+            flex-shrink: 0;
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 0;
+            border-radius: 8px;
+            transition: background .18s ease, color .18s ease, transform .25s ease;
+        }
+        .mobile-nav-caret:hover,
+        .mobile-nav-caret:focus-visible {
+            background: var(--bg-nav-hover);
+            color: var(--text-primary);
+            outline: none;
+        }
+        .mobile-nav-caret svg {
+            width: 18px;
+            height: 18px;
+            transition: transform .28s cubic-bezier(.4, 0, .2, 1);
+        }
+        .mobile-nav-item.is-open > .mobile-nav-row .mobile-nav-caret svg {
+            transform: rotate(90deg);
+        }
+
+        .mobile-nav-children {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height .32s cubic-bezier(.4, 0, .2, 1);
+        }
+        .mobile-nav-item.is-open > .mobile-nav-children {
+            max-height: 900px;
+        }
+
+        .mobile-nav-sublink {
+            display: flex;
+            align-items: center;
+            padding: 0.85rem 0.5rem 0.85rem 2.25rem;
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 0.92rem;
+            font-weight: 500;
+            border-left: 1px solid var(--border-base);
+            margin-left: 0.9rem;
+            position: relative;
+        }
+        .mobile-nav-sublink::before {
+            content: '';
+            position: absolute;
+            left: -1px;
+            top: 50%;
+            width: 10px;
+            height: 1px;
+            background: var(--border-base);
+        }
+        .mobile-nav-sublink:hover,
+        .mobile-nav-sublink:focus-visible {
+            color: var(--text-primary);
+            outline: none;
+        }
+        .mobile-nav-sublink.active {
+            color: var(--tp-primary);
+            border-left-color: var(--tp-primary);
+        }
+
+        .mobile-nav-num {
+            font-family: var(--font-mono, 'JetBrains Mono', monospace);
+            font-size: 0.72rem;
+            font-weight: 500;
+            color: var(--text-muted);
+            background: var(--bg-nav-hover);
+            padding: 0.18rem 0.45rem;
+            border-radius: 4px;
+            flex-shrink: 0;
+            letter-spacing: 0.02em;
+        }
+        .mobile-nav-link.active .mobile-nav-num {
+            color: var(--tp-primary);
+            background: rgba(var(--tp-primary-rgb), 0.1);
         }
 
         @media (max-width: 1024px) {
@@ -1670,13 +1776,15 @@ if ($is_unlocked) {
 
             nav.innerHTML = '<li class="nav-item"><a href="#top" class="nav-link active" id="nav-intro" data-section="__intro"><span>Inicio</span></a></li>';
             if (mobileContainer) {
-                mobileContainer.innerHTML = '<li class="mobile-nav-item"><a href="#top" class="mobile-nav-link" onclick="toggleMobileMenu()"><span>Inicio</span></a></li>';
+                mobileContainer.innerHTML = '<li class="mobile-nav-item"><div class="mobile-nav-row"><a href="#top" class="mobile-nav-link" data-section="__intro" onclick="toggleMobileMenu()"><span>Inicio</span></a></div></li>';
             }
 
             const sections = [];
             const labels = { __intro: 'Inicio' };
             let currentParent = null;
             let currentChildList = null;
+            let currentMobileItem = null;
+            let currentMobileChildren = null;
 
             allHeaders.forEach((el, i) => {
                 const raw = (el.innerText || '').trim();
@@ -1719,10 +1827,18 @@ if ($is_unlocked) {
                     li.appendChild(currentChildList);
 
                     if (mobileContainer) {
+                        const mNumHTML = numero ? `<span class="mobile-nav-num">${numero}</span>` : '';
                         const mLi = document.createElement('li');
                         mLi.className = 'mobile-nav-item';
-                        mLi.innerHTML = `<a href="#${el.id}" class="mobile-nav-link" onclick="toggleMobileMenu()">${numHTML}<span>${texto}</span></a>`;
+                        mLi.dataset.sectionId = el.id;
+                        const caretBtn = isCTA ? '' : `<button class="mobile-nav-caret" type="button" aria-label="Desplegar subsecciones" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></button>`;
+                        mLi.innerHTML = `<div class="mobile-nav-row"><a href="#${el.id}" class="mobile-nav-link" data-section="${el.id}" onclick="toggleMobileMenu()">${mNumHTML}<span>${texto}</span></a>${caretBtn}</div>`;
+                        const mChildUl = document.createElement('ul');
+                        mChildUl.className = 'mobile-nav-children';
+                        mLi.appendChild(mChildUl);
                         mobileContainer.appendChild(mLi);
+                        currentMobileItem = mLi;
+                        currentMobileChildren = mChildUl;
                     }
                 } else if (tag === 'h3' && currentChildList) {
                     // H3 solo si ya hay un H2 padre
@@ -1731,6 +1847,12 @@ if ($is_unlocked) {
                     const subLi = document.createElement('li');
                     subLi.innerHTML = `<a href="#${el.id}" class="nav-link--sub" data-section="${el.id}"><span>${texto}</span></a>`;
                     currentChildList.appendChild(subLi);
+
+                    if (currentMobileChildren) {
+                        const mSubLi = document.createElement('li');
+                        mSubLi.innerHTML = `<a href="#${el.id}" class="mobile-nav-sublink" data-section="${el.id}" onclick="toggleMobileMenu()"><span>${texto}</span></a>`;
+                        currentMobileChildren.appendChild(mSubLi);
+                    }
                 }
             });
 
@@ -1743,6 +1865,29 @@ if ($is_unlocked) {
                     if (item) item.classList.toggle('is-open');
                 });
             });
+
+            // Mobile: oculta carets de items sin hijos; toggle desplegable
+            if (mobileContainer) {
+                mobileContainer.querySelectorAll('.mobile-nav-item').forEach(item => {
+                    const children = item.querySelector('.mobile-nav-children');
+                    const caret = item.querySelector('.mobile-nav-caret');
+                    if (caret && (!children || children.children.length === 0)) {
+                        caret.remove();
+                        if (children) children.remove();
+                    }
+                });
+                mobileContainer.querySelectorAll('.mobile-nav-caret').forEach(caret => {
+                    caret.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const item = caret.closest('.mobile-nav-item');
+                        if (!item) return;
+                        const willOpen = !item.classList.contains('is-open');
+                        item.classList.toggle('is-open');
+                        caret.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+                    });
+                });
+            }
 
             return { sections, labels };
         }
@@ -1760,8 +1905,9 @@ if ($is_unlocked) {
         function setupScrollSpy(sections, labels) {
             if (!sections.length) return;
             const nav = document.getElementById('sidebar-nav');
+            const mobileContainer = document.getElementById('mobile-nav-container');
             const label = document.getElementById('progressLabel');
-            const mobileNavLinks = document.querySelectorAll('.mobile-nav-link');
+            const mobileNavLinks = document.querySelectorAll('.mobile-nav-link, .mobile-nav-sublink');
             let currentId = null;
 
             const applyActive = (id) => {
@@ -1774,10 +1920,10 @@ if ($is_unlocked) {
                     l.classList.toggle('active', sec === id || (!id && l.id === 'nav-intro'));
                 });
 
-                // Mobile
+                // Mobile (incluye sublinks)
                 mobileNavLinks.forEach(l => {
-                    const href = l.getAttribute('href');
-                    l.classList.toggle('active', href === '#' + id);
+                    const sec = l.dataset.section;
+                    l.classList.toggle('active', sec === id || (!id && sec === '__intro'));
                 });
 
                 // Abre el padre si el activo es un H3
@@ -1790,6 +1936,16 @@ if ($is_unlocked) {
                 if (section && section.level === 3 && section.parentId) {
                     const parent = nav.querySelector(`[data-section-id="${section.parentId}"]`);
                     if (parent) parent.classList.add('is-open');
+                }
+
+                // Mobile: abre el padre si el activo es un H3 (sin cerrar si el usuario ya abrió otro)
+                if (mobileContainer && section && section.level === 3 && section.parentId) {
+                    const mParent = mobileContainer.querySelector(`[data-section-id="${section.parentId}"]`);
+                    if (mParent && !mParent.classList.contains('is-open')) {
+                        mParent.classList.add('is-open');
+                        const mCaret = mParent.querySelector('.mobile-nav-caret');
+                        if (mCaret) mCaret.setAttribute('aria-expanded', 'true');
+                    }
                 }
 
                 // Etiqueta flotante
