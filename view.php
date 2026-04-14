@@ -5,6 +5,11 @@ $base_path = rtrim(dirname($_SERVER['PHP_SELF']), '/\\');
 if ($base_path === '/' || $base_path === '\\') {
     $base_path = '';
 }
+// Fix: bajo PHP built-in server con router.php, PHP_SELF incluye /p/{slug}/view.php
+// y dirname devuelve /p/{slug}, que luego duplica /p/ en el redirect. Forzar vacío en dev.
+if (php_sapi_name() === 'cli-server' || strpos($base_path, '/p/') !== false) {
+    $base_path = '';
+}
 
 /**
  * Envia notificacion por Telegram usando las credenciales de config.php.
@@ -84,26 +89,71 @@ if ($is_unlocked) {
         header('Content-Type: application/json');
         $clientName = $proposal['client_name'] ?? '';
 
+        // --- Helpers de firma ligera (nombre + apellidos) ---
+        $readSigner = function () {
+            $n = trim($_POST['firmante_nombre'] ?? '');
+            $a = trim($_POST['firmante_apellidos'] ?? '');
+            $e = trim($_POST['firmante_email'] ?? '');
+            return [
+                'nombre' => mb_substr($n, 0, 80),
+                'apellidos' => mb_substr($a, 0, 120),
+                'email' => mb_substr($e, 0, 160),
+                'valid' => ($n !== '' && $a !== ''),
+            ];
+        };
+        $buildHash = function ($propId, $tipo, $signer, $version) {
+            $payload = $propId . '|' . $tipo . '|' . $signer['nombre'] . '|' . $signer['apellidos'] . '|' . $version . '|' . date('c');
+            return hash('sha256', $payload);
+        };
+
+        // Helper: URL pública para deep-link en notificaciones
+        $adminFeedbackUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? 'doc.trespuntos-lab.com') . '/admin_feedback.php?propuesta_id=' . $proposal['id'];
+        $viewUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? 'doc.trespuntos-lab.com') . '/p/' . $slug;
+
         if ($_POST['api_action'] === 'approve_doc') {
+            $signer = $readSigner();
+            if (!$signer['valid']) { echo json_encode(['success' => false, 'error' => 'Nombre y apellidos son obligatorios para firmar la aprobación.']); exit; }
             $stmtObj = $pdo->prepare("SELECT COUNT(*) FROM aprobaciones WHERE propuesta_id = ? AND tipo = 'documento_funcional'");
             $stmtObj->execute([$proposal['id']]);
-            if ($stmtObj->fetchColumn() == 0) {
-                $pdo->prepare("INSERT INTO aprobaciones (propuesta_id, tipo, ip_address) VALUES (?, ?, ?)")
-                    ->execute([$proposal['id'], 'documento_funcional', $_SERVER['REMOTE_ADDR']]);
+            $isFirst = ($stmtObj->fetchColumn() == 0);
+            $hash = $buildHash($proposal['id'], 'documento_funcional', $signer, $proposal['version']);
+            if ($isFirst) {
+                $pdo->prepare("INSERT INTO aprobaciones (propuesta_id, tipo, ip_address, firmante_nombre, firmante_apellidos, firmante_email, firma_hash, version_firmada, user_agent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                    ->execute([$proposal['id'], 'documento_funcional', $_SERVER['REMOTE_ADDR'], $signer['nombre'], $signer['apellidos'], $signer['email'], $hash, $proposal['version'], mb_substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255)]);
             }
-            sendTelegramNotification("✅ <b>Documento Aprobado</b>\nCliente: <b>" . htmlspecialchars($clientName, ENT_QUOTES, 'UTF-8') . "</b>");
-            echo json_encode(['success' => true]);
+            $prefix = $isFirst ? "✅ <b>Documento Aprobado</b>" : "🔁 <b>Re-firma Documento</b> <i>(ya estaba aprobado)</i>";
+            sendTelegramNotification(
+                $prefix
+                . "\nCliente: <b>" . htmlspecialchars($clientName, ENT_QUOTES, 'UTF-8') . "</b>"
+                . "\nFirmado por: <b>" . htmlspecialchars($signer['nombre'] . ' ' . $signer['apellidos'], ENT_QUOTES, 'UTF-8') . "</b>"
+                . "\nVersión: " . htmlspecialchars($proposal['version'])
+                . "\nHash: <code>" . substr($hash, 0, 16) . "…</code>"
+                . "\n\n<a href=\"" . htmlspecialchars($adminFeedbackUrl, ENT_QUOTES) . "\">Abrir en admin</a> · <a href=\"" . htmlspecialchars($viewUrl, ENT_QUOTES) . "\">Ver propuesta</a>"
+            );
+            echo json_encode(['success' => true, 'hash' => $hash, 'already' => !$isFirst]);
             exit;
         }
         if ($_POST['api_action'] === 'approve_pdf') {
+            $signer = $readSigner();
+            if (!$signer['valid']) { echo json_encode(['success' => false, 'error' => 'Nombre y apellidos son obligatorios para firmar la aprobación.']); exit; }
             $stmtObj = $pdo->prepare("SELECT COUNT(*) FROM aprobaciones WHERE propuesta_id = ? AND tipo = 'presupuesto'");
             $stmtObj->execute([$proposal['id']]);
-            if ($stmtObj->fetchColumn() == 0) {
-                $pdo->prepare("INSERT INTO aprobaciones (propuesta_id, tipo, ip_address) VALUES (?, ?, ?)")
-                    ->execute([$proposal['id'], 'presupuesto', $_SERVER['REMOTE_ADDR']]);
+            $isFirst = ($stmtObj->fetchColumn() == 0);
+            $hash = $buildHash($proposal['id'], 'presupuesto', $signer, $proposal['version']);
+            if ($isFirst) {
+                $pdo->prepare("INSERT INTO aprobaciones (propuesta_id, tipo, ip_address, firmante_nombre, firmante_apellidos, firmante_email, firma_hash, version_firmada, user_agent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                    ->execute([$proposal['id'], 'presupuesto', $_SERVER['REMOTE_ADDR'], $signer['nombre'], $signer['apellidos'], $signer['email'], $hash, $proposal['version'], mb_substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255)]);
             }
-            sendTelegramNotification("✅💰 <b>Presupuesto Aprobado</b>\nCliente: <b>" . htmlspecialchars($clientName, ENT_QUOTES, 'UTF-8') . "</b>");
-            echo json_encode(['success' => true]);
+            $prefix = $isFirst ? "✅💰 <b>Presupuesto Aprobado</b>" : "🔁💰 <b>Re-firma Presupuesto</b> <i>(ya estaba aprobado)</i>";
+            sendTelegramNotification(
+                $prefix
+                . "\nCliente: <b>" . htmlspecialchars($clientName, ENT_QUOTES, 'UTF-8') . "</b>"
+                . "\nFirmado por: <b>" . htmlspecialchars($signer['nombre'] . ' ' . $signer['apellidos'], ENT_QUOTES, 'UTF-8') . "</b>"
+                . "\nVersión: " . htmlspecialchars($proposal['version'])
+                . "\nHash: <code>" . substr($hash, 0, 16) . "…</code>"
+                . "\n\n<a href=\"" . htmlspecialchars($adminFeedbackUrl, ENT_QUOTES) . "\">Abrir en admin</a> · <a href=\"" . htmlspecialchars($viewUrl, ENT_QUOTES) . "\">Ver propuesta</a>"
+            );
+            echo json_encode(['success' => true, 'hash' => $hash, 'already' => !$isFirst]);
             exit;
         }
         if ($_POST['api_action'] === 'reject_pdf') {
@@ -122,6 +172,94 @@ if ($is_unlocked) {
             echo json_encode(['success' => true]);
             exit;
         }
+
+        // --- NUEVO: Comentarios por sección ---
+        if ($_POST['api_action'] === 'add_section_comment') {
+            $signer = $readSigner();
+            $anchor = trim($_POST['anchor'] ?? '');
+            $title = trim($_POST['section_title'] ?? '');
+            $texto = trim($_POST['texto'] ?? '');
+            $parentId = isset($_POST['parent_id']) && $_POST['parent_id'] !== '' ? (int)$_POST['parent_id'] : null;
+            if (!$signer['valid']) { echo json_encode(['success' => false, 'error' => 'Indica tu nombre y apellidos.']); exit; }
+            if ($anchor === '' || $texto === '') { echo json_encode(['success' => false, 'error' => 'Faltan datos.']); exit; }
+            if (mb_strlen($texto) > 4000) { echo json_encode(['success' => false, 'error' => 'Comentario demasiado largo.']); exit; }
+
+            $pdo->prepare("INSERT INTO comentarios_seccion (propuesta_id, section_anchor, section_title, autor_nombre, autor_apellidos, autor_email, texto, parent_id, ip_address, user_agent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                ->execute([
+                    $proposal['id'], mb_substr($anchor, 0, 200), mb_substr($title, 0, 200),
+                    $signer['nombre'], $signer['apellidos'], $signer['email'],
+                    $texto, $parentId,
+                    $_SERVER['REMOTE_ADDR'] ?? null,
+                    mb_substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255),
+                ]);
+            $id = (int)$pdo->lastInsertId();
+
+            $tgHeader = $parentId ? "💬 Respuesta" : "💬 Nuevo comentario";
+            $sectionUrl = $viewUrl . '#' . urlencode($anchor);
+            $sectionLabel = $title !== '' ? $title : $anchor;
+            // Resumen corto: 80 primeros caracteres sin romper palabras
+            $resumen = mb_substr($texto, 0, 80);
+            if (mb_strlen($texto) > 80) $resumen .= '…';
+            sendTelegramNotification(
+                $tgHeader . " · <b>" . htmlspecialchars($clientName, ENT_QUOTES, 'UTF-8') . "</b>"
+                . "\n<i>" . htmlspecialchars($sectionLabel, ENT_QUOTES, 'UTF-8') . "</i>"
+                . " · " . htmlspecialchars($signer['nombre'], ENT_QUOTES, 'UTF-8')
+                . "\n" . htmlspecialchars($resumen, ENT_QUOTES, 'UTF-8')
+                . "\n<a href=\"" . htmlspecialchars($sectionUrl, ENT_QUOTES) . "\">Ver</a> · <a href=\"" . htmlspecialchars($adminFeedbackUrl, ENT_QUOTES) . "\">Admin</a>"
+            );
+
+            echo json_encode(['success' => true, 'id' => $id, 'created_at' => date('c')]);
+            exit;
+        }
+
+        if ($_POST['api_action'] === 'list_section_comments') {
+            $stmt = $pdo->prepare("SELECT id, section_anchor, section_title, autor_nombre, autor_apellidos, texto, parent_id, resuelto, created_at FROM comentarios_seccion WHERE propuesta_id = ? ORDER BY created_at ASC");
+            $stmt->execute([$proposal['id']]);
+            echo json_encode(['success' => true, 'comments' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
+            exit;
+        }
+
+        if ($_POST['api_action'] === 'edit_section_comment' || $_POST['api_action'] === 'delete_section_comment') {
+            $id = (int)($_POST['id'] ?? 0);
+            $signer = $readSigner();
+            if (!$id || !$signer['valid']) { echo json_encode(['success' => false, 'error' => 'Faltan datos para editar/eliminar.']); exit; }
+
+            // Verificación de autoría (nombre + apellidos)
+            $stmt = $pdo->prepare("SELECT autor_nombre, autor_apellidos, created_at FROM comentarios_seccion WHERE id = ? AND propuesta_id = ?");
+            $stmt->execute([$id, $proposal['id']]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$row) { echo json_encode(['success' => false, 'error' => 'Comentario no encontrado.']); exit; }
+            if (mb_strtolower($row['autor_nombre']) !== mb_strtolower($signer['nombre']) || mb_strtolower($row['autor_apellidos']) !== mb_strtolower($signer['apellidos'])) {
+                echo json_encode(['success' => false, 'error' => 'Solo el autor puede editar o eliminar este comentario.']);
+                exit;
+            }
+
+            if ($_POST['api_action'] === 'edit_section_comment') {
+                $texto = trim($_POST['texto'] ?? '');
+                if ($texto === '' || mb_strlen($texto) > 4000) { echo json_encode(['success' => false, 'error' => 'Texto inválido.']); exit; }
+                $pdo->prepare("UPDATE comentarios_seccion SET texto = ? WHERE id = ?")->execute([$texto, $id]);
+                $resumenEdit = mb_substr($texto, 0, 80);
+                if (mb_strlen($texto) > 80) $resumenEdit .= '…';
+                sendTelegramNotification(
+                    "✏️ Editado · <b>" . htmlspecialchars($clientName, ENT_QUOTES, 'UTF-8') . "</b>"
+                    . " · " . htmlspecialchars($signer['nombre'], ENT_QUOTES, 'UTF-8')
+                    . "\n" . htmlspecialchars($resumenEdit, ENT_QUOTES, 'UTF-8')
+                    . "\n<a href=\"" . htmlspecialchars($adminFeedbackUrl, ENT_QUOTES) . "\">Admin</a>"
+                );
+                echo json_encode(['success' => true]);
+                exit;
+            }
+            // delete
+            $pdo->prepare("DELETE FROM comentarios_seccion WHERE id = ?")->execute([$id]);
+            sendTelegramNotification(
+                "🗑️ Eliminado · <b>" . htmlspecialchars($clientName, ENT_QUOTES, 'UTF-8') . "</b>"
+                . " · " . htmlspecialchars($signer['nombre'], ENT_QUOTES, 'UTF-8')
+            );
+            echo json_encode(['success' => true]);
+            exit;
+        }
+
+        echo json_encode(['success' => false, 'error' => 'Acción no reconocida']);
         exit;
     }
 
@@ -1025,6 +1163,21 @@ if ($is_unlocked) {
             background: var(--bg-nav-hover);
             color: var(--text-primary);
         }
+        /* CTA botones en modo claro — evita texto gris claro sobre fondo claro */
+        [data-theme="light"] .btn-cta-secondary {
+            color: var(--text-primary);
+            border-color: var(--border-strong, var(--border-base));
+            background: var(--bg-surface);
+        }
+        [data-theme="light"] .btn-cta-secondary:hover {
+            background: var(--bg-nav-hover);
+            color: var(--text-primary);
+            border-color: var(--text-secondary);
+        }
+        [data-theme="light"] .btn-cta-secondary i,
+        [data-theme="light"] .btn-cta-secondary svg { color: var(--text-primary); }
+        [data-theme="light"] .cta-block p,
+        [data-theme="light"] .cta-block { color: var(--text-secondary); }
 
         /* Hierarchical sidebar nav — H2 parents + H3 children */
         .nav-item-children {
@@ -1577,10 +1730,16 @@ if ($is_unlocked) {
                 <p>Confirmas que el documento refleja correctamente el alcance y objetivos del proyecto. A
                     partir de
                     aquí elaboraremos el presupuesto definitivo en base a lo acordado.</p>
+                <div class="tp-sign-fields">
+                    <label>Nombre<input type="text" id="sign-doc-nombre" autocomplete="given-name" required></label>
+                    <label>Apellidos<input type="text" id="sign-doc-apellidos" autocomplete="family-name" required></label>
+                    <label>Email (opcional)<input type="email" id="sign-doc-email" autocomplete="email"></label>
+                    <small class="tp-sign-legal">Al pulsar "Firmar y aprobar" dejas constancia de tu conformidad. Guardamos tu nombre, fecha, versión del documento y un hash de verificación. Versión actual: <strong><?php echo htmlspecialchars($proposal['version']); ?></strong></small>
+                </div>
                 <div class="modal-actions">
                     <button class="btn-modal-secondary" onclick="closeModal('approve')">Cancelar</button>
-                    <button class="btn-modal-primary" onclick="submitApproval()"><i data-lucide="send"
-                            style="width:16px;height:16px;"></i> Confirmar Aprobación</button>
+                    <button class="btn-modal-primary" onclick="submitApproval()"><i data-lucide="pen-tool"
+                            style="width:16px;height:16px;"></i> Firmar y aprobar</button>
                 </div>
             </div>
             <div class="modal-success" id="approve-success">
@@ -1630,10 +1789,16 @@ if ($is_unlocked) {
                 <p>Al confirmar, daremos por cerrado el presupuesto y te explicaremos los siguientes pasos
                     de
                     facturación y kickoff del proyecto.</p>
+                <div class="tp-sign-fields">
+                    <label>Nombre<input type="text" id="sign-pdf-nombre" autocomplete="given-name" required></label>
+                    <label>Apellidos<input type="text" id="sign-pdf-apellidos" autocomplete="family-name" required></label>
+                    <label>Email (opcional)<input type="email" id="sign-pdf-email" autocomplete="email"></label>
+                    <small class="tp-sign-legal">Al pulsar "Firmar y aprobar" dejas constancia de tu conformidad con este presupuesto. Guardamos tu nombre, fecha, versión y un hash de verificación.</small>
+                </div>
                 <div class="modal-actions">
                     <button class="btn-modal-secondary" onclick="closeModal('approve-pdf')">Cancelar</button>
-                    <button class="btn-modal-primary" onclick="submitPdfApproval()"><i data-lucide="send"
-                            style="width:16px;height:16px;"></i> Confirmar Presupuesto</button>
+                    <button class="btn-modal-primary" onclick="submitPdfApproval()"><i data-lucide="pen-tool"
+                            style="width:16px;height:16px;"></i> Firmar y aprobar</button>
                 </div>
             </div>
         </div>
@@ -2108,11 +2273,38 @@ if ($is_unlocked) {
             });
         }
 
+        function readSigner(prefix) {
+            const n = (document.getElementById('sign-' + prefix + '-nombre').value || '').trim();
+            const a = (document.getElementById('sign-' + prefix + '-apellidos').value || '').trim();
+            const e = (document.getElementById('sign-' + prefix + '-email').value || '').trim();
+            if (!n || !a) { alert('Nombre y apellidos son obligatorios para firmar.'); return null; }
+            try { localStorage.setItem('tp_signer', JSON.stringify({nombre: n, apellidos: a, email: e})); } catch(_){}
+            return { firmante_nombre: n, firmante_apellidos: a, firmante_email: e };
+        }
+
+        (function prefillSigner(){
+            try {
+                const s = JSON.parse(localStorage.getItem('tp_signer') || 'null');
+                if (!s) return;
+                ['doc','pdf'].forEach(p => {
+                    const n = document.getElementById('sign-'+p+'-nombre');
+                    const a = document.getElementById('sign-'+p+'-apellidos');
+                    const e = document.getElementById('sign-'+p+'-email');
+                    if (n && !n.value) n.value = s.nombre || '';
+                    if (a && !a.value) a.value = s.apellidos || '';
+                    if (e && !e.value) e.value = s.email || '';
+                });
+            } catch(_){}
+        })();
+
         async function submitApproval() {
+            const signer = readSigner('doc'); if (!signer) return;
             const btn = document.querySelector('#approve-form .btn-modal-primary');
-            btn.disabled = true; btn.textContent = 'Enviando...';
-            await apiCall('approve_doc');
-            setTimeout(() => window.location.reload(), 1000);
+            btn.disabled = true; btn.textContent = 'Firmando...';
+            const res = await apiCall('approve_doc', signer);
+            const data = await res.json().catch(() => ({}));
+            if (!data.success) { alert(data.error || 'Error al firmar'); btn.disabled = false; btn.innerHTML = '<i data-lucide="pen-tool" style="width:16px;height:16px;"></i> Firmar y aprobar'; if(window.lucide) lucide.createIcons(); return; }
+            setTimeout(() => window.location.reload(), 800);
         }
 
         async function submitComment() {
@@ -2126,10 +2318,13 @@ if ($is_unlocked) {
         }
 
         async function submitPdfApproval() {
+            const signer = readSigner('pdf'); if (!signer) return;
             const btn = document.querySelector('#approve-pdf-form .btn-modal-primary');
-            btn.disabled = true; btn.textContent = 'Enviando...';
-            await apiCall('approve_pdf');
-            setTimeout(() => window.location.reload(), 1000);
+            btn.disabled = true; btn.textContent = 'Firmando...';
+            const res = await apiCall('approve_pdf', signer);
+            const data = await res.json().catch(() => ({}));
+            if (!data.success) { alert(data.error || 'Error al firmar'); btn.disabled = false; btn.innerHTML = '<i data-lucide="pen-tool" style="width:16px;height:16px;"></i> Firmar y aprobar'; if(window.lucide) lucide.createIcons(); return; }
+            setTimeout(() => window.location.reload(), 800);
         }
 
         async function submitPdfRejection() {
@@ -2146,6 +2341,9 @@ if ($is_unlocked) {
     <!-- Calendly Widget -->
     <link href="https://assets.calendly.com/assets/external/widget.css" rel="stylesheet">
     <script src="https://assets.calendly.com/assets/external/widget.js" type="text/javascript" async></script>
+
+    <!-- Feature: comentarios por sección + firma ligera -->
+    <?php include __DIR__ . '/master/doc-feedback.php'; ?>
 </body>
 
 </html>
