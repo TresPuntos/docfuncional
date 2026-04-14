@@ -363,7 +363,7 @@ if ($is_unlocked) {
                                             <link
                                                 href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@700;800&family=JetBrains+Mono:wght@400;500&display=swap"
                                                 rel="stylesheet">
-                                                <link rel="stylesheet" href="<?php echo $base_path; ?>/master/doc-library.css?v=<?php echo @filemtime(__DIR__.'/master/doc-library.css'); ?>">
+                                                <link rel="stylesheet" href="/master/doc-library.css?v=<?php echo @filemtime(__DIR__.'/master/doc-library.css'); ?>">
                                                 <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         :root {
@@ -777,12 +777,14 @@ if ($is_unlocked) {
         main {
             margin-left: 320px;
             flex: 1;
+            min-width: 0;
             padding: 5rem 3rem;
         }
 
         .content-wrapper {
             max-width: 1080px;
             margin: 0 auto;
+            min-width: 0;
         }
 
         @media (min-width: 1600px) {

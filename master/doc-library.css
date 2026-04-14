@@ -420,7 +420,9 @@
   padding: .55rem 1.5rem .55rem 4rem;
   font-family: var(--tp-font-body);
   transition: background .15s;
+  min-width: 0;
 }
+.tp-sitemap__node > * { min-width: 0; }
 .tp-sitemap__node:hover { background: rgba(var(--tp-mint-rgb), .03); }
 .tp-sitemap__node + .tp-sitemap__node { border-top: 1px dashed rgba(255,255,255,.03); }
 
