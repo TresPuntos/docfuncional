@@ -785,6 +785,16 @@ if ($is_unlocked) {
             max-width: 1080px;
             margin: 0 auto;
             min-width: 0;
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+            -webkit-touch-callout: none;
+        }
+        .content-wrapper input,
+        .content-wrapper textarea {
+            -webkit-user-select: text;
+            user-select: text;
         }
 
         @media (min-width: 1600px) {
@@ -1712,7 +1722,34 @@ if ($is_unlocked) {
             setupScrollSpy(sections, labels);
             if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
             setupSitemapInteractions();
+            setupContentProtection();
         });
+
+        /**
+         * Protección de contenido: bloquea copia, menú contextual, arrastre
+         * y atajos de teclado habituales de extracción. Los inputs mantienen
+         * selección de texto natural.
+         */
+        function setupContentProtection() {
+            const isEditable = (t) => t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+            ['copy', 'cut', 'contextmenu', 'selectstart', 'dragstart'].forEach(evt => {
+                document.addEventListener(evt, (e) => {
+                    if (isEditable(e.target)) return;
+                    e.preventDefault();
+                });
+            });
+            document.addEventListener('keydown', (e) => {
+                if (isEditable(e.target)) return;
+                const mod = e.ctrlKey || e.metaKey;
+                const k = (e.key || '').toLowerCase();
+                if (mod && ['c', 'x', 'a', 's', 'p', 'u'].includes(k)) {
+                    e.preventDefault();
+                    return;
+                }
+                if (e.key === 'F12') e.preventDefault();
+                if (mod && e.shiftKey && ['i', 'j', 'c'].includes(k)) e.preventDefault();
+            });
+        }
 
         /**
          * Busqueda y "Expandir/Colapsar todo" en todos los .tp-sitemap del documento.
