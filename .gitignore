@@ -17,3 +17,22 @@ telegram_test.js
 test_db.php
 update_nextica.php
 old/
+
+# Local dev scratch / debug
+cookies.txt
+test_cards.html
+test_js.js
+test_*.html
+screenshot.js
+patch_*.py
+query_res*.txt
+sds_content.html
+sds_live.html
+sds_*.html
+nextica_v2.html
+admin_backup.php
+ejemplo-texto.rtf
+instruccion-v1.rtf
+*.rtf
+/.claude/
+

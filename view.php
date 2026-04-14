@@ -6,6 +6,32 @@ if ($base_path === '/' || $base_path === '\\') {
     $base_path = '';
 }
 
+/**
+ * Envia notificacion por Telegram usando las credenciales de config.php.
+ * No bloquea si Telegram falla (timeout 3s, errores silenciosos).
+ */
+function sendTelegramNotification($text) {
+    if (!defined('TELEGRAM_BOT_TOKEN') || !defined('TELEGRAM_CHAT_ID')) return false;
+    $url = 'https://api.telegram.org/bot' . TELEGRAM_BOT_TOKEN . '/sendMessage';
+    $payload = json_encode([
+        'chat_id'    => TELEGRAM_CHAT_ID,
+        'text'       => $text,
+        'parse_mode' => 'HTML',
+    ]);
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_POST           => true,
+        CURLOPT_POSTFIELDS     => $payload,
+        CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 3,
+        CURLOPT_CONNECTTIMEOUT => 2,
+    ]);
+    $ok = curl_exec($ch);
+    curl_close($ch);
+    return $ok !== false;
+}
+
 
 if (!isset($_GET['id']) || empty($_GET['id'])) {
     showError("Acceso Denegado", "El enlace no es válido o ha expirado.");
@@ -56,6 +82,8 @@ if ($is_unlocked) {
     // AJAX Handler for approvals
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['api_action'])) {
         header('Content-Type: application/json');
+        $clientName = $proposal['client_name'] ?? '';
+
         if ($_POST['api_action'] === 'approve_doc') {
             $stmtObj = $pdo->prepare("SELECT COUNT(*) FROM aprobaciones WHERE propuesta_id = ? AND tipo = 'documento_funcional'");
             $stmtObj->execute([$proposal['id']]);
@@ -63,6 +91,7 @@ if ($is_unlocked) {
                 $pdo->prepare("INSERT INTO aprobaciones (propuesta_id, tipo, ip_address) VALUES (?, ?, ?)")
                     ->execute([$proposal['id'], 'documento_funcional', $_SERVER['REMOTE_ADDR']]);
             }
+            sendTelegramNotification("✅ <b>Documento Aprobado</b>\nCliente: <b>" . htmlspecialchars($clientName, ENT_QUOTES, 'UTF-8') . "</b>");
             echo json_encode(['success' => true]);
             exit;
         }
@@ -73,18 +102,23 @@ if ($is_unlocked) {
                 $pdo->prepare("INSERT INTO aprobaciones (propuesta_id, tipo, ip_address) VALUES (?, ?, ?)")
                     ->execute([$proposal['id'], 'presupuesto', $_SERVER['REMOTE_ADDR']]);
             }
+            sendTelegramNotification("✅💰 <b>Presupuesto Aprobado</b>\nCliente: <b>" . htmlspecialchars($clientName, ENT_QUOTES, 'UTF-8') . "</b>");
             echo json_encode(['success' => true]);
             exit;
         }
         if ($_POST['api_action'] === 'reject_pdf') {
+            $comment = $_POST['comment'] ?? '';
             $pdo->prepare("INSERT INTO feedback_presupuesto (propuesta_id, tipo_accion, comentario) VALUES (?, ?, ?)")
-                ->execute([$proposal['id'], 'presupuesto_rechazado_o_cambios', $_POST['comment'] ?? '']);
+                ->execute([$proposal['id'], 'presupuesto_rechazado_o_cambios', $comment]);
+            sendTelegramNotification("❌ <b>Cambios en Presupuesto</b>\nCliente: <b>" . htmlspecialchars($clientName, ENT_QUOTES, 'UTF-8') . "</b>\n\n" . htmlspecialchars($comment, ENT_QUOTES, 'UTF-8'));
             echo json_encode(['success' => true]);
             exit;
         }
         if ($_POST['api_action'] === 'comment_doc') {
+            $comment = $_POST['comment'] ?? '';
             $pdo->prepare("INSERT INTO feedback_presupuesto (propuesta_id, tipo_accion, comentario) VALUES (?, ?, ?)")
-                ->execute([$proposal['id'], 'comentario_documento', $_POST['comment'] ?? '']);
+                ->execute([$proposal['id'], 'comentario_documento', $comment]);
+            sendTelegramNotification("💬 <b>Comentarios del cliente</b>\nCliente: <b>" . htmlspecialchars($clientName, ENT_QUOTES, 'UTF-8') . "</b>\n\n" . htmlspecialchars($comment, ENT_QUOTES, 'UTF-8'));
             echo json_encode(['success' => true]);
             exit;
         }
@@ -109,6 +143,15 @@ if ($is_unlocked) {
         $content = preg_replace('/<div[^>]*class=["\']content-wrapper["\'][^>]*>/is', '<div>', $content);
         $content = preg_replace('/<div[^>]*id=["\']content-wrapper["\'][^>]*>/is', '<div>', $content);
         $content = preg_replace('/<div[^>]*class=["\']app-container["\'][^>]*>/is', '<div>', $content);
+
+        // Auto-wrap tables with .table-scroll (skips tables already wrapped)
+        $content = preg_replace_callback(
+            '/(<table\b[^>]*>.*?<\/table>)/is',
+            function ($m) {
+                return '<div class="table-scroll">' . $m[1] . '</div>';
+            },
+            $content
+        );
 
         $proposal['html_content'] = trim($content);
 
@@ -318,17 +361,20 @@ if ($is_unlocked) {
                                                 <?php echo htmlspecialchars($proposal['client_name']); ?> | Propuesta Tres Puntos
                                             </title>
                                             <link
-                                                href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@700;800&display=swap"
+                                                href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@700;800&family=JetBrains+Mono:wght@400;500&display=swap"
                                                 rel="stylesheet">
+                                                <link rel="stylesheet" href="<?php echo $base_path; ?>/master/doc-library.css?v=<?php echo @filemtime(__DIR__.'/master/doc-library.css'); ?>">
                                                 <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         :root {
             --tp-primary: #5DFFBF;
             --bg-base: #0E0E0E;
             --bg-surface: #141414;
-            --text-primary: #B0B0B0;
-            --text-secondary: #BDBDBD;
+            --text-primary: #F5F5F5;
+            --text-secondary: #B3B3B3;
+            --text-muted: #8A8A8A;
             --border-base: #1F1F1F;
+            --border-strong: #2A2A2A;
             --font-heading: 'Plus Jakarta Sans', sans-serif;
         }
 
@@ -731,12 +777,17 @@ if ($is_unlocked) {
         main {
             margin-left: 320px;
             flex: 1;
-            padding: 6rem 4rem;
+            padding: 5rem 3rem;
         }
 
         .content-wrapper {
-            max-width: 840px;
+            max-width: 1080px;
             margin: 0 auto;
+        }
+
+        @media (min-width: 1600px) {
+            main { padding: 5rem 4rem; }
+            .content-wrapper { max-width: 1160px; }
         }
 
         h1 {
@@ -798,11 +849,11 @@ if ($is_unlocked) {
         .progress-bar {
             position: fixed;
             top: 0;
-            left: 320px;
+            left: 0;
             right: 0;
             height: 3px;
             background: rgba(0, 0, 0, 0.5);
-            z-index: 1000;
+            z-index: 1100;
         }
 
         .progress-fill {
@@ -810,109 +861,121 @@ if ($is_unlocked) {
             background: var(--tp-primary);
             width: 0%;
             transition: width 0.1s;
+            box-shadow: 0 0 10px rgba(93, 255, 191, 0.4);
         }
 
-        /* Content Cards (tp-grid & tp-card) */
-        .tp-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-            gap: 1rem;
-            margin: 2rem 0;
-            width: 100%;
-        }
-
-        .tp-card {
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 14px;
-            padding: 1.25rem;
-            position: relative;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        .progress-label {
+            position: fixed;
+            top: 14px;
+            right: 1.5rem;
+            font-family: var(--font-heading);
+            font-size: 0.72rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-muted);
+            background: rgba(14, 14, 14, 0.75);
+            backdrop-filter: blur(8px);
+            padding: 0.35rem 0.75rem;
+            border-radius: 999px;
+            border: 1px solid var(--border-base);
+            z-index: 1050;
+            opacity: 0;
+            transform: translateY(-4px);
+            transition: opacity .25s, transform .25s;
+            pointer-events: none;
+            max-width: calc(100vw - 3rem);
             overflow: hidden;
-            display: flex;
-            flex-direction: column;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
-        .tp-card::before {
+        .progress-label.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        @media (max-width: 768px) {
+            .progress-label { display: none; }
+        }
+
+        /* Hierarchical sidebar nav — H2 parents + H3 children */
+        .nav-item-children {
+            list-style: none;
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height .3s ease;
+            margin: 0;
+            padding-left: 0;
+        }
+
+        .nav-item.is-open > .nav-item-children {
+            max-height: 600px;
+        }
+
+        .nav-link--sub {
+            display: flex;
+            align-items: center;
+            padding: 0.45rem 1rem 0.45rem 2.2rem;
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.78rem;
+            font-weight: 400;
+            border-radius: 8px;
+            transition: all 0.15s;
+            position: relative;
+        }
+
+        .nav-link--sub::before {
             content: '';
             position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 2px;
-            background: linear-gradient(90deg, transparent, var(--tp-primary), transparent);
-            opacity: 0;
-            transition: opacity 0.3s ease;
+            left: 1.15rem;
+            top: 50%;
+            width: 6px;
+            height: 1px;
+            background: var(--border-strong);
         }
 
-        .tp-card:hover {
-            transform: translateY(-3px);
-            background: rgba(255, 255, 255, 0.05);
-            border-color: rgba(93, 255, 191, 0.25);
-            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4), 0 0 15px rgba(93, 255, 191, 0.04);
+        .nav-link--sub:hover {
+            color: #DDD;
+            background: rgba(255,255,255,0.02);
         }
 
-        .tp-card:hover::before {
-            opacity: 1;
-        }
-
-        .tp-card-icon {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 40px;
-            height: 40px;
-            border-radius: 10px;
-            background: rgba(93, 255, 191, 0.1);
+        .nav-link--sub.active {
             color: var(--tp-primary);
-            margin-bottom: 1rem;
+            font-weight: 500;
         }
 
-        .tp-card-icon:empty {
-            display: none;
-        }
-
-        .tp-card-icon svg:not([data-lucide])~.tp-card-icon {
-            display: none;
-        }
-
-        .tp-card-icon svg {
-            width: 20px;
-            height: 20px;
-        }
-
-        .tp-card-number {
-            position: absolute;
-            top: 1rem;
-            right: 1rem;
+        .nav-link .nav-num {
             font-family: var(--font-heading);
-            font-size: 2.2rem;
-            font-weight: 800;
-            line-height: 1;
-            color: rgba(255, 255, 255, 0.04);
-            pointer-events: none;
+            font-size: 0.7rem;
+            font-weight: 700;
+            color: var(--text-muted);
+            margin-right: 0.5rem;
+            letter-spacing: 0.04em;
+            flex-shrink: 0;
+            min-width: 22px;
         }
 
-        .tp-card h3 {
-            font-family: var(--font-heading);
-            font-size: 1.05rem !important;
-            color: #E0E0E0 !important;
-            margin: 0 0 0.5rem 0 !important;
+        .nav-link.active .nav-num {
+            color: var(--tp-primary);
         }
 
-        .tp-card p {
-            margin-bottom: 0 !important;
-            font-size: 0.92rem !important;
-            color: #C8C8C8 !important;
-            line-height: 1.5 !important;
-            font-weight: 400 !important;
+        .nav-link .nav-caret {
+            margin-left: auto;
+            width: 14px;
+            height: 14px;
+            opacity: 0.5;
+            transition: transform .2s;
+            flex-shrink: 0;
         }
 
-        .tp-card h3+p {
-            font-size: 0.88rem !important;
-            color: #999 !important;
-            font-weight: 400 !important;
+        .nav-item.is-open > .nav-link .nav-caret {
+            transform: rotate(90deg);
         }
+
+        /* Content components (.tp-grid, .tp-card, .tp-sitemap, .tp-callout, etc.)
+           live in /master/doc-library.css — do NOT duplicate here. */
 
         /* Team Cards */
         .team-grid {
@@ -1083,10 +1146,6 @@ if ($is_unlocked) {
                 margin-left: 280px;
                 padding: 4rem 2rem;
             }
-
-            .progress-bar {
-                left: 280px;
-            }
         }
 
         @media (max-width: 768px) {
@@ -1100,7 +1159,6 @@ if ($is_unlocked) {
             }
 
             .progress-bar {
-                left: 0;
                 top: 64px;
             }
 
@@ -1110,6 +1168,11 @@ if ($is_unlocked) {
 
             .mobile-header {
                 display: flex;
+            }
+
+            .content-wrapper h2 {
+                font-size: 1.7rem;
+                margin-top: 3.5rem;
             }
         }
     </style>
@@ -1131,6 +1194,7 @@ if ($is_unlocked) {
     <div class="progress-bar">
         <div class="progress-fill" id="progressFill"></div>
     </div>
+    <div class="progress-label" id="progressLabel"></div>
     <div class="app-container">
         <aside>
             <div class="sidebar-brand"><img src="/logo.svg" alt="Tres Puntos" style="height: 38px;"></div>
@@ -1158,105 +1222,6 @@ if ($is_unlocked) {
                     <?php echo htmlspecialchars($proposal['version'] ?? '1.0'); ?> · Enviado el
                     <?php echo $formattedDate; ?>
                 </p>
-                <style>
-                    /* Card Styles - Inline Failsafe */
-                    .tp-grid {
-                        display: grid;
-                        grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-                        gap: 1rem;
-                        margin: 2rem 0;
-                        width: 100%;
-                    }
-
-                    .tp-card {
-                        background: rgba(255, 255, 255, 0.03);
-                        border: 1px solid rgba(255, 255, 255, 0.08);
-                        border-radius: 14px;
-                        padding: 1.25rem;
-                        position: relative;
-                        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-                        overflow: hidden;
-                        display: flex;
-                        flex-direction: column;
-                    }
-
-                    .tp-card::before {
-                        content: '';
-                        position: absolute;
-                        top: 0;
-                        left: 0;
-                        right: 0;
-                        height: 2px;
-                        background: linear-gradient(90deg, transparent, var(--tp-primary, #5DFFBF), transparent);
-                        opacity: 0;
-                        transition: opacity 0.3s ease;
-                    }
-
-                    .tp-card:hover {
-                        transform: translateY(-3px);
-                        background: rgba(255, 255, 255, 0.05);
-                        border-color: rgba(93, 255, 191, 0.25);
-                        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4), 0 0 15px rgba(93, 255, 191, 0.04);
-                    }
-
-                    .tp-card:hover::before {
-                        opacity: 1;
-                    }
-
-                    .tp-card-icon {
-                        display: inline-flex;
-                        align-items: center;
-                        justify-content: center;
-                        width: 40px;
-                        height: 40px;
-                        border-radius: 10px;
-                        background: rgba(93, 255, 191, 0.1);
-                        color: var(--tp-primary, #5DFFBF);
-                        margin-bottom: 1rem;
-                    }
-
-                    .tp-card-icon:empty {
-                        display: none;
-                    }
-
-                    .tp-card-icon svg {
-                        width: 20px;
-                        height: 20px;
-                    }
-
-                    .tp-card-number {
-                        position: absolute;
-                        top: 1rem;
-                        right: 1rem;
-                        font-family: 'Plus Jakarta Sans', sans-serif;
-                        font-size: 2.2rem;
-                        font-weight: 800;
-                        line-height: 1;
-                        color: rgba(255, 255, 255, 0.04);
-                        pointer-events: none;
-                    }
-
-                    .tp-card h3 {
-                        font-family: 'Plus Jakarta Sans', sans-serif;
-                        font-size: 1.05rem !important;
-                        color: #E0E0E0 !important;
-                        margin: 0 0 0.5rem 0 !important;
-                    }
-
-                    .tp-card p {
-                        margin-bottom: 0 !important;
-                        font-size: 0.92rem !important;
-                        color: #C8C8C8 !important;
-                        line-height: 1.5 !important;
-                        font-weight: 400 !important;
-                    }
-
-                    .tp-card h3+p {
-                        font-size: 0.88rem !important;
-                        color: #999 !important;
-                        font-weight: 400 !important;
-                    }
-                </style>
                 <div id="content-area">
                     <?php echo $proposal['html_content']; ?>
                 </div>
@@ -1556,163 +1521,283 @@ if ($is_unlocked) {
             }
         }
 
-                                        function setupNavigation() {
+        /**
+         * Construye navegacion jerarquica (H2 padres + H3 hijos).
+         * Respeta numeracion "A1.", "A2.3" si existe en el texto.
+         */
+        function setupNavigation() {
             const nav = document.getElementById('sidebar-nav');
-                                        const area = document.getElementById('content-area');
-                                        const extArea = document.getElementById('content-areas-extensions');
-                                        if (!nav) return [];
-                                        let allHeaders = [];
-                                        if (area) allHeaders = allHeaders.concat(Array.from(area.querySelectorAll('h2')));
-                                        if (extArea) allHeaders = allHeaders.concat(Array.from(extArea.querySelectorAll('h2')));
+            const mobileContainer = document.getElementById('mobile-nav-container');
+            const area = document.getElementById('content-area');
+            const extArea = document.getElementById('content-areas-extensions');
+            if (!nav) return { sections: [], labels: {} };
 
-                                        const tracked = [];
-                                        nav.innerHTML = '<li class="nav-item"><a href="#" class="nav-link active" id="nav-intro"><span>Inicio</span></a></li>';
+            // Recolecta H2 + H3 en orden de documento
+            const collect = (root) => root ? Array.from(root.querySelectorAll('h2, h3')) : [];
+            const allHeaders = collect(area).concat(collect(extArea));
 
-                                        const mobileContainer = document.getElementById('mobile-nav-container');
-                                        if (mobileContainer) mobileContainer.innerHTML = '<li class="mobile-nav-item"><a href="#" class="mobile-nav-link" onclick="toggleMobileMenu()"><span>Inicio</span></a></li>';
+            nav.innerHTML = '<li class="nav-item"><a href="#top" class="nav-link active" id="nav-intro" data-section="__intro"><span>Inicio</span></a></li>';
+            if (mobileContainer) {
+                mobileContainer.innerHTML = '<li class="mobile-nav-item"><a href="#top" class="mobile-nav-link" onclick="toggleMobileMenu()"><span>Inicio</span></a></li>';
+            }
+
+            const sections = [];
+            const labels = { __intro: 'Inicio' };
+            let currentParent = null;
+            let currentChildList = null;
 
             allHeaders.forEach((el, i) => {
-                                            let text = el.innerText ? el.innerText.trim() : '';
-                                        const navLabel = text.replace(/^[\d\.]+\s*/, '');
-                                        const low = text.toLowerCase();
-                                        const tag = el.tagName ? el.tagName.toLowerCase() : '';
+                const raw = (el.innerText || '').trim();
+                if (raw.length < 2) return;
+                const low = raw.toLowerCase();
+                const tag = el.tagName.toLowerCase();
 
-                                        if (i < 8 && (low === "documento funcional" || low === "documentación funcional" || low === "documento funcional aprobado" || low === "presupuesto aprobado" || low.includes("proyecto web") || low.includes("nextica law"))) {
-                    if (low === "documento funcional" || low === "documentación funcional" || low.includes("proyecto web")) {
-                                            el.style.display = 'none';
-                                        return;
-                    }
+                // Skips: titulo del doc y estados CTA
+                if (tag === 'h2' && (low === 'documento funcional' || low === 'documentación funcional' || low.includes('proyecto web'))) {
+                    el.style.display = 'none';
+                    return;
                 }
-                                        if (tag !== 'h2' || text.length < 3 || el.style.display === 'none') return;
-                                        if (!el.id) el.id = 'sec-' + i;
-                                        tracked.push(el);
 
-                                        const li = document.createElement('li');
-                                        li.className = 'nav-item';
-                                        const isCTA = low.includes("avanzamos");
-                                        const className = isCTA ? 'nav-link-cta active' : 'nav-link';
-                                        li.innerHTML = `<a href="#${el.id}" class="${className}"><span>${navLabel}</span></a>`;
-                                        nav.appendChild(li);
+                // Extrae numeracion tipo "A1.", "2.3", "A2.1" al principio
+                const numMatch = raw.match(/^([A-Z]?\d+(?:\.\d+)*\.?)\s+(.+)/);
+                const numero = numMatch ? numMatch[1].replace(/\.$/, '') : '';
+                const texto = numMatch ? numMatch[2] : raw;
 
-                                        if (mobileContainer) {
-                    const mLi = document.createElement('li');
-                                        mLi.className = 'mobile-nav-item';
-                                        mLi.innerHTML = `<a href="#${el.id}" class="mobile-nav-link" onclick="toggleMobileMenu()"><span>${navLabel}</span></a>`;
-                                        mobileContainer.appendChild(mLi);
+                if (!el.id) {
+                    el.id = 'sec-' + (numero ? numero.toLowerCase().replace(/\./g, '-') : i);
+                }
+
+                if (tag === 'h2') {
+                    sections.push({ id: el.id, el: el, level: 2 });
+                    labels[el.id] = texto;
+
+                    const li = document.createElement('li');
+                    li.className = 'nav-item';
+                    li.dataset.sectionId = el.id;
+                    const isCTA = low.includes('avanzamos');
+                    const className = isCTA ? 'nav-link-cta active' : 'nav-link';
+                    const numHTML = numero ? `<span class="nav-num">${numero}</span>` : '';
+                    const caretHTML = '<svg class="nav-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>';
+                    li.innerHTML = `<a href="#${el.id}" class="${className}" data-section="${el.id}">${numHTML}<span>${texto}</span>${isCTA ? '' : caretHTML}</a>`;
+                    nav.appendChild(li);
+                    currentParent = li;
+
+                    currentChildList = document.createElement('ul');
+                    currentChildList.className = 'nav-item-children';
+                    li.appendChild(currentChildList);
+
+                    if (mobileContainer) {
+                        const mLi = document.createElement('li');
+                        mLi.className = 'mobile-nav-item';
+                        mLi.innerHTML = `<a href="#${el.id}" class="mobile-nav-link" onclick="toggleMobileMenu()">${numHTML}<span>${texto}</span></a>`;
+                        mobileContainer.appendChild(mLi);
+                    }
+                } else if (tag === 'h3' && currentChildList) {
+                    // H3 solo si ya hay un H2 padre
+                    sections.push({ id: el.id, el: el, level: 3, parentId: currentParent ? currentParent.dataset.sectionId : null });
+                    labels[el.id] = texto;
+                    const subLi = document.createElement('li');
+                    subLi.innerHTML = `<a href="#${el.id}" class="nav-link--sub" data-section="${el.id}"><span>${texto}</span></a>`;
+                    currentChildList.appendChild(subLi);
                 }
             });
-                                        return tracked;
+
+            // Click en padre H2 abre/cierra hijos (sin impedir la navegacion)
+            nav.querySelectorAll('.nav-link .nav-caret').forEach(caret => {
+                caret.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const item = caret.closest('.nav-item');
+                    if (item) item.classList.toggle('is-open');
+                });
+            });
+
+            return { sections, labels };
         }
 
-                                        function toggleMobileMenu() {
+        function toggleMobileMenu() {
             const menu = document.getElementById('mobileNav');
-                                        const isOpen = menu.classList.contains('open');
-                                        if (isOpen) {menu.classList.remove('open'); document.body.style.overflow = ''; }
-                                        else {menu.classList.add('open'); document.body.style.overflow = 'hidden'; }
+            const isOpen = menu.classList.contains('open');
+            if (isOpen) { menu.classList.remove('open'); document.body.style.overflow = ''; }
+            else { menu.classList.add('open'); document.body.style.overflow = 'hidden'; }
         }
 
-                                        let sections = [];
+        /**
+         * Activa seccion actual via IntersectionObserver (mas eficiente que scroll+rect).
+         */
+        function setupScrollSpy(sections, labels) {
+            if (!sections.length) return;
+            const nav = document.getElementById('sidebar-nav');
+            const label = document.getElementById('progressLabel');
+            const mobileNavLinks = document.querySelectorAll('.mobile-nav-link');
+            let currentId = null;
+
+            const applyActive = (id) => {
+                if (id === currentId) return;
+                currentId = id;
+
+                // Sidebar links
+                document.querySelectorAll('.nav-link, .nav-link--sub, .nav-link-cta').forEach(l => {
+                    const sec = l.dataset.section;
+                    l.classList.toggle('active', sec === id || (!id && l.id === 'nav-intro'));
+                });
+
+                // Mobile
+                mobileNavLinks.forEach(l => {
+                    const href = l.getAttribute('href');
+                    l.classList.toggle('active', href === '#' + id);
+                });
+
+                // Abre el padre si el activo es un H3
+                const section = sections.find(s => s.id === id);
+                nav.querySelectorAll('.nav-item.is-open').forEach(li => {
+                    if (!section || section.level !== 3 || li.dataset.sectionId !== section.parentId) {
+                        li.classList.remove('is-open');
+                    }
+                });
+                if (section && section.level === 3 && section.parentId) {
+                    const parent = nav.querySelector(`[data-section-id="${section.parentId}"]`);
+                    if (parent) parent.classList.add('is-open');
+                }
+
+                // Etiqueta flotante
+                if (label) {
+                    if (id && labels[id]) {
+                        label.textContent = labels[id];
+                        label.classList.add('visible');
+                    } else {
+                        label.classList.remove('visible');
+                    }
+                }
+            };
+
+            // Usa IntersectionObserver con margin que prioriza cabeceras justo entradas al viewport
+            const visible = new Map();
+            const io = new IntersectionObserver((entries) => {
+                entries.forEach(e => {
+                    if (e.isIntersecting) visible.set(e.target.id, e.boundingClientRect.top);
+                    else visible.delete(e.target.id);
+                });
+                if (visible.size) {
+                    // Elige el que este mas cerca del top (mayor tiempo leyendo)
+                    const sorted = [...visible.entries()].sort((a, b) => a[1] - b[1]);
+                    applyActive(sorted[0][0]);
+                } else if (window.scrollY < 80) {
+                    applyActive(null);
+                }
+            }, { rootMargin: '-15% 0px -70% 0px', threshold: 0 });
+
+            sections.forEach(s => io.observe(s.el));
+
+            // Barra de progreso (sigue usando scroll nativo)
+            const fill = document.getElementById('progressFill');
+            let ticking = false;
+            window.addEventListener('scroll', () => {
+                if (ticking) return;
+                ticking = true;
+                requestAnimationFrame(() => {
+                    const h = document.documentElement.scrollHeight - window.innerHeight;
+                    if (h > 0 && fill) fill.style.width = ((window.scrollY / h) * 100) + '%';
+                    if (window.scrollY < 80) applyActive(null);
+                    ticking = false;
+                });
+            }, { passive: true });
+        }
+
         window.addEventListener('DOMContentLoaded', () => {
-                                            injectTeamSection();
-                                        sections = setupNavigation();
-                                        if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
+            injectTeamSection();
+            const { sections, labels } = setupNavigation();
+            setupScrollSpy(sections, labels);
+            if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
+            setupSitemapInteractions();
         });
 
-                                        let isScrolling = false;
-        window.addEventListener('scroll', () => {
-            if (!isScrolling) {
-                                            window.requestAnimationFrame(() => {
-                                                const scrollPos = window.scrollY + (window.innerHeight / 3);
-                                                let current = "";
-                                                if (window.scrollY < 50) current = "";
-                                                else {
-                                                    sections.forEach(el => {
-                                                        const offsetTop = el.getBoundingClientRect().top + window.scrollY;
-                                                        if (offsetTop <= scrollPos) current = el.id;
-                                                    });
-                                                }
-                                                document.querySelectorAll(".nav-link").forEach(l => {
-                                                    l.classList.remove("active");
-                                                    const href = l.getAttribute("href");
-                                                    if (current && href === "#" + current) l.classList.add("active");
-                                                    else if (!current && l.id === 'nav-intro') l.classList.add("active");
-                                                });
-                                                const winScroll = window.scrollY;
-                                                const height = document.documentElement.scrollHeight - window.innerHeight;
-                                                if (height > 0) {
-                                                    const scrolled = (winScroll / height) * 100;
-                                                    const fill = document.getElementById("progressFill");
-                                                    if (fill) fill.style.width = scrolled + "%";
-                                                }
-                                                isScrolling = false;
-                                            });
-                                        isScrolling = true;
-            }
-        });
+        /**
+         * Busqueda y "Expandir/Colapsar todo" en todos los .tp-sitemap del documento.
+         */
+        function setupSitemapInteractions() {
+            document.querySelectorAll('.tp-sitemap').forEach(sm => {
+                const search = sm.querySelector('.tp-sitemap__search');
+                const toggle = sm.querySelector('.tp-sitemap__toggle');
+                const groups = sm.querySelectorAll('.tp-sitemap__group');
 
-                                        const BOT_TOKEN = '8201699988:AAHZ6UeItc1I6EkULkrV6mozxkLO80t7j58';
-                                        const CHAT_ID = '7313439878';
-                                        const DOC_NAME = '<?php echo addslashes($proposal["client_name"]); ?>';
+                if (search) {
+                    search.addEventListener('input', (e) => {
+                        const q = e.target.value.trim().toLowerCase();
+                        groups.forEach(g => {
+                            const nodes = g.querySelectorAll('.tp-sitemap__node');
+                            let anyMatch = false;
+                            nodes.forEach(n => {
+                                const txt = n.textContent.toLowerCase();
+                                const match = !q || txt.includes(q);
+                                n.classList.toggle('is-filtered-out', !match);
+                                if (match) anyMatch = true;
+                            });
+                            g.classList.toggle('is-filtered-out', !anyMatch);
+                            if (q && anyMatch) g.open = true;
+                        });
+                    });
+                }
 
-                                        function openModal(type) {document.getElementById('modal-' + type).classList.add('open'); }
-                                        function closeModal(type) {document.getElementById('modal-' + type).classList.remove('open'); }
+                if (toggle) {
+                    toggle.addEventListener('click', () => {
+                        const anyClosed = Array.from(groups).some(g => !g.open);
+                        groups.forEach(g => g.open = anyClosed);
+                        toggle.textContent = anyClosed ? 'Colapsar todo' : 'Expandir todo';
+                    });
+                }
+            });
+        }
+
+        function openModal(type) { document.getElementById('modal-' + type).classList.add('open'); }
+        function closeModal(type) { document.getElementById('modal-' + type).classList.remove('open'); }
         document.querySelectorAll('.modal-overlay').forEach(m => {
-                                            m.addEventListener('click', e => { if (e.target === m) m.classList.remove('open'); });
+            m.addEventListener('click', e => { if (e.target === m) m.classList.remove('open'); });
         });
 
-                                        function sendTelegram(text) {
-            return fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-                                            method: 'POST',
-                                        headers: {'Content-Type': 'application/json' },
-                                        body: JSON.stringify({chat_id: CHAT_ID, text: text, parse_mode: 'HTML' })
-            }).catch(e => console.error('Telegram error:', e));
-        }
-
-                                        async function apiCall(action, params = { }) {
+        async function apiCall(action, params = {}) {
             const formData = new URLSearchParams();
-                                        formData.append('api_action', action);
-                                        for (let k in params) formData.append(k, params[k]);
-                                        return fetch(window.location.href, {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded' }, body: formData });
+            formData.append('api_action', action);
+            for (let k in params) formData.append(k, params[k]);
+            return fetch(window.location.href, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: formData
+            });
         }
 
-                                        async function submitApproval() {
+        async function submitApproval() {
             const btn = document.querySelector('#approve-form .btn-modal-primary');
-                                        btn.disabled = true; btn.textContent = 'Enviando...';
-                                        await apiCall('approve_doc');
-                                        try {await sendTelegram(`✅ <b>Documento Aprobado</b>\nCliente: <b>${DOC_NAME}</b>`); } catch(e){ }
+            btn.disabled = true; btn.textContent = 'Enviando...';
+            await apiCall('approve_doc');
             setTimeout(() => window.location.reload(), 1000);
         }
 
-                                        async function submitComment() {
+        async function submitComment() {
             const text = document.getElementById('comment-text').value.trim();
-                                        if (!text) {document.getElementById('comment-text').focus(); return; }
-                                        const btn = document.querySelector('#comment-form .btn-modal-primary');
-                                        btn.disabled = true; btn.textContent = 'Enviando...';
-                                        await apiCall('comment_doc', {comment: text });
-                                        const safeText = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-                                    try {await sendTelegram(`💬 <b>Comentarios del cliente</b>\nCliente: <b>${DOC_NAME}</b>\n\n${safeText}`); } catch(e){ }
-                                    document.getElementById('comment-form').style.display = 'none';
-                                    document.getElementById('comment-success').style.display = 'block';
+            if (!text) { document.getElementById('comment-text').focus(); return; }
+            const btn = document.querySelector('#comment-form .btn-modal-primary');
+            btn.disabled = true; btn.textContent = 'Enviando...';
+            await apiCall('comment_doc', { comment: text });
+            document.getElementById('comment-form').style.display = 'none';
+            document.getElementById('comment-success').style.display = 'block';
         }
 
-                                    async function submitPdfApproval() {
+        async function submitPdfApproval() {
             const btn = document.querySelector('#approve-pdf-form .btn-modal-primary');
-                                    btn.disabled = true; btn.textContent = 'Enviando...';
-                                    await apiCall('approve_pdf');
-                                    try {await sendTelegram(`✅💰 <b>Presupuesto Aprobado</b>\nCliente: <b>${DOC_NAME}</b>`); } catch(e){ }
-            setTimeout(() => window.location.reload(), 1000); 
+            btn.disabled = true; btn.textContent = 'Enviando...';
+            await apiCall('approve_pdf');
+            setTimeout(() => window.location.reload(), 1000);
         }
 
-                                    async function submitPdfRejection() {
+        async function submitPdfRejection() {
             const text = document.getElementById('reject-pdf-text').value.trim();
-                                    if (!text) {document.getElementById('reject-pdf-text').focus(); return; }
-                                    const btn = document.querySelector('#reject-pdf-form .btn-modal-primary');
-                                    btn.disabled = true; btn.textContent = 'Enviando...';
-                                    await apiCall('reject_pdf', {comment: text });
-                                    const safeText = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-                                try {await sendTelegram(`❌ <b>Cambios en Presupuesto</b>\nCliente: <b>${DOC_NAME}</b>\n\n${safeText}`); } catch(e){ }
-                                document.getElementById('reject-pdf-form').style.display = 'none';
-                                document.getElementById('reject-pdf-success').style.display = 'block';
+            if (!text) { document.getElementById('reject-pdf-text').focus(); return; }
+            const btn = document.querySelector('#reject-pdf-form .btn-modal-primary');
+            btn.disabled = true; btn.textContent = 'Enviando...';
+            await apiCall('reject_pdf', { comment: text });
+            document.getElementById('reject-pdf-form').style.display = 'none';
+            document.getElementById('reject-pdf-success').style.display = 'block';
         }
     </script>
 

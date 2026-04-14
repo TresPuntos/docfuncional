@@ -1,0 +1,664 @@
+/* =========================================================
+   Tres Puntos · Doc Library
+   Componentes reutilizables para documentos funcionales.
+   Fuente única de verdad — no duplicar en view.php.
+   ========================================================= */
+
+:root {
+  --tp-mint: #5DFFBF;
+  --tp-mint-hover: #49E6A8;
+  --tp-mint-rgb: 93, 255, 191;
+  --tp-bg-base: #0E0E0E;
+  --tp-bg-surface: #141414;
+  --tp-bg-subtle: #191919;
+  --tp-bg-muted: #1F1F1F;
+  --tp-text-primary: #F5F5F5;
+  --tp-text-secondary: #B3B3B3;
+  --tp-text-muted: #8A8A8A;
+  --tp-border-base: #1F1F1F;
+  --tp-border-subtle: #1A1A1A;
+  --tp-border-strong: #2A2A2A;
+  --tp-font-heading: 'Plus Jakarta Sans', sans-serif;
+  --tp-font-body: 'Inter', system-ui, sans-serif;
+  --tp-font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Aliases legacy (no romper docs antiguos) */
+  --tp-primary: var(--tp-mint);
+}
+
+/* =========================================================
+   1. TABLAS RESPONSIVAS (aplicado globalmente dentro de .content-wrapper)
+   ========================================================= */
+.content-wrapper table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .92rem;
+  margin: 2rem 0;
+  background: var(--tp-bg-surface);
+  border: 1px solid var(--tp-border-base);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.content-wrapper table thead {
+  background: var(--tp-bg-subtle);
+}
+.content-wrapper table th {
+  text-align: left;
+  padding: .9rem 1rem;
+  font-family: var(--tp-font-heading);
+  font-size: .75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--tp-text-secondary);
+  border-bottom: 1px solid var(--tp-border-strong);
+}
+.content-wrapper table td {
+  padding: .8rem 1rem;
+  border-top: 1px solid var(--tp-border-subtle);
+  color: var(--tp-text-primary);
+  vertical-align: top;
+  line-height: 1.5;
+}
+.content-wrapper table tbody tr:nth-child(even) td {
+  background: rgba(255, 255, 255, .015);
+}
+.content-wrapper table tbody tr:hover td {
+  background: rgba(var(--tp-mint-rgb), .04);
+}
+.content-wrapper table td strong {
+  color: #FFF;
+  font-weight: 600;
+}
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 2rem 0;
+  border-radius: 12px;
+}
+.table-scroll table {
+  margin: 0;
+  min-width: 520px;
+}
+@media (max-width: 768px) {
+  .content-wrapper table { font-size: .82rem; }
+  .content-wrapper table th,
+  .content-wrapper table td { padding: .65rem .75rem; }
+}
+
+/* =========================================================
+   2. TP-TAG — Badges contextuales
+   ========================================================= */
+.tp-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  padding: .2rem .55rem;
+  font-family: var(--tp-font-heading);
+  font-size: .68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  border-radius: 999px;
+  line-height: 1;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+.tp-tag--mint    { background: rgba(var(--tp-mint-rgb), .1); color: var(--tp-mint); border-color: rgba(var(--tp-mint-rgb), .25); }
+.tp-tag--proto   { background: rgba(123, 150, 255, .1); color: #9FB4FF; border-color: rgba(123, 150, 255, .25); }
+.tp-tag--tp      { background: rgba(var(--tp-mint-rgb), .08); color: var(--tp-mint); border-color: rgba(var(--tp-mint-rgb), .2); }
+.tp-tag--pending { background: rgba(255, 180, 80, .1);  color: #FFB450; border-color: rgba(255, 180, 80, .25); }
+.tp-tag--muted   { background: rgba(255,255,255,.04); color: var(--tp-text-muted); border-color: var(--tp-border-strong); }
+
+/* =========================================================
+   3. TP-CALLOUT — Avisos y notas
+   ========================================================= */
+.tp-callout {
+  display: flex;
+  gap: 1rem;
+  padding: 1.1rem 1.25rem;
+  margin: 2rem 0;
+  border-radius: 12px;
+  border: 1px solid var(--tp-border-strong);
+  background: var(--tp-bg-surface);
+  border-left-width: 3px;
+}
+.tp-callout__icon {
+  flex-shrink: 0;
+  width: 22px; height: 22px;
+  color: var(--tp-text-secondary);
+  margin-top: .15rem;
+}
+.tp-callout__icon svg { width: 100%; height: 100%; }
+.tp-callout__body  { color: var(--tp-text-secondary); font-size: .95rem; line-height: 1.6; }
+.tp-callout__body strong { color: #FFF; }
+.tp-callout__body > :first-child { margin-top: 0; }
+.tp-callout__body > :last-child  { margin-bottom: 0; }
+
+.tp-callout--info    { border-left-color: #7B96FF; } .tp-callout--info    .tp-callout__icon { color: #7B96FF; }
+.tp-callout--success { border-left-color: var(--tp-mint); } .tp-callout--success .tp-callout__icon { color: var(--tp-mint); }
+.tp-callout--warning { border-left-color: #FFB450; } .tp-callout--warning .tp-callout__icon { color: #FFB450; }
+.tp-callout--note    { border-left-color: var(--tp-border-strong); }
+.tp-callout--quote   { border-left-color: var(--tp-mint); background: rgba(var(--tp-mint-rgb), .03); font-style: italic; }
+
+/* =========================================================
+   4. TP-STAT — KPI grandes
+   ========================================================= */
+.tp-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin: 2rem 0;
+}
+.tp-stat {
+  padding: 1.5rem 1.25rem;
+  border: 1px solid var(--tp-border-base);
+  border-radius: 14px;
+  background: var(--tp-bg-surface);
+  position: relative;
+  overflow: hidden;
+}
+.tp-stat__value {
+  font-family: var(--tp-font-heading);
+  font-size: 2.4rem;
+  font-weight: 800;
+  line-height: 1;
+  color: #FFF;
+  letter-spacing: -.02em;
+}
+.tp-stat__label {
+  display: block;
+  margin-top: .5rem;
+  font-size: .85rem;
+  color: var(--tp-text-muted);
+}
+.tp-stat__trend {
+  display: inline-flex; align-items: center; gap: .25rem;
+  margin-top: .75rem;
+  font-size: .8rem;
+  font-weight: 600;
+  color: var(--tp-mint);
+}
+
+/* =========================================================
+   5. TP-COMPARISON — Antes vs Después / Situación actual vs Propuesta
+   ========================================================= */
+.tp-comparison {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+  margin: 2rem 0;
+}
+.tp-comparison__col {
+  padding: 1.5rem;
+  border-radius: 14px;
+  border: 1px solid var(--tp-border-base);
+  background: var(--tp-bg-surface);
+}
+.tp-comparison__col--before { opacity: .85; }
+.tp-comparison__col--after  { border-color: rgba(var(--tp-mint-rgb), .3); background: linear-gradient(180deg, rgba(var(--tp-mint-rgb), .04), transparent 60%); }
+.tp-comparison__label {
+  display: inline-block;
+  font-family: var(--tp-font-heading);
+  font-size: .7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--tp-text-muted);
+  margin-bottom: .75rem;
+}
+.tp-comparison__col--after .tp-comparison__label { color: var(--tp-mint); }
+.tp-comparison__title {
+  font-family: var(--tp-font-heading);
+  font-size: 1.2rem;
+  color: #FFF;
+  margin: 0 0 1rem;
+}
+.tp-comparison ul { margin: 0; padding-left: 1.1rem; }
+.tp-comparison li { margin-bottom: .5rem; font-size: .92rem; }
+@media (max-width: 640px) {
+  .tp-comparison { grid-template-columns: 1fr; }
+}
+
+/* =========================================================
+   6. TP-TIMELINE — Fases / Proceso / Roadmap
+   ========================================================= */
+.tp-timeline { margin: 2rem 0; position: relative; padding-left: 2rem; }
+.tp-timeline::before {
+  content: '';
+  position: absolute;
+  left: 10px; top: 8px; bottom: 8px;
+  width: 2px;
+  background: linear-gradient(180deg, var(--tp-mint), transparent 95%);
+  opacity: .3;
+}
+.tp-timeline__item { position: relative; padding-bottom: 1.75rem; }
+.tp-timeline__item::before {
+  content: '';
+  position: absolute;
+  left: -1.5rem; top: .4rem;
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  background: var(--tp-bg-base);
+  border: 2px solid var(--tp-mint);
+  box-shadow: 0 0 0 4px rgba(var(--tp-mint-rgb), .1);
+}
+.tp-timeline__item:last-child { padding-bottom: 0; }
+.tp-timeline__phase {
+  font-family: var(--tp-font-heading);
+  font-size: .7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--tp-mint);
+}
+.tp-timeline__title {
+  display: block;
+  font-family: var(--tp-font-heading);
+  font-size: 1.1rem;
+  color: #FFF;
+  margin: .25rem 0 .4rem;
+}
+.tp-timeline__body { color: var(--tp-text-secondary); font-size: .92rem; }
+
+/* =========================================================
+   7. TP-SITEMAP — Árbol visual de estructura web
+   El componente clave: explica niveles, origen y navegación.
+   ========================================================= */
+
+.tp-sitemap {
+  margin: 2rem 0 3rem;
+  border: 1px solid var(--tp-border-base);
+  border-radius: 18px;
+  background: var(--tp-bg-surface);
+  overflow: hidden;
+}
+
+/* Header con estadísticas + buscador */
+.tp-sitemap__header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.25rem 1.5rem;
+  background: var(--tp-bg-subtle);
+  border-bottom: 1px solid var(--tp-border-base);
+}
+.tp-sitemap__stats {
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+.tp-sitemap__stat {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+}
+.tp-sitemap__stat b {
+  font-family: var(--tp-font-heading);
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: #FFF;
+  letter-spacing: -.02em;
+}
+.tp-sitemap__stat span {
+  font-size: .72rem;
+  color: var(--tp-text-muted);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  margin-top: .25rem;
+}
+.tp-sitemap__controls {
+  display: flex;
+  gap: .5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.tp-sitemap__search {
+  background: var(--tp-bg-base);
+  border: 1px solid var(--tp-border-strong);
+  border-radius: 10px;
+  padding: .55rem .9rem;
+  color: var(--tp-text-primary);
+  font-family: var(--tp-font-body);
+  font-size: .88rem;
+  outline: none;
+  width: 220px;
+  transition: border-color .2s;
+}
+.tp-sitemap__search:focus { border-color: var(--tp-mint); }
+.tp-sitemap__toggle {
+  background: transparent;
+  border: 1px solid var(--tp-border-strong);
+  color: var(--tp-text-secondary);
+  border-radius: 10px;
+  padding: .55rem .85rem;
+  font-size: .82rem;
+  font-family: var(--tp-font-heading);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all .2s;
+}
+.tp-sitemap__toggle:hover { color: #FFF; border-color: var(--tp-border-strong); background: var(--tp-bg-muted); }
+
+/* Grupos (colapsables con <details>) */
+.tp-sitemap__group {
+  border-bottom: 1px solid var(--tp-border-base);
+}
+.tp-sitemap__group:last-child { border-bottom: none; }
+.tp-sitemap__group > summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: .85rem;
+  padding: 1rem 1.5rem;
+  cursor: pointer;
+  user-select: none;
+  transition: background .15s;
+}
+.tp-sitemap__group > summary::-webkit-details-marker { display: none; }
+.tp-sitemap__group > summary:hover { background: rgba(255,255,255,.02); }
+.tp-sitemap__group > summary::before {
+  content: '';
+  width: 8px; height: 8px;
+  border-right: 2px solid var(--tp-text-muted);
+  border-bottom: 2px solid var(--tp-text-muted);
+  transform: rotate(-45deg);
+  transition: transform .2s;
+  margin-right: .25rem;
+}
+.tp-sitemap__group[open] > summary::before { transform: rotate(45deg); }
+.tp-sitemap__group-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px; height: 36px;
+  border-radius: 10px;
+  background: rgba(var(--tp-mint-rgb), .08);
+  color: var(--tp-mint);
+  flex-shrink: 0;
+}
+.tp-sitemap__group-icon svg { width: 18px; height: 18px; }
+.tp-sitemap__group-title {
+  font-family: var(--tp-font-heading);
+  font-weight: 700;
+  font-size: 1rem;
+  color: #FFF;
+  letter-spacing: -.005em;
+  flex: 1;
+}
+.tp-sitemap__group-count {
+  font-family: var(--tp-font-mono);
+  font-size: .75rem;
+  color: var(--tp-text-muted);
+  background: var(--tp-bg-base);
+  border: 1px solid var(--tp-border-strong);
+  border-radius: 999px;
+  padding: .2rem .6rem;
+}
+.tp-sitemap__group-hint {
+  font-size: .78rem;
+  color: var(--tp-text-muted);
+  margin-left: .5rem;
+}
+@media (max-width: 540px) {
+  .tp-sitemap__group-hint { display: none; }
+}
+
+/* Árbol de nodos */
+.tp-sitemap__tree {
+  list-style: none;
+  margin: 0;
+  padding: .25rem 0 1rem;
+}
+.tp-sitemap__node {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: .85rem;
+  padding: .55rem 1.5rem .55rem 4rem;
+  font-family: var(--tp-font-body);
+  transition: background .15s;
+}
+.tp-sitemap__node:hover { background: rgba(var(--tp-mint-rgb), .03); }
+.tp-sitemap__node + .tp-sitemap__node { border-top: 1px dashed rgba(255,255,255,.03); }
+
+/* Líneas de conexión del árbol */
+.tp-sitemap__node::before {
+  content: '';
+  position: absolute;
+  left: 2.5rem;
+  top: 0; bottom: 50%;
+  width: 14px;
+  border-left: 1px solid var(--tp-border-strong);
+  border-bottom: 1px solid var(--tp-border-strong);
+  border-bottom-left-radius: 6px;
+}
+.tp-sitemap__node::after {
+  content: '';
+  position: absolute;
+  left: 2.5rem;
+  top: 50%; bottom: 0;
+  border-left: 1px solid var(--tp-border-strong);
+}
+.tp-sitemap__node:last-child::after { display: none; }
+
+/* Niveles de profundidad */
+.tp-sitemap__node[data-level="1"] { padding-left: 4rem; }
+.tp-sitemap__node[data-level="2"] { padding-left: 5.5rem; }
+.tp-sitemap__node[data-level="2"]::before { left: 4rem; }
+.tp-sitemap__node[data-level="2"]::after  { left: 4rem; }
+.tp-sitemap__node[data-level="3"] { padding-left: 7rem; }
+.tp-sitemap__node[data-level="3"]::before { left: 5.5rem; }
+.tp-sitemap__node[data-level="3"]::after  { left: 5.5rem; }
+
+/* Indicador de tipo de nodo (hub vs hoja) */
+.tp-sitemap__node-dot {
+  flex-shrink: 0;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: var(--tp-border-strong);
+  border: 2px solid var(--tp-bg-surface);
+  box-shadow: 0 0 0 1px var(--tp-border-strong);
+  position: relative;
+  z-index: 1;
+}
+.tp-sitemap__node--hub .tp-sitemap__node-dot {
+  background: var(--tp-mint);
+  box-shadow: 0 0 0 1px var(--tp-mint), 0 0 10px rgba(var(--tp-mint-rgb), .4);
+}
+.tp-sitemap__node--pending .tp-sitemap__node-dot {
+  background: transparent;
+  border-color: #FFB450;
+  box-shadow: 0 0 0 1px #FFB450;
+}
+
+.tp-sitemap__node-path {
+  font-family: var(--tp-font-mono);
+  font-size: .82rem;
+  color: var(--tp-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tp-sitemap__node-path b {
+  color: var(--tp-mint);
+  font-weight: 600;
+}
+.tp-sitemap__node-desc {
+  font-size: .85rem;
+  color: var(--tp-text-muted);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tp-sitemap__node-tags {
+  display: flex;
+  gap: .35rem;
+  flex-shrink: 0;
+}
+
+@media (max-width: 768px) {
+  .tp-sitemap__node {
+    flex-wrap: wrap;
+    padding-left: 3rem !important;
+    gap: .5rem .75rem;
+  }
+  .tp-sitemap__node::before,
+  .tp-sitemap__node::after { left: 1.5rem !important; }
+  .tp-sitemap__node[data-level="2"] { padding-left: 3.75rem !important; }
+  .tp-sitemap__node[data-level="2"]::before,
+  .tp-sitemap__node[data-level="2"]::after { left: 2.25rem !important; }
+  .tp-sitemap__node[data-level="3"] { padding-left: 4.5rem !important; }
+  .tp-sitemap__node[data-level="3"]::before,
+  .tp-sitemap__node[data-level="3"]::after { left: 3rem !important; }
+  .tp-sitemap__node-desc {
+    flex-basis: 100%;
+    white-space: normal;
+    padding-left: 1.4rem;
+    font-size: .78rem;
+  }
+  .tp-sitemap__node-path { font-size: .78rem; }
+}
+
+/* Leyenda */
+.tp-sitemap__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+  padding: .9rem 1.5rem;
+  background: var(--tp-bg-subtle);
+  border-top: 1px solid var(--tp-border-base);
+  font-size: .78rem;
+  color: var(--tp-text-muted);
+}
+.tp-sitemap__legend-item { display: inline-flex; align-items: center; gap: .45rem; }
+.tp-sitemap__legend-dot {
+  width: 10px; height: 10px; border-radius: 50%;
+}
+.tp-sitemap__legend-dot--hub     { background: var(--tp-mint); box-shadow: 0 0 8px rgba(var(--tp-mint-rgb),.5); }
+.tp-sitemap__legend-dot--leaf    { background: var(--tp-border-strong); border: 1px solid var(--tp-border-strong); }
+.tp-sitemap__legend-dot--pending { border: 2px solid #FFB450; background: transparent; }
+
+/* Filtro de búsqueda — cuando se oculta un grupo entero */
+.tp-sitemap__group.is-filtered-out { display: none; }
+.tp-sitemap__node.is-filtered-out  { display: none; }
+
+/* =========================================================
+   8. TP-CARD / TP-GRID — Cards con icono + número fantasma
+   ========================================================= */
+.tp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 1rem;
+  margin: 2rem 0;
+  width: 100%;
+}
+.tp-card {
+  background: rgba(255, 255, 255, .03);
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 14px;
+  padding: 1.25rem;
+  position: relative;
+  transition: all .3s cubic-bezier(.4, 0, .2, 1);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.tp-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--tp-mint), transparent);
+  opacity: 0;
+  transition: opacity .3s ease;
+}
+.tp-card:hover {
+  transform: translateY(-3px);
+  background: rgba(255, 255, 255, .05);
+  border-color: rgba(var(--tp-mint-rgb), .25);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, .4), 0 0 15px rgba(var(--tp-mint-rgb), .04);
+}
+.tp-card:hover::before { opacity: 1; }
+.tp-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px; height: 40px;
+  border-radius: 10px;
+  background: rgba(var(--tp-mint-rgb), .1);
+  color: var(--tp-mint);
+  margin-bottom: 1rem;
+}
+.tp-card-icon:empty { display: none; }
+.tp-card-icon svg { width: 20px; height: 20px; }
+.tp-card-number {
+  position: absolute;
+  top: 1rem; right: 1rem;
+  font-family: var(--tp-font-heading);
+  font-size: 2.2rem;
+  font-weight: 800;
+  line-height: 1;
+  color: rgba(255, 255, 255, .04);
+  pointer-events: none;
+}
+.tp-card h3 {
+  font-family: var(--tp-font-heading);
+  font-size: 1.05rem !important;
+  color: #E0E0E0 !important;
+  margin: 0 0 .5rem 0 !important;
+}
+.tp-card p {
+  margin-bottom: 0 !important;
+  font-size: .92rem !important;
+  color: #C8C8C8 !important;
+  line-height: 1.5 !important;
+  font-weight: 400 !important;
+}
+.tp-card h3 + p {
+  font-size: .88rem !important;
+  color: #999 !important;
+  font-weight: 400 !important;
+}
+
+/* =========================================================
+   9. SECTION DIVIDER — Separadores grandes entre bloques A/B/C/D
+   ========================================================= */
+.tp-section-divider {
+  margin: 6rem 0 3rem;
+  padding: 2rem 0;
+  border-top: 1px solid var(--tp-border-base);
+  border-bottom: 1px solid var(--tp-border-base);
+  text-align: center;
+  position: relative;
+}
+.tp-section-divider__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px; height: 48px;
+  border-radius: 14px;
+  background: var(--tp-bg-surface);
+  border: 1px solid var(--tp-border-strong);
+  color: var(--tp-mint);
+  font-family: var(--tp-font-heading);
+  font-size: 1.3rem;
+  font-weight: 800;
+  margin-bottom: .85rem;
+}
+.tp-section-divider__title {
+  font-family: var(--tp-font-heading);
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: #FFF;
+  margin: 0;
+}
+.tp-section-divider__subtitle {
+  font-size: .9rem;
+  color: var(--tp-text-muted);
+  margin-top: .4rem;
+}
