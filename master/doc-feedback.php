@@ -190,25 +190,31 @@
             .filter(h => !h.closest('.tp-drawer'));
     }
 
+    let _injecting = false;
     function injectSectionButtons() {
-        getSections().forEach(h => {
-            if (h.querySelector(':scope > .tp-sec-btn')) return;
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = 'tp-sec-btn';
-            btn.dataset.anchor = h.id;
-            btn.dataset.title = (h.textContent || '').trim().slice(0, 200);
-            btn.innerHTML = '<i data-lucide="message-square-plus" style="width:13px;height:13px;"></i><span>Comentar</span><span class="tp-sec-count" style="display:none">0</span>';
-            btn.addEventListener('click', (e) => {
-                e.preventDefault(); e.stopPropagation();
-                openDrawer(h.id, btn.dataset.title);
+        if (_injecting) return;
+        _injecting = true;
+        try {
+            getSections().forEach(h => {
+                if (h.querySelector(':scope > .tp-sec-btn')) return;
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'tp-sec-btn';
+                btn.dataset.anchor = h.id;
+                btn.dataset.title = (h.textContent || '').trim().slice(0, 200);
+                // SVG inline (evitamos lucide.createIcons() que rebotaba el MutationObserver)
+                btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line x1="9" y1="10" x2="15" y2="10"/><line x1="12" y1="7" x2="12" y2="13"/></svg><span>Comentar</span><span class="tp-sec-count" style="display:none">0</span>';
+                btn.addEventListener('click', (e) => {
+                    e.preventDefault(); e.stopPropagation();
+                    openDrawer(h.id, btn.dataset.title);
+                });
+                if (getComputedStyle(h).position === 'static') h.style.position = 'relative';
+                h.appendChild(btn);
             });
-            // Posicionado relativo al H (margen derecho en desktop)
-            if (getComputedStyle(h).position === 'static') h.style.position = 'relative';
-            h.appendChild(btn);
-        });
-        if (window.lucide) lucide.createIcons();
-        updateCounts();
+            updateCounts();
+        } finally {
+            _injecting = false;
+        }
     }
 
     function updateCounts() {
@@ -341,16 +347,11 @@
             if (e.key === 'Escape' && document.getElementById('tp-drawer').classList.contains('open')) closeDrawer();
         });
 
-        // Los IDs de los H2/H3 se asignan por JS después del DOMContentLoaded (ver nav dinámico
-        // en view.php), así que reintentamos y observamos también cambios de atributo `id`.
-        const area = document.getElementById('content-area') || document.querySelector('article.doc-main');
-        if (area && window.MutationObserver) {
-            const mo = new MutationObserver(() => injectSectionButtons());
-            mo.observe(area, { childList: true, subtree: true, attributes: true, attributeFilter: ['id'] });
-        }
-        // Reintentos programados por si el nav script corre tarde.
-        [100, 400, 1200, 2500].forEach(ms => setTimeout(injectSectionButtons, ms));
-        window.addEventListener('load', injectSectionButtons);
+        // Los IDs de los H2/H3 se asignan por JS después del DOMContentLoaded. Reintentamos
+        // varias veces en vez de usar MutationObserver (que rebotaba con las mutaciones
+        // del propio script nav de view.php y colgaba la página).
+        [100, 300, 700, 1500, 3000].forEach(ms => setTimeout(injectSectionButtons, ms));
+        window.addEventListener('load', () => setTimeout(injectSectionButtons, 200));
     }
 
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
