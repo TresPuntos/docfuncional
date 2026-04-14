@@ -5,6 +5,11 @@ $base_path = rtrim(dirname($_SERVER['PHP_SELF']), '/\\');
 if ($base_path === '/' || $base_path === '\\') {
     $base_path = '';
 }
+// Fix: bajo PHP built-in server con router.php, PHP_SELF incluye /p/{slug}/view.php
+// y dirname devuelve /p/{slug}, que luego duplica /p/ en el redirect. Forzar vacío en dev.
+if (php_sapi_name() === 'cli-server' || strpos($base_path, '/p/') !== false) {
+    $base_path = '';
+}
 
 /**
  * Envia notificacion por Telegram usando las credenciales de config.php.
