@@ -25,21 +25,27 @@
 .tp-sign-fields input:focus { outline: none; border-color: var(--mint, var(--tp-primary)); }
 .tp-sign-legal { color: var(--text-muted); font-size: .72rem; line-height: 1.4; display: block; margin-top: .4rem; }
 
-/* --- Botón flotante 💬 en cada sección --- */
+/* --- Botón "Comentar" inline junto al título de sección --- */
 .tp-sec-btn {
-    position: absolute; display: inline-flex; align-items: center; gap: .35rem;
+    display: inline-flex; align-items: center; gap: .35rem;
+    vertical-align: middle; margin-left: .9rem;
     background: var(--bg-subtle); color: var(--text-secondary);
     border: 1px solid var(--border-base); border-radius: var(--radius-full, 999px);
-    font-size: .72rem; font-weight: 600; padding: .35rem .65rem; cursor: pointer;
-    opacity: .55; transition: all .2s ease; z-index: 5; user-select: none;
-    font-family: var(--font-body, inherit);
+    font-size: .68rem; line-height: 1; font-weight: 600; padding: .35rem .7rem;
+    cursor: pointer; opacity: .55; transition: opacity .2s ease, color .2s ease, border-color .2s ease;
+    user-select: none; font-family: var(--font-body, inherit);
+    text-transform: none; letter-spacing: 0;
+    -webkit-font-smoothing: antialiased;
 }
-.tp-sec-btn:hover { opacity: 1; color: var(--mint, var(--tp-primary)); border-color: var(--mint, var(--tp-primary)); transform: translateY(-1px); }
-.tp-sec-btn .tp-sec-count { background: var(--mint, var(--tp-primary)); color: var(--text-inverse, #000); border-radius: 999px; padding: 0 .45rem; min-width: 1.1rem; text-align: center; font-size: .7rem; }
+.tp-sec-btn:hover { opacity: 1; color: var(--mint, var(--tp-primary)); border-color: var(--mint, var(--tp-primary)); }
+.tp-sec-btn > svg { flex-shrink: 0; }
+.tp-sec-btn .tp-sec-count { background: var(--mint, var(--tp-primary)); color: var(--text-inverse, #000); border-radius: 999px; padding: 0 .45rem; min-width: 1.1rem; text-align: center; font-size: .65rem; }
 .tp-sec-btn.has-comments { opacity: 1; border-color: var(--mint, var(--tp-primary)); }
+h2:hover > .tp-sec-btn, h3:hover > .tp-sec-btn { opacity: 1; }
 
-@media (max-width: 900px) {
-    .tp-sec-btn { position: static; display: inline-flex; margin-top: .4rem; opacity: 1; }
+@media (max-width: 720px) {
+    .tp-sec-btn { display: inline-flex; margin-left: .5rem; opacity: 1; font-size: .65rem; padding: .3rem .55rem; }
+    .tp-sec-btn span:not(.tp-sec-count) { display: none; }
 }
 
 /* --- FAB flotante global --- */
@@ -184,10 +190,13 @@
     }
 
     // -------- Enumerar secciones del documento --------
+    // Solo H2/H3 con id que estén a nivel de sección, no dentro de tarjetas,
+    // callouts, timelines, comparativas, sitemap, team-cards o tablas.
+    const EXCLUDE_SELECTOR = '.tp-card, .tp-callout, .tp-timeline, .tp-comparison, .tp-sitemap, .tp-stat, .tp-tag, .team-card, .team-grid, .cta-block, table, .modal-box, .tp-drawer, .tp-stack';
     function getSections() {
         const area = document.getElementById('content-area') || document.querySelector('article.doc-main') || document.body;
         return Array.from(area.querySelectorAll('h2[id], h3[id]'))
-            .filter(h => !h.closest('.tp-drawer'));
+            .filter(h => !h.closest(EXCLUDE_SELECTOR));
     }
 
     let _injecting = false;
@@ -208,7 +217,6 @@
                     e.preventDefault(); e.stopPropagation();
                     openDrawer(h.id, btn.dataset.title);
                 });
-                if (getComputedStyle(h).position === 'static') h.style.position = 'relative';
                 h.appendChild(btn);
             });
             updateCounts();
