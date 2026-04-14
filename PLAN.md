@@ -5,16 +5,82 @@ Inicio: 2026-04-14 · Primer caso real: `h2bhipotecas-1`.
 
 ---
 
-## P0 · Imprescindible (esta iteración)
+## 📍 Estado actual (2026-04-14)
 
-- [ ] **Crear `/master/doc-library.css`** — fuente única de componentes de contenido (tp-card, tp-grid, tp-sitemap, tp-callout, tp-comparison, tp-timeline, tp-stat, tp-tag).
-- [ ] **Componente `tp-sitemap`** — árbol visual colapsable con niveles, badges de origen, contador, búsqueda y líneas de conexión.
-- [ ] **Tablas responsivas** — estilo global (zebra, sticky head) + wrapper `.table-scroll` automático en `view.php`.
-- [ ] **Nav lateral jerárquica** — H2 principal + H3 hijos en acordeón, `IntersectionObserver`, conserva numeración (A1, A2…).
-- [ ] **Barra de lectura unificada** — 100% ancho arriba, con % scroll + nombre de sección activa.
-- [ ] **Telegram server-side** — mover envío a `approve_doc/comment_doc/approve_pdf/reject_pdf` en PHP. Quitar `BOT_TOKEN`/`CHAT_ID` del JS público.
-- [ ] **Consolidar CSS** — quitar el bloque `<style>` duplicado (view.php:815-915 vs 1163-1259), cargar `doc-library.css` vía `<link>`.
-- [ ] **Aplicar a `h2bhipotecas-1`** — reescribir sección "Arquitectura y sitemap" con `tp-sitemap`, comparativas con `tp-comparison`.
+### ✅ Desplegado en producción
+Ruta: `https://doc.trespuntos-lab.com/doc/` (Hostinger, `u296656791`)
+
+- `view.php` — nuevo shell con nav jerárquica H2→H3, IntersectionObserver, progress bar + label flotante, Telegram server-side, tipografía H1/H2 reducida (2.6rem/1.7rem desktop · 1.8rem/1.4rem móvil), content-wrapper 1080px, responsive validado 375/768/1000/1100/1440 sin hscroll.
+- `master/doc-library.css` — librería de componentes: tp-card, tp-grid, tp-sitemap (colapsable con árbol visual + búsqueda + leyenda), tp-callout (info/success/warning/note/quote), tp-comparison, tp-timeline, tp-stat, tp-tag (mint/proto/tp/pending/muted), tp-section-divider + tablas responsivas globales con auto-wrap `.table-scroll`.
+- Backup: `/doc/view.php.bak` (versión anterior).
+- FTP operativo: `ftp.trespuntos-lab.com` · user `u296656791.claude3` · pass `4*wrvJ2D` (rotar cuando proceda).
+
+### ✅ Git
+- Remote: `github.com/TresPuntos/docfuncional`
+- Commits publicados en `main`:
+  - `f87256d` feat(admin,api): restore previous versions from history
+  - `5c42ae9` feat(view): visual sitemap + hierarchical nav + responsive tables
+  - `cb14d4e` fix(view): responsive overflow — flex item sizing and sitemap nodes
+- Cambios de tipografía H1/H2 aplicados en `view.php` local **todavía sin commit+push**.
+
+### ✅ Propuesta `h2bhipotecas-1` (id=21) — v1.3 activa en producción
+
+URL: `https://doc.trespuntos-lab.com/p/h2bhipotecas-1`
+Historial guardado: v1.1, v1.2 (restaurables vía API o admin).
+
+**Contenido v1.3**:
+- A. Plataforma corporativa (completo: A0 identidad, A1 contexto/objetivos con alcance como tabla por fase, A2 sitemap visual, A3-A9 estructura de páginas).
+- B. Herramientas y calculadoras (scope, 7 + Euríbor, fórmulas pendientes del cliente).
+- C. Áreas privadas (3 tipos + widget + referidos + 7 roles del brief).
+- D. Panel administración (17 módulos).
+- **E. Automatización y scoring de leads con n8n + IA** (nuevo — flujo 6 pasos en timeline, 4 rangos de score con acciones).
+- F. Funcionalidades transversales.
+- G. Propuesta de fases (tp-comparison Fase 1 vs Fase 2 + 5 razones).
+- H. Stack tecnológico — Fase 1 **WordPress confirmado**, Fase 2 **abierto** (Angular vs React en `tp-comparison`, backend a definir: Laravel/Node/NestJS).
+- I. Siguientes pasos (aprobación + formato presupuesto + cómo seguimos). Eliminados bloques "desglose por bloque", "criterios de éxito", "lo que necesitamos de H2B".
+
+**Reputación** (1.1) — opción C aplicada: *"el broker hipotecario mejor valorado por sus clientes en Google, con más de 1.200 reseñas 5★"*. Elegida porque Hipotecas.com tiene más volumen (3.058 reseñas) — el claim "mejor reputación" sin matizar era indefendible.
+
+### 📌 Decisiones cerradas con el cliente (Jordi)
+- Prototipo React del cliente = referencia visual. Diseño UX/UI desde cero por Tres Puntos.
+- Brand: paleta cliente respetada (#e1007d fucsia, #211f5e azul, #ffd103 amarillo) + Poppins/Comfortaa.
+- Modo claro y oscuro transversal.
+- 7 calculadoras **no se reducen** — se jerarquizan UX (decidido pero no añadido al doc; user dijo "no cambiar nada").
+- Copys = los aporta el cliente. No redactar textos de ejemplo.
+- 7 roles del brief incluidos como requisito del cliente, sin matriz de permisos.
+- Fase 1 = WordPress (cerrado). Fase 2 = stack abierto según funcionalidades.
+- n8n + IA para lead scoring como bloque propio (E).
+
+### 🔍 Contexto del cliente (Notion + Airtable)
+- **Airtable record**: `appR9SHmsc6CZ7VJj / tblqbhaPtZlsPbsYs / recN2FF00VDMhjKsq`
+- **Contacto**: Jennifer <jennifer@h2bhipotecas.com> · 646 478 379
+- **Decisores**: CEO Eduard Roldós · CMO Eloi Herrero
+- **Presupuesto**: 30-50K€ (ampliado tras reunión; estimación inicial 10-15K se quedó corta)
+- **Deadline propuesta**: viernes 17 abril 2026
+- **Estado**: "Funcional en curso"
+- **Notion páginas clave**:
+  - Briefing reunión: `3401b33b-8b21-8171-b83a-e051714d7d2e`
+  - Ficha lead H2B: `33c1b33b-8b21-816e-a2fe-e974f585fa3d`
+  - Prep reunión: `3401b33b-8b21-8155-87db-c3f4f8a1eedc`
+
+### 🎯 Siguiente paso natural
+1. Commit + push de los cambios tipográficos (H1/H2 reducidos) a GitHub.
+2. Crear la **skill `create-functional-doc`** para que futuros documentos se generen con la librería.
+3. Validar `h2bhipotecas-1` v1.3 con el cliente y generar presupuesto por fases.
+4. Limpiar cuenta FTP `claude3` de Hostinger cuando dejemos de subir archivos.
+
+---
+
+## P0 · Imprescindible ✅ COMPLETADO
+
+- [x] `/master/doc-library.css` creada.
+- [x] `tp-sitemap` implementado y pulido.
+- [x] Tablas responsivas + `.table-scroll` automático.
+- [x] Nav jerárquica H2→H3 con IntersectionObserver.
+- [x] Progress bar unificada + label flotante.
+- [x] Telegram server-side (cURL 3s timeout, token fuera del DOM).
+- [x] CSS consolidado (dos bloques duplicados eliminados).
+- [x] `h2bhipotecas-1` migrada a los componentes nuevos (v1.1 → v1.3).
 
 ## P1 · Siguiente iteración
 
@@ -24,7 +90,7 @@ Inicio: 2026-04-14 · Primer caso real: `h2bhipotecas-1`.
 - [ ] Modo densidad (Compacto/Cómodo) en `localStorage`.
 - [ ] Print stylesheet (`@media print`).
 - [ ] Landmarks ARIA + `aria-current="location"`.
-- [ ] Revisar tokens: migrar aliases legacy (`--tp-primary` → `--mint`) y texto (`#B0B0B0` → `#f5f5f5`).
+- [ ] Revisar tokens: migrar aliases legacy (`--tp-primary` → `--mint`).
 - [ ] Quitar `filter: grayscale(20%)` de fotos equipo (contradice brand).
 - [ ] Mediaquery intermedia 769-1023 (evita overflow).
 - [ ] `metodologia.php` opcional (flag por propuesta).
@@ -34,38 +100,37 @@ Inicio: 2026-04-14 · Primer caso real: `h2bhipotecas-1`.
 - [ ] Comentarios inline por sección (drawer lateral).
 - [ ] Diff visual entre versiones (ya hay `propuestas_history`).
 - [ ] Onboarding 3 pasos primera visita.
-- [ ] Dark/Light toggle (hoy solo dark).
+- [ ] Light theme en shell (hoy solo dark — documento soporta dark mode pero shell aún no).
 
-## Skill `create-functional-doc`
+## Skill `create-functional-doc` (pendiente)
 
 - [ ] `~/.claude/skills/create-functional-doc/SKILL.md` con triggers.
 - [ ] `components/` con snippets HTML de cada `tp-*`.
-- [ ] `references/` (brand, voice, vocabulary, doc-structure).
+- [ ] `references/` (brand, voice, vocabulary, doc-structure, estructura canónica A0-I).
 - [ ] `workflows/` (new-doc, update-doc).
-- [ ] `examples/h2b-reviewed.html` como referencia.
+- [ ] `examples/h2b-v13.html` como referencia.
 
-## Librería — componentes pendientes de crear
+## Librería — estado
 
-| Componente | Prioridad | Estado |
-|---|---|---|
-| `tp-card` / `tp-grid` | existe | consolidar |
-| `team-grid` / `team-card` | existe | consolidar |
-| `cta-block` | existe | consolidar |
-| `tp-sitemap` | P0 | pendiente |
-| `tp-comparison` | P0 | pendiente |
-| `tp-callout` | P0 | pendiente |
-| `tp-tag` | P0 | pendiente |
-| `tp-timeline` | P1 | pendiente |
-| `tp-stat` | P1 | pendiente |
-| `tp-stack` (accordion) | P1 | pendiente |
-| `tp-toc-inline` | P1 | pendiente |
-| `tp-diff` | P2 | pendiente |
+| Componente | Estado |
+|---|---|
+| `tp-card` / `tp-grid` | ✅ en library |
+| `team-grid` / `team-card` | en view.php shell (pendiente mover) |
+| `cta-block` | en view.php shell (pendiente mover) |
+| `tp-sitemap` | ✅ en library |
+| `tp-comparison` | ✅ en library |
+| `tp-callout` (info/success/warning/note/quote) | ✅ en library |
+| `tp-tag` (mint/proto/tp/pending/muted) | ✅ en library |
+| `tp-timeline` | ✅ en library |
+| `tp-stat` | ✅ en library |
+| `tp-section-divider` | ✅ en library |
+| `tp-stack` (accordion FAQ) | pendiente P1 |
+| `tp-toc-inline` | pendiente P1 |
+| `tp-diff` | pendiente P2 |
 
-## Deuda técnica detectada
+## Deuda técnica pendiente
 
-- `view.php:1653-1654` — Telegram token expuesto en HTML público.
-- `view.php:815-915` vs `1163-1259` — CSS `.tp-card` duplicado.
-- `view.php:1622-1651` — scroll-spy ineficiente (debería ser IO).
-- `view.php:956` — `grayscale(20%)` en fotos equipo, contradice brand.
-- `view.php:325-333` — tokens legacy conviven con `--mint` oficial.
-- `view.php:1576` — nav strip quita numeración `A1.`, `A2.`.
+- Cambios tipográficos H1/H2 sin commitear → hacerlo en próxima sesión.
+- `view.php:~956` — `grayscale(20%)` en fotos equipo.
+- Migración completa a tokens canónicos (`--tp-primary` → `--mint`).
+- Eliminar FTP account `claude3` cuando cerremos esta tanda de uploads.

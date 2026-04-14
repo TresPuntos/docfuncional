@@ -1,5 +1,7 @@
 # Tres Puntos - Proposal Management System (docfuncional)
 
+> **Estado actual del proyecto y próximos pasos** → ver [`PLAN.md`](PLAN.md) en la raíz. Léelo al empezar sesión para entender qué está desplegado, qué cliente trabajamos y qué viene después.
+
 ## Knowledge Base — Notion (cerebro de Tres Puntos)
 Notion is the central knowledge base for Tres Puntos. Connected via MCP (`@notionhq/notion-mcp-server`).
 Use Notion tools (`notion-search`, `notion-fetch`, etc.) to look up strategy, processes, clients, and internal docs.
