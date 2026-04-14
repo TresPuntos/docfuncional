@@ -195,6 +195,34 @@ if ($is_unlocked) {
             exit;
         }
 
+        if ($_POST['api_action'] === 'edit_section_comment' || $_POST['api_action'] === 'delete_section_comment') {
+            $id = (int)($_POST['id'] ?? 0);
+            $signer = $readSigner();
+            if (!$id || !$signer['valid']) { echo json_encode(['success' => false, 'error' => 'Faltan datos para editar/eliminar.']); exit; }
+
+            // Verificación de autoría (nombre + apellidos)
+            $stmt = $pdo->prepare("SELECT autor_nombre, autor_apellidos, created_at FROM comentarios_seccion WHERE id = ? AND propuesta_id = ?");
+            $stmt->execute([$id, $proposal['id']]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$row) { echo json_encode(['success' => false, 'error' => 'Comentario no encontrado.']); exit; }
+            if (mb_strtolower($row['autor_nombre']) !== mb_strtolower($signer['nombre']) || mb_strtolower($row['autor_apellidos']) !== mb_strtolower($signer['apellidos'])) {
+                echo json_encode(['success' => false, 'error' => 'Solo el autor puede editar o eliminar este comentario.']);
+                exit;
+            }
+
+            if ($_POST['api_action'] === 'edit_section_comment') {
+                $texto = trim($_POST['texto'] ?? '');
+                if ($texto === '' || mb_strlen($texto) > 4000) { echo json_encode(['success' => false, 'error' => 'Texto inválido.']); exit; }
+                $pdo->prepare("UPDATE comentarios_seccion SET texto = ? WHERE id = ?")->execute([$texto, $id]);
+                echo json_encode(['success' => true]);
+                exit;
+            }
+            // delete
+            $pdo->prepare("DELETE FROM comentarios_seccion WHERE id = ?")->execute([$id]);
+            echo json_encode(['success' => true]);
+            exit;
+        }
+
         echo json_encode(['success' => false, 'error' => 'Acción no reconocida']);
         exit;
     }
@@ -1099,6 +1127,21 @@ if ($is_unlocked) {
             background: var(--bg-nav-hover);
             color: var(--text-primary);
         }
+        /* CTA botones en modo claro — evita texto gris claro sobre fondo claro */
+        [data-theme="light"] .btn-cta-secondary {
+            color: var(--text-primary);
+            border-color: var(--border-strong, var(--border-base));
+            background: var(--bg-surface);
+        }
+        [data-theme="light"] .btn-cta-secondary:hover {
+            background: var(--bg-nav-hover);
+            color: var(--text-primary);
+            border-color: var(--text-secondary);
+        }
+        [data-theme="light"] .btn-cta-secondary i,
+        [data-theme="light"] .btn-cta-secondary svg { color: var(--text-primary); }
+        [data-theme="light"] .cta-block p,
+        [data-theme="light"] .cta-block { color: var(--text-secondary); }
 
         /* Hierarchical sidebar nav — H2 parents + H3 children */
         .nav-item-children {

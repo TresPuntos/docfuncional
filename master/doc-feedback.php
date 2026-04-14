@@ -88,12 +88,35 @@ h2:hover > .tp-sec-btn, h3:hover > .tp-sec-btn { opacity: 1; }
 .tp-comment {
     background: var(--bg-subtle); border: 1px solid var(--border-base); border-radius: var(--radius-md, 10px);
     padding: .75rem .9rem; font-size: .88rem; line-height: 1.5;
+    cursor: pointer; transition: border-color .15s ease, background .15s ease;
 }
+.tp-comment:hover { border-color: var(--mint, var(--tp-primary)); }
 .tp-comment.mine { border-color: rgba(var(--mint-rgb, 93, 255, 191), .35); }
-.tp-comment-meta { font-size: .72rem; color: var(--text-muted); margin-bottom: .35rem; display: flex; justify-content: space-between; gap: .5rem; }
+.tp-comment-meta { font-size: .72rem; color: var(--text-muted); margin-bottom: .35rem; display: flex; justify-content: space-between; gap: .5rem; align-items: center; }
 .tp-comment-author { color: var(--text-secondary); font-weight: 600; }
 .tp-comment-text { color: var(--text-primary); white-space: pre-wrap; word-wrap: break-word; }
 .tp-comment.reply { margin-left: 1.25rem; border-left: 2px solid var(--mint, var(--tp-primary)); }
+.tp-comment-actions { display: flex; gap: .4rem; margin-top: .5rem; }
+.tp-comment-actions button {
+    background: transparent; border: 1px solid var(--border-base); color: var(--text-muted);
+    padding: .2rem .55rem; border-radius: 4px; font-size: .7rem; cursor: pointer;
+    font-family: inherit;
+}
+.tp-comment-actions button:hover { color: var(--text-primary); border-color: var(--border-strong, var(--text-muted)); }
+.tp-comment-actions .tp-btn-delete:hover { color: #ff6b6b; border-color: #ff6b6b; }
+.tp-comment-edit-area { display: grid; gap: .4rem; margin-top: .4rem; }
+.tp-comment-edit-area textarea {
+    background: var(--bg-base, #0e0e0e); color: var(--text-primary); border: 1px solid var(--border-base);
+    border-radius: 4px; padding: .5rem; font-family: inherit; font-size: .85rem; min-height: 60px; resize: vertical;
+}
+/* Highlight de la sección cuando se navega desde un comentario */
+.tp-section-flash {
+    animation: tpSectionFlash 1.8s ease-out;
+}
+@keyframes tpSectionFlash {
+    0%, 100% { background-color: transparent; }
+    25%      { background-color: rgba(var(--mint-rgb, 93, 255, 191), .18); }
+}
 
 .tp-drawer-empty { color: var(--text-muted); font-size: .85rem; text-align: center; padding: 2rem 1rem; }
 
@@ -276,21 +299,104 @@ h2:hover > .tp-sec-btn, h3:hover > .tp-sec-btn { opacity: 1; }
         }
         const esc = (s) => (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
         const signer = state.signer || {};
+        const same = (a, b) => (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase();
         const rows = list.map(c => {
-            const mine = signer.nombre && signer.apellidos && (signer.nombre === c.autor_nombre) && (signer.apellidos === c.autor_apellidos);
+            const mine = signer.nombre && signer.apellidos && same(signer.nombre, c.autor_nombre) && same(signer.apellidos, c.autor_apellidos);
             const dt = c.created_at ? new Date(c.created_at.replace(' ','T') + 'Z') : new Date();
             const when = isNaN(dt) ? c.created_at : dt.toLocaleString('es-ES', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
-            const section = !state.currentAnchor && c.section_title ? `<span title="${esc(c.section_title)}">· ${esc((c.section_title||'').slice(0,40))}</span>` : '';
-            return `<article class="tp-comment${mine ? ' mine' : ''}">
+            const sectionMeta = c.section_title
+                ? `<span class="tp-comment-section" title="Ir a ${esc(c.section_title)}">· ${esc((c.section_title||'').slice(0,50))}</span>`
+                : '';
+            const actions = mine
+                ? `<div class="tp-comment-actions">
+                     <button type="button" class="tp-btn-edit" data-id="${c.id}">Editar</button>
+                     <button type="button" class="tp-btn-delete" data-id="${c.id}">Eliminar</button>
+                   </div>`
+                : '';
+            return `<article class="tp-comment${mine ? ' mine' : ''}" data-id="${c.id}" data-anchor="${esc(c.section_anchor)}" data-title="${esc(c.section_title || c.section_anchor)}">
                 <div class="tp-comment-meta">
-                    <span><span class="tp-comment-author">${esc(c.autor_nombre)} ${esc(c.autor_apellidos)}</span> ${section}</span>
+                    <span><span class="tp-comment-author">${esc(c.autor_nombre)} ${esc(c.autor_apellidos)}</span> ${sectionMeta}</span>
                     <span>${esc(when)}</span>
                 </div>
-                <div class="tp-comment-text">${esc(c.texto)}</div>
+                <div class="tp-comment-text" data-id="${c.id}">${esc(c.texto)}</div>
+                ${actions}
             </article>`;
         }).join('');
         body.innerHTML = rows;
         body.scrollTop = body.scrollHeight;
+
+        // Click en cuerpo → scroll a sección; click en botones edit/delete → acción; click en sección de meta → mismo scroll
+        body.querySelectorAll('.tp-comment').forEach(art => {
+            art.addEventListener('click', (e) => {
+                if (e.target.closest('.tp-comment-actions') || e.target.closest('.tp-comment-edit-area')) return;
+                scrollToSection(art.dataset.anchor, art.dataset.title);
+            });
+        });
+        body.querySelectorAll('.tp-btn-edit').forEach(b => b.addEventListener('click', onEdit));
+        body.querySelectorAll('.tp-btn-delete').forEach(b => b.addEventListener('click', onDelete));
+    }
+
+    function scrollToSection(anchor, title) {
+        if (!anchor) return;
+        const target = document.getElementById(anchor);
+        if (!target) return;
+        closeDrawer();
+        setTimeout(() => {
+            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            target.classList.remove('tp-section-flash'); void target.offsetWidth;
+            target.classList.add('tp-section-flash');
+            setTimeout(() => target.classList.remove('tp-section-flash'), 2000);
+        }, 260);
+    }
+
+    async function onEdit(e) {
+        const id = +e.target.dataset.id;
+        const art = e.target.closest('.tp-comment');
+        const textBox = art.querySelector('.tp-comment-text');
+        const actions = art.querySelector('.tp-comment-actions');
+        const current = textBox.textContent;
+        if (art.querySelector('.tp-comment-edit-area')) return;
+
+        const editArea = document.createElement('div');
+        editArea.className = 'tp-comment-edit-area';
+        editArea.innerHTML = `
+            <textarea>${current.replace(/</g, '&lt;')}</textarea>
+            <div class="tp-comment-actions">
+                <button type="button" class="tp-btn-save">Guardar</button>
+                <button type="button" class="tp-btn-cancel">Cancelar</button>
+            </div>
+        `;
+        textBox.style.display = 'none';
+        actions.style.display = 'none';
+        art.appendChild(editArea);
+        const ta = editArea.querySelector('textarea');
+        ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length);
+        editArea.querySelector('.tp-btn-cancel').addEventListener('click', () => {
+            textBox.style.display = ''; actions.style.display = ''; editArea.remove();
+        });
+        editArea.querySelector('.tp-btn-save').addEventListener('click', async () => {
+            const nuevo = ta.value.trim();
+            if (!nuevo) return;
+            if (!state.signer) { alert('Sesión perdida.'); return; }
+            const r = await apiPost('edit_section_comment', {
+                id, texto: nuevo,
+                firmante_nombre: state.signer.nombre, firmante_apellidos: state.signer.apellidos,
+            });
+            if (!r.success) { alert(r.error || 'Error al editar.'); return; }
+            await refresh();
+        });
+    }
+
+    async function onDelete(e) {
+        const id = +e.target.dataset.id;
+        if (!confirm('¿Eliminar este comentario?')) return;
+        if (!state.signer) { alert('Sesión perdida.'); return; }
+        const r = await apiPost('delete_section_comment', {
+            id,
+            firmante_nombre: state.signer.nombre, firmante_apellidos: state.signer.apellidos,
+        });
+        if (!r.success) { alert(r.error || 'Error al eliminar.'); return; }
+        await refresh();
     }
 
     function refreshIdentityUI() {
