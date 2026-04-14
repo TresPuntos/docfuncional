@@ -106,20 +106,31 @@ if ($is_unlocked) {
             return hash('sha256', $payload);
         };
 
+        // Helper: URL pública para deep-link en notificaciones
+        $adminFeedbackUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? 'doc.trespuntos-lab.com') . '/admin_feedback.php?propuesta_id=' . $proposal['id'];
+        $viewUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? 'doc.trespuntos-lab.com') . '/p/' . $slug;
+
         if ($_POST['api_action'] === 'approve_doc') {
             $signer = $readSigner();
             if (!$signer['valid']) { echo json_encode(['success' => false, 'error' => 'Nombre y apellidos son obligatorios para firmar la aprobación.']); exit; }
             $stmtObj = $pdo->prepare("SELECT COUNT(*) FROM aprobaciones WHERE propuesta_id = ? AND tipo = 'documento_funcional'");
             $stmtObj->execute([$proposal['id']]);
-            if ($stmtObj->fetchColumn() == 0) {
-                $hash = $buildHash($proposal['id'], 'documento_funcional', $signer, $proposal['version']);
+            $isFirst = ($stmtObj->fetchColumn() == 0);
+            $hash = $buildHash($proposal['id'], 'documento_funcional', $signer, $proposal['version']);
+            if ($isFirst) {
                 $pdo->prepare("INSERT INTO aprobaciones (propuesta_id, tipo, ip_address, firmante_nombre, firmante_apellidos, firmante_email, firma_hash, version_firmada, user_agent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
                     ->execute([$proposal['id'], 'documento_funcional', $_SERVER['REMOTE_ADDR'], $signer['nombre'], $signer['apellidos'], $signer['email'], $hash, $proposal['version'], mb_substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255)]);
-                sendTelegramNotification("✅ <b>Documento Aprobado</b>\nCliente: <b>" . htmlspecialchars($clientName, ENT_QUOTES, 'UTF-8') . "</b>\nFirmado por: <b>" . htmlspecialchars($signer['nombre'] . ' ' . $signer['apellidos'], ENT_QUOTES, 'UTF-8') . "</b>\nVersión: " . htmlspecialchars($proposal['version']) . "\nHash: <code>" . substr($hash, 0, 16) . "…</code>");
-                echo json_encode(['success' => true, 'hash' => $hash]);
-            } else {
-                echo json_encode(['success' => true, 'already' => true]);
             }
+            $prefix = $isFirst ? "✅ <b>Documento Aprobado</b>" : "🔁 <b>Re-firma Documento</b> <i>(ya estaba aprobado)</i>";
+            sendTelegramNotification(
+                $prefix
+                . "\nCliente: <b>" . htmlspecialchars($clientName, ENT_QUOTES, 'UTF-8') . "</b>"
+                . "\nFirmado por: <b>" . htmlspecialchars($signer['nombre'] . ' ' . $signer['apellidos'], ENT_QUOTES, 'UTF-8') . "</b>"
+                . "\nVersión: " . htmlspecialchars($proposal['version'])
+                . "\nHash: <code>" . substr($hash, 0, 16) . "…</code>"
+                . "\n\n<a href=\"" . htmlspecialchars($adminFeedbackUrl, ENT_QUOTES) . "\">Abrir en admin</a> · <a href=\"" . htmlspecialchars($viewUrl, ENT_QUOTES) . "\">Ver propuesta</a>"
+            );
+            echo json_encode(['success' => true, 'hash' => $hash, 'already' => !$isFirst]);
             exit;
         }
         if ($_POST['api_action'] === 'approve_pdf') {
@@ -127,15 +138,22 @@ if ($is_unlocked) {
             if (!$signer['valid']) { echo json_encode(['success' => false, 'error' => 'Nombre y apellidos son obligatorios para firmar la aprobación.']); exit; }
             $stmtObj = $pdo->prepare("SELECT COUNT(*) FROM aprobaciones WHERE propuesta_id = ? AND tipo = 'presupuesto'");
             $stmtObj->execute([$proposal['id']]);
-            if ($stmtObj->fetchColumn() == 0) {
-                $hash = $buildHash($proposal['id'], 'presupuesto', $signer, $proposal['version']);
+            $isFirst = ($stmtObj->fetchColumn() == 0);
+            $hash = $buildHash($proposal['id'], 'presupuesto', $signer, $proposal['version']);
+            if ($isFirst) {
                 $pdo->prepare("INSERT INTO aprobaciones (propuesta_id, tipo, ip_address, firmante_nombre, firmante_apellidos, firmante_email, firma_hash, version_firmada, user_agent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
                     ->execute([$proposal['id'], 'presupuesto', $_SERVER['REMOTE_ADDR'], $signer['nombre'], $signer['apellidos'], $signer['email'], $hash, $proposal['version'], mb_substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255)]);
-                sendTelegramNotification("✅💰 <b>Presupuesto Aprobado</b>\nCliente: <b>" . htmlspecialchars($clientName, ENT_QUOTES, 'UTF-8') . "</b>\nFirmado por: <b>" . htmlspecialchars($signer['nombre'] . ' ' . $signer['apellidos'], ENT_QUOTES, 'UTF-8') . "</b>\nVersión: " . htmlspecialchars($proposal['version']) . "\nHash: <code>" . substr($hash, 0, 16) . "…</code>");
-                echo json_encode(['success' => true, 'hash' => $hash]);
-            } else {
-                echo json_encode(['success' => true, 'already' => true]);
             }
+            $prefix = $isFirst ? "✅💰 <b>Presupuesto Aprobado</b>" : "🔁💰 <b>Re-firma Presupuesto</b> <i>(ya estaba aprobado)</i>";
+            sendTelegramNotification(
+                $prefix
+                . "\nCliente: <b>" . htmlspecialchars($clientName, ENT_QUOTES, 'UTF-8') . "</b>"
+                . "\nFirmado por: <b>" . htmlspecialchars($signer['nombre'] . ' ' . $signer['apellidos'], ENT_QUOTES, 'UTF-8') . "</b>"
+                . "\nVersión: " . htmlspecialchars($proposal['version'])
+                . "\nHash: <code>" . substr($hash, 0, 16) . "…</code>"
+                . "\n\n<a href=\"" . htmlspecialchars($adminFeedbackUrl, ENT_QUOTES) . "\">Abrir en admin</a> · <a href=\"" . htmlspecialchars($viewUrl, ENT_QUOTES) . "\">Ver propuesta</a>"
+            );
+            echo json_encode(['success' => true, 'hash' => $hash, 'already' => !$isFirst]);
             exit;
         }
         if ($_POST['api_action'] === 'reject_pdf') {
@@ -177,11 +195,13 @@ if ($is_unlocked) {
             $id = (int)$pdo->lastInsertId();
 
             $tgHeader = $parentId ? "💬 <b>Respuesta del cliente</b>" : "💬 <b>Comentario en sección</b>";
+            $sectionUrl = $viewUrl . '#' . urlencode($anchor);
             sendTelegramNotification(
                 $tgHeader . "\nCliente: <b>" . htmlspecialchars($clientName, ENT_QUOTES, 'UTF-8') . "</b>"
                 . "\nAutor: <b>" . htmlspecialchars($signer['nombre'] . ' ' . $signer['apellidos'], ENT_QUOTES, 'UTF-8') . "</b>"
                 . "\nSección: <i>" . htmlspecialchars($title !== '' ? $title : $anchor, ENT_QUOTES, 'UTF-8') . "</i>"
                 . "\n\n" . htmlspecialchars(mb_substr($texto, 0, 600), ENT_QUOTES, 'UTF-8')
+                . "\n\n<a href=\"" . htmlspecialchars($sectionUrl, ENT_QUOTES) . "\">Ver sección</a> · <a href=\"" . htmlspecialchars($adminFeedbackUrl, ENT_QUOTES) . "\">Abrir en admin</a>"
             );
 
             echo json_encode(['success' => true, 'id' => $id, 'created_at' => date('c')]);
@@ -214,11 +234,23 @@ if ($is_unlocked) {
                 $texto = trim($_POST['texto'] ?? '');
                 if ($texto === '' || mb_strlen($texto) > 4000) { echo json_encode(['success' => false, 'error' => 'Texto inválido.']); exit; }
                 $pdo->prepare("UPDATE comentarios_seccion SET texto = ? WHERE id = ?")->execute([$texto, $id]);
+                sendTelegramNotification(
+                    "✏️ <b>Comentario editado</b>"
+                    . "\nCliente: <b>" . htmlspecialchars($clientName, ENT_QUOTES, 'UTF-8') . "</b>"
+                    . "\nAutor: <b>" . htmlspecialchars($signer['nombre'] . ' ' . $signer['apellidos'], ENT_QUOTES, 'UTF-8') . "</b>"
+                    . "\n\n" . htmlspecialchars(mb_substr($texto, 0, 600), ENT_QUOTES, 'UTF-8')
+                    . "\n\n<a href=\"" . htmlspecialchars($adminFeedbackUrl, ENT_QUOTES) . "\">Abrir en admin</a>"
+                );
                 echo json_encode(['success' => true]);
                 exit;
             }
             // delete
             $pdo->prepare("DELETE FROM comentarios_seccion WHERE id = ?")->execute([$id]);
+            sendTelegramNotification(
+                "🗑️ <b>Comentario eliminado</b>"
+                . "\nCliente: <b>" . htmlspecialchars($clientName, ENT_QUOTES, 'UTF-8') . "</b>"
+                . "\nAutor: <b>" . htmlspecialchars($signer['nombre'] . ' ' . $signer['apellidos'], ENT_QUOTES, 'UTF-8') . "</b>"
+            );
             echo json_encode(['success' => true]);
             exit;
         }
