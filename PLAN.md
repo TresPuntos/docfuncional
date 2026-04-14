@@ -100,10 +100,42 @@ Historial guardado: v1.1, v1.2 (restaurables vía API o admin).
 
 ## P2 · Nice-to-have
 
-- [ ] Comentarios inline por sección (drawer lateral).
+- [x] **Comentarios inline por sección (drawer lateral)** — rama `feat/section-feedback`, en local sin push.
+- [x] **Firma ligera en aprobaciones** (nombre + apellidos + hash SHA256 + versión) — misma rama.
 - [ ] Diff visual entre versiones (ya hay `propuestas_history`).
 - [ ] Onboarding 3 pasos primera visita.
 - [ ] Light theme en shell (hoy solo dark — documento soporta dark mode pero shell aún no).
+
+---
+
+## 💡 Ideas futuras (pendiente de diseño)
+
+### 1. Presupuesto PDF → factura renderizada con estilos Tres Puntos
+Hoy el presupuesto se sube como PDF y se muestra tal cual en `<iframe>`. Propuesta:
+
+- **Input:** el PDF que ya se sube (o datos estructurados copiados del PDF).
+- **Output:** render HTML en formato factura con identidad Tres Puntos (tokens, tipografía, tablas `tp-*`).
+- **Reordenar vista:** al aprobar un presupuesto, este pasa a ser la **pestaña principal** y el documento funcional queda como referencia secundaria. Hoy es al revés.
+- **Cambios en `view.php`:**
+  - Detectar si hay presupuesto aprobado → reordenar secciones.
+  - Nueva plantilla `tp-invoice` en `doc-library.css` (header cliente, líneas, subtotales, impuestos, total).
+- **Cuidado con lógica existente:** `approve_pdf`, `reject_pdf`, notificación Telegram, tabla `aprobaciones` — todo ya firmado con hash. Mantener compatibilidad.
+
+**Bloqueantes antes de construir:**
+- Definir esquema del presupuesto (líneas, descuentos, impuestos, plazos de pago).
+- Decidir si el PDF sigue siendo fuente de verdad o si se parsea a JSON en BD.
+- Flujo de aprobación: ¿firmar sobre la factura HTML o seguir sobre el PDF?
+
+### 2. Trazabilidad "quién ha hecho qué"
+Extender el log actual (hoy solo firma la aprobación con nombre del cliente):
+- **En el lado cliente:** ya queda registrado en `aprobaciones.firmante_*` y `comentarios_seccion.autor_*`.
+- **En el lado Tres Puntos:** falta — ¿quién redactó la propuesta, quién la envió, quién respondió al comentario?
+- Solución: tabla `propuesta_actividad (id, propuesta_id, actor_tipo, actor_id, accion, detalle_json, created_at)` con timeline unificada en el admin.
+- Integrar con la API de agentes IA (Bird genera propuesta → entrada automática; cada save_version → entrada).
+
+### 3. Jordan-doc (agente Haiku scopeado al documento)
+- Código paralelo ya creado en `/TRESPUNTOS-LAB/Jordan/tres-puntos-agent-doc/` (local, sin desplegar).
+- Pendiente: endpoint `/api/jordan-doc.php`, tabla `jordan_conversaciones`, flag `enable_ai_assistant` por propuesta.
 
 ## Skill `create-functional-doc` (pendiente)
 
