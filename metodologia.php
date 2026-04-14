@@ -399,4 +399,43 @@
             gap: 1rem;
         }
     }
+
+    /* -------------------------------------------------- */
+    /* LIGHT MODE — overrides de contraste                 */
+    /* Los estilos originales son todos rgba(255,255,255,…) */
+    /* que sobre fondo claro quedan invisibles.            */
+    /* -------------------------------------------------- */
+    [data-theme="light"] .tp-metodologia-section {
+        background: var(--bg-surface, #fff);
+        border-color: var(--border-base, #e5e5e5);
+        box-shadow: 0 1px 2px rgba(20, 20, 20, .04);
+    }
+    [data-theme="light"] .metodologia-intro { color: var(--text-secondary, #4a4a4a); }
+    [data-theme="light"] .tp-timeline-line { background: var(--border-base, #e5e5e5); }
+    [data-theme="light"] .tp-step-icon {
+        background: var(--bg-base, #fafafa);
+        border-color: var(--border-base, #e5e5e5);
+        color: var(--text-primary, #0e0e0e);
+    }
+    [data-theme="light"] .tp-step-number { color: rgba(20, 20, 20, .25); }
+    [data-theme="light"] .tp-step-card {
+        background: var(--bg-base, #fafafa);
+        border-color: var(--border-base, #e5e5e5);
+    }
+    [data-theme="light"] .tp-step-card h3 { color: var(--text-primary, #0e0e0e); }
+    [data-theme="light"] .tp-step-desc { color: var(--text-secondary, #4a4a4a); }
+    [data-theme="light"] .tp-step-list li { color: var(--text-primary, #0e0e0e); }
+    [data-theme="light"] .tp-step-badge {
+        background: var(--bg-subtle, #f0f0f0);
+        color: var(--text-primary, #0e0e0e);
+    }
+    [data-theme="light"] .tp-step-badge.warning { background: rgba(245, 158, 11, .12); color: #92580c; }
+    [data-theme="light"] .tp-step-badge.info    { background: rgba(59, 130, 246, .12); color: #1d4ed8; }
+    [data-theme="light"] .tp-step-badge.success { background: rgba(16, 163, 127, .12); color: #0e7a5f; }
+    [data-theme="light"] .tp-metodologia-footer {
+        background: rgba(16, 163, 127, .06);
+        border-color: rgba(16, 163, 127, .25);
+    }
+    [data-theme="light"] .tp-metodologia-footer p { color: var(--text-primary, #0e0e0e); }
+    [data-theme="light"] .tp-metodologia-footer i { color: #0e7a5f; }
 </style>
