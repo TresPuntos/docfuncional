@@ -794,7 +794,7 @@ if ($is_unlocked) {
 
         h1 {
             font-family: var(--font-heading);
-            font-size: 3.5rem;
+            font-size: 2.6rem;
             font-weight: 800;
             color: #FFF;
             letter-spacing: -0.03em;
@@ -809,9 +809,9 @@ if ($is_unlocked) {
 
         .content-wrapper h2 {
             font-family: var(--font-heading);
-            font-size: 2.2rem;
-            margin-top: 5rem;
-            margin-bottom: 2rem;
+            font-size: 1.7rem;
+            margin-top: 4.5rem;
+            margin-bottom: 1.75rem;
             color: #FFF;
             display: flex;
             align-items: center;
@@ -1165,7 +1165,7 @@ if ($is_unlocked) {
             }
 
             h1 {
-                font-size: 2.2rem;
+                font-size: 1.8rem;
             }
 
             .mobile-header {
@@ -1173,8 +1173,8 @@ if ($is_unlocked) {
             }
 
             .content-wrapper h2 {
-                font-size: 1.7rem;
-                margin-top: 3.5rem;
+                font-size: 1.4rem;
+                margin-top: 3rem;
             }
         }
     </style>
