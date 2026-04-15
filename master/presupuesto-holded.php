@@ -85,17 +85,18 @@ $total    = (float)($holded_doc['total'] ?? 0);
 
 .tp-invoice__desc {
     margin-bottom: 2rem; padding: 1rem 1.25rem;
-    background: var(--bg-subtle, #191919); border-left: 3px solid var(--mint, #5dffbf);
-    border-radius: var(--radius-sm, 6px); font-size: .9rem; color: var(--text-secondary, #b3b3b3);
+    background: var(--bg-nav-hover, #1a1a1a); border-left: 3px solid var(--mint, #5dffbf);
+    border-radius: var(--radius-sm, 6px); font-size: .95rem; color: var(--text-primary, #f5f5f5);
+    font-weight: 500;
 }
 
 .tp-invoice__items {
     width: 100%; border-collapse: collapse; margin-bottom: 1.5rem;
 }
 .tp-invoice__items thead th {
-    text-align: left; font-size: .65rem; text-transform: uppercase; letter-spacing: .08em;
-    color: var(--text-muted, #8a8a8a); font-weight: 700;
-    padding: .6rem .9rem; border-bottom: 1px solid var(--border-base, #1f1f1f);
+    text-align: left; font-size: .7rem; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--text-secondary, #b3b3b3); font-weight: 700;
+    padding: .7rem .9rem; border-bottom: 1px solid var(--border-base, #1f1f1f);
     background: var(--bg-surface, #141414);
 }
 .tp-invoice__items thead th.right { text-align: right; }
@@ -124,20 +125,20 @@ $total    = (float)($holded_doc['total'] ?? 0);
 }
 
 .tp-invoice__notes {
-    padding: 1rem 1.25rem; background: var(--bg-subtle, #191919);
-    border-radius: var(--radius-sm, 6px); font-size: .85rem;
-    color: var(--text-secondary, #b3b3b3); line-height: 1.6;
+    padding: 1.1rem 1.25rem; background: var(--bg-nav-hover, #1a1a1a);
+    border-radius: var(--radius-sm, 6px); font-size: .9rem;
+    color: var(--text-primary, #f5f5f5); line-height: 1.6;
     white-space: pre-wrap;
     margin-bottom: 2rem;
 }
-.tp-invoice__notes strong { color: var(--text-primary, #f5f5f5); display: block; margin-bottom: .4rem; font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; }
+.tp-invoice__notes strong { color: var(--text-secondary, #b3b3b3); display: block; margin-bottom: .5rem; font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; font-weight: 700; }
 
 .tp-invoice__footer {
     margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--border-base, #1f1f1f);
     display: flex; justify-content: space-between; gap: 2rem; flex-wrap: wrap;
-    font-size: .75rem; color: var(--text-muted, #8a8a8a);
+    font-size: .82rem; color: var(--text-secondary, #b3b3b3);
 }
-.tp-invoice__footer .iban { font-family: var(--font-mono, monospace); color: var(--text-secondary, #b3b3b3); }
+.tp-invoice__footer .iban { font-family: var(--font-mono, monospace); color: var(--text-primary, #f5f5f5); font-weight: 500; }
 
 /* Modo claro */
 [data-theme="light"] .tp-invoice__totalbox { background: rgba(16, 163, 127, .08); border-color: rgba(16, 163, 127, .3); }

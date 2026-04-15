@@ -295,13 +295,15 @@ if ($is_unlocked) {
 
         $isDocApproved = false;
         $isPdfApproved = false;
-        $stmtObj = $pdo -> prepare("SELECT tipo FROM aprobaciones WHERE propuesta_id = ?");
+        $firmas = [];
+        $stmtObj = $pdo -> prepare("SELECT tipo, firmante_nombre, firmante_apellidos, firmante_email, firma_hash, version_firmada, aprobado_at FROM aprobaciones WHERE propuesta_id = ? ORDER BY aprobado_at ASC");
         $stmtObj -> execute([$proposal['id']]);
         while ($row = $stmtObj -> fetch(PDO:: FETCH_ASSOC)) {
             if ($row['tipo'] === 'documento_funcional')
                 $isDocApproved = true;
             if ($row['tipo'] === 'presupuesto')
                 $isPdfApproved = true;
+            $firmas[] = $row;
         }
         $hasPdf = !empty($proposal['presupuesto_pdf']);
 
@@ -334,7 +336,7 @@ if ($is_unlocked) {
             $stmtTeam -> execute($equipo_ids);
             $team = $stmtTeam -> fetchAll(PDO:: FETCH_ASSOC);
         }
-        renderWrappedContent($proposal, $slug, $isDocApproved, $isPdfApproved, $hasPdf, $team, $base_path, $hasHolded, $holdedDoc);
+        renderWrappedContent($proposal, $slug, $isDocApproved, $isPdfApproved, $hasPdf, $team, $base_path, $hasHolded, $holdedDoc, $firmas);
         exit;
 }
 
@@ -500,7 +502,7 @@ if ($is_unlocked) {
                             <?php
 }
 
-                            function renderWrappedContent($proposal, $slug, $isDocApproved = false, $isPdfApproved = false, $hasPdf = false, $team = [], $base_path = '', $hasHolded = false, $holdedDoc = null)
+                            function renderWrappedContent($proposal, $slug, $isDocApproved = false, $isPdfApproved = false, $hasPdf = false, $team = [], $base_path = '', $hasHolded = false, $holdedDoc = null, $firmas = [])
                             {
 ?>
 <!DOCTYPE html>
@@ -1005,7 +1007,293 @@ if ($is_unlocked) {
         .doc-meta {
             font-size: 1rem;
             color: var(--text-muted);
-            margin-bottom: 5rem;
+            margin-bottom: 2.5rem;
+        }
+
+        /* Tabs sticky: documento · presupuesto · firmas */
+        .doc-tabs {
+            position: sticky;
+            top: 0;
+            z-index: 50;
+            display: flex;
+            gap: .35rem;
+            padding: .6rem;
+            margin: 0 -0.6rem 3rem;
+            background: color-mix(in srgb, var(--bg-base) 92%, transparent);
+            backdrop-filter: saturate(140%) blur(10px);
+            -webkit-backdrop-filter: saturate(140%) blur(10px);
+            border: 1px solid var(--border-base);
+            border-radius: 14px;
+            overflow-x: auto;
+            scrollbar-width: none;
+        }
+        .doc-tabs::-webkit-scrollbar { display: none; }
+
+        .doc-tab {
+            display: inline-flex;
+            align-items: center;
+            gap: .5rem;
+            padding: .6rem 1rem;
+            border: 0;
+            background: transparent;
+            color: var(--text-secondary);
+            font-family: var(--font-heading);
+            font-size: .88rem;
+            font-weight: 600;
+            letter-spacing: .01em;
+            border-radius: 10px;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: background .18s ease, color .18s ease, transform .18s ease;
+        }
+        .doc-tab i { width: 16px; height: 16px; flex: 0 0 auto; }
+        .doc-tab:hover { background: var(--bg-nav-hover); color: var(--text-primary); }
+        .doc-tab.is-active {
+            background: var(--tp-primary);
+            color: #0e0e0e;
+        }
+        [data-theme="light"] .doc-tab.is-active { color: #ffffff; }
+        .doc-tab.is-active:hover { background: var(--tp-primary); }
+        .doc-tab__count {
+            display: inline-flex;
+            min-width: 20px;
+            padding: 0 .35rem;
+            height: 20px;
+            align-items: center;
+            justify-content: center;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, .15);
+            font-size: .7rem;
+            font-weight: 700;
+            color: inherit;
+        }
+        .doc-tab:not(.is-active) .doc-tab__count {
+            background: var(--bg-nav-hover);
+            color: var(--text-muted);
+        }
+
+        /* Oculta el sidebar-nav cuando estamos fuera del documento (deja el brand/theme-toggle) */
+        body.is-tab-presupuesto .sidebar-nav-container,
+        body.is-tab-firmas .sidebar-nav-container { display: none; }
+
+        @media (max-width: 768px) {
+            .doc-tabs { margin: 0 0 2rem; border-radius: 12px; }
+            .doc-tab { padding: .55rem .8rem; font-size: .82rem; }
+        }
+
+        /* ========================================================
+           tp-signatures — registro de firmas
+           ======================================================== */
+        .tp-signatures { max-width: 900px; margin: 0 auto; }
+        .tp-signatures__head { margin-bottom: 2rem; }
+        .tp-signatures__head h2 {
+            font-family: var(--font-heading);
+            font-size: 2rem; font-weight: 800;
+            color: var(--text-primary);
+            margin: 0 0 .5rem !important;
+            display: block !important;
+        }
+        .tp-signatures__head h2::before { display: none !important; }
+        .tp-signatures__head p { color: var(--text-secondary); margin: 0; font-size: .95rem; }
+
+        .tp-signatures__list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            gap: .75rem;
+        }
+        .tp-signatures__item {
+            display: grid;
+            grid-template-columns: minmax(180px, 1fr) minmax(200px, 1.4fr) auto;
+            gap: 1.25rem;
+            align-items: center;
+            padding: 1.1rem 1.25rem;
+            background: var(--bg-surface);
+            border: 1px solid var(--border-base);
+            border-left: 3px solid var(--tp-primary);
+            border-radius: 10px;
+        }
+        .tp-signatures__tipo {
+            display: inline-flex;
+            align-items: center;
+            gap: .5rem;
+            flex-wrap: wrap;
+            font-family: var(--font-heading);
+            font-weight: 700;
+            font-size: .85rem;
+            color: var(--text-primary);
+        }
+        .tp-signatures__tipo i { width: 16px; height: 16px; color: var(--tp-primary); }
+        .tp-signatures__ver {
+            font-family: var(--font-mono, 'JetBrains Mono', monospace);
+            font-size: .7rem;
+            padding: .15rem .45rem;
+            background: var(--bg-nav-hover);
+            color: var(--text-secondary);
+            border-radius: 999px;
+            font-weight: 500;
+        }
+        .tp-signatures__who strong {
+            display: block;
+            color: var(--text-primary);
+            font-size: .95rem;
+            margin-bottom: .15rem;
+        }
+        .tp-signatures__who span {
+            color: var(--text-muted);
+            font-size: .8rem;
+        }
+        .tp-signatures__when {
+            text-align: right;
+            font-size: .85rem;
+            color: var(--text-secondary);
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: .25rem;
+        }
+        .tp-signatures__when time { font-variant-numeric: tabular-nums; }
+        .tp-signatures__hash {
+            font-family: var(--font-mono, 'JetBrains Mono', monospace);
+            font-size: .7rem;
+            color: var(--text-muted);
+            background: var(--bg-nav-hover);
+            padding: .15rem .45rem;
+            border-radius: 6px;
+            cursor: help;
+        }
+        .tp-signatures__foot {
+            margin-top: 2rem;
+            padding: .9rem 1.1rem;
+            background: color-mix(in srgb, var(--tp-primary) 8%, transparent);
+            border: 1px solid color-mix(in srgb, var(--tp-primary) 25%, transparent);
+            border-radius: 10px;
+            color: var(--text-secondary);
+            font-size: .82rem;
+            display: flex;
+            align-items: center;
+            gap: .6rem;
+        }
+        .tp-signatures__foot i { width: 16px; height: 16px; color: var(--tp-primary); flex: 0 0 auto; }
+
+        @media (max-width: 640px) {
+            .tp-signatures__item {
+                grid-template-columns: 1fr;
+                gap: .75rem;
+            }
+            .tp-signatures__when {
+                text-align: left;
+                align-items: flex-start;
+                flex-direction: row;
+                flex-wrap: wrap;
+                gap: .75rem;
+            }
+        }
+
+        /* =============================================
+           Onboarding coachmark: apunta al FAB comentarios
+           ============================================= */
+        .tp-onboarding {
+            position: fixed;
+            right: 1.5rem;
+            bottom: 5.25rem;
+            max-width: 340px;
+            padding: 1.25rem 1.35rem 1.15rem;
+            background: var(--bg-surface);
+            border: 1px solid var(--border-strong);
+            border-radius: 14px;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, .5), 0 2px 6px rgba(0, 0, 0, .3);
+            z-index: 2000;
+            animation: tpOnbIn .45s cubic-bezier(.16,1,.3,1);
+        }
+        [data-theme="light"] .tp-onboarding {
+            box-shadow: 0 20px 50px rgba(20, 20, 20, .18), 0 2px 6px rgba(20, 20, 20, .08);
+        }
+        @keyframes tpOnbIn {
+            from { opacity: 0; transform: translateY(12px) scale(.97); }
+            to   { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .tp-onboarding::after {
+            content: '';
+            position: absolute;
+            right: 28px; bottom: -7px;
+            width: 14px; height: 14px;
+            background: var(--bg-surface);
+            border-right: 1px solid var(--border-strong);
+            border-bottom: 1px solid var(--border-strong);
+            transform: rotate(45deg);
+        }
+        .tp-onboarding__title {
+            display: flex;
+            align-items: center;
+            gap: .55rem;
+            font-family: var(--font-heading);
+            font-weight: 700;
+            font-size: 1rem;
+            margin-bottom: .6rem;
+            color: var(--text-primary);
+            padding-right: 1.5rem;
+        }
+        .tp-onboarding__title i {
+            width: 20px; height: 20px;
+            color: var(--tp-primary);
+            flex: 0 0 auto;
+        }
+        .tp-onboarding__body {
+            font-size: .85rem;
+            line-height: 1.55;
+            color: var(--text-secondary);
+            margin-bottom: 1rem;
+        }
+        .tp-onboarding__body strong { color: var(--text-primary); font-weight: 600; }
+        .tp-onboarding__ok {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            padding: .6rem 1rem;
+            background: var(--tp-primary);
+            color: #0e0e0e;
+            border: 0;
+            border-radius: 8px;
+            font-family: var(--font-heading);
+            font-weight: 700;
+            font-size: .85rem;
+            letter-spacing: .01em;
+            cursor: pointer;
+            transition: filter .15s ease;
+        }
+        [data-theme="light"] .tp-onboarding__ok { color: #ffffff; }
+        .tp-onboarding__ok:hover { filter: brightness(1.08); }
+        .tp-onboarding__dismiss {
+            position: absolute;
+            top: .6rem; right: .6rem;
+            width: 28px; height: 28px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border: 0;
+            background: transparent;
+            color: var(--text-muted);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background .15s ease, color .15s ease;
+        }
+        .tp-onboarding__dismiss i { width: 14px; height: 14px; }
+        .tp-onboarding__dismiss:hover {
+            background: var(--bg-nav-hover);
+            color: var(--text-primary);
+        }
+
+        @media (max-width: 768px) {
+            .tp-onboarding {
+                left: .75rem; right: .75rem;
+                bottom: 4.5rem;
+                max-width: none;
+            }
+            .tp-onboarding::after { right: 30px; }
         }
 
         .content-wrapper h2 {
@@ -1627,11 +1915,41 @@ if ($is_unlocked) {
                     <?php echo htmlspecialchars($proposal['version'] ?? '1.0'); ?> · Enviado el
                     <?php echo $formattedDate; ?>
                 </p>
-                <div id="content-area">
+
+                <?php
+                    $hasPresupuestoTab = $hasHolded || $hasPdf;
+                    $hasFirmasTab      = !empty($firmas);
+                    $showTabs          = $hasPresupuestoTab || $hasFirmasTab;
+                    $presupuestoLabel  = $hasHolded ? ('Presupuesto · ' . htmlspecialchars($holdedDoc['docNumber'] ?? '', ENT_QUOTES, 'UTF-8')) : 'Presupuesto';
+                ?>
+                <?php if ($showTabs): ?>
+                <nav class="doc-tabs" role="tablist" aria-label="Vistas del documento">
+                    <button class="doc-tab is-active" type="button" role="tab" data-tab-target="documento" aria-selected="true">
+                        <i data-lucide="file-text"></i>
+                        <span>Documento</span>
+                    </button>
+                    <?php if ($hasPresupuestoTab): ?>
+                    <button class="doc-tab" type="button" role="tab" data-tab-target="presupuesto" aria-selected="false">
+                        <i data-lucide="file-spreadsheet"></i>
+                        <span><?php echo $presupuestoLabel; ?></span>
+                    </button>
+                    <?php endif; ?>
+                    <?php if ($hasFirmasTab): ?>
+                    <button class="doc-tab" type="button" role="tab" data-tab-target="firmas" aria-selected="false">
+                        <i data-lucide="pen-tool"></i>
+                        <span>Firmas</span>
+                        <span class="doc-tab__count"><?php echo count($firmas); ?></span>
+                    </button>
+                    <?php endif; ?>
+                </nav>
+                <?php endif; ?>
+
+                <div id="content-area" class="doc-view" data-tab="documento">
                     <?php echo $proposal['html_content']; ?>
                 </div>
 
                 <div id="content-areas-extensions">
+                    <div class="doc-view" data-tab="documento">
                     <?php include __DIR__ . '/metodologia.php'; ?>
                     <div id="equipo-extension-area" style="margin-top: 4rem;"></div>
                     <div class="cta-block" id="sec-avanzamos-doc">
@@ -1676,7 +1994,11 @@ if ($is_unlocked) {
                         <?php
     endif; ?>
                     </div>
+                    </div> <!-- /.doc-view data-tab=documento -->
 
+                    <?php if ($hasPresupuestoTab): ?>
+                    <div class="doc-view" data-tab="presupuesto" hidden>
+                    <?php endif; ?>
                     <?php if ($hasHolded):
                         // El template espera $holded_doc (snake_case) → alias del arg $holdedDoc.
                         $holded_doc = $holdedDoc;
@@ -1761,6 +2083,59 @@ if ($is_unlocked) {
                     </div>
                     <?php
     endif; ?>
+                    <?php if ($hasPresupuestoTab): ?>
+                    </div> <!-- /.doc-view data-tab=presupuesto -->
+                    <?php endif; ?>
+
+                    <?php if ($hasFirmasTab): ?>
+                    <div class="doc-view" data-tab="firmas" hidden>
+                        <section class="tp-signatures" aria-labelledby="firmas-heading">
+                            <header class="tp-signatures__head">
+                                <h2 id="firmas-heading">Registro de firmas</h2>
+                                <p>Trazabilidad de las aprobaciones recibidas sobre este documento y su presupuesto.</p>
+                            </header>
+                            <ol class="tp-signatures__list">
+                                <?php foreach ($firmas as $f):
+                                    $nombre   = trim(($f['firmante_nombre'] ?? '') . ' ' . ($f['firmante_apellidos'] ?? ''));
+                                    if ($nombre === '') $nombre = '—';
+                                    $email    = $f['firmante_email'] ?? '';
+                                    $hash     = $f['firma_hash'] ?? '';
+                                    $hashShort = $hash ? (substr($hash, 0, 4) . '…' . substr($hash, -4)) : '';
+                                    $tipo     = $f['tipo'] === 'documento_funcional' ? 'Documento funcional' : 'Presupuesto';
+                                    $tipoIcon = $f['tipo'] === 'documento_funcional' ? 'file-text' : 'file-spreadsheet';
+                                    $ver      = $f['version_firmada'] ?? '';
+                                    $ts       = strtotime($f['aprobado_at'] ?? '');
+                                    $fecha    = $ts ? date('d/m/Y', $ts) : '—';
+                                    $hora     = $ts ? date('H:i', $ts) : '';
+                                ?>
+                                <li class="tp-signatures__item">
+                                    <div class="tp-signatures__tipo">
+                                        <i data-lucide="<?php echo $tipoIcon; ?>"></i>
+                                        <span><?php echo $tipo; ?></span>
+                                        <?php if ($ver): ?><span class="tp-signatures__ver"><?php echo htmlspecialchars($ver, ENT_QUOTES, 'UTF-8'); ?></span><?php endif; ?>
+                                    </div>
+                                    <div class="tp-signatures__who">
+                                        <strong><?php echo htmlspecialchars($nombre, ENT_QUOTES, 'UTF-8'); ?></strong>
+                                        <?php if ($email): ?><span><?php echo htmlspecialchars($email, ENT_QUOTES, 'UTF-8'); ?></span><?php endif; ?>
+                                    </div>
+                                    <div class="tp-signatures__when">
+                                        <time datetime="<?php echo htmlspecialchars($f['aprobado_at'] ?? '', ENT_QUOTES, 'UTF-8'); ?>">
+                                            <?php echo $fecha; ?><?php if ($hora): ?> · <?php echo $hora; ?><?php endif; ?>
+                                        </time>
+                                        <?php if ($hashShort): ?>
+                                        <code class="tp-signatures__hash" title="Hash SHA-256 de verificación: <?php echo htmlspecialchars($hash, ENT_QUOTES, 'UTF-8'); ?>">hash <?php echo $hashShort; ?></code>
+                                        <?php endif; ?>
+                                    </div>
+                                </li>
+                                <?php endforeach; ?>
+                            </ol>
+                            <p class="tp-signatures__foot">
+                                <i data-lucide="shield-check"></i>
+                                Cada firma incluye un hash SHA-256 que permite verificar que el contenido aprobado no ha sido manipulado.
+                            </p>
+                        </section>
+                    </div>
+                    <?php endif; ?>
                 </div>
 
             </div>
@@ -2223,7 +2598,114 @@ if ($is_unlocked) {
             setupSitemapInteractions();
             setupContentProtection();
             setupThemeToggle();
+            setupDocTabs();
+            setupOnboarding();
         });
+
+        /**
+         * Muestra un coachmark la primera vez que el cliente entra al documento,
+         * explicando dónde puede dejar comentarios. Una vez cerrado, se recuerda
+         * por propuesta en localStorage.
+         */
+        function setupOnboarding() {
+            const slug = (window.tpSlug || 'doc').toString().replace(/[^a-z0-9-]/gi,'');
+            const KEY = 'tp-onb-comentarios-' + slug;
+            let done = null;
+            try { done = localStorage.getItem(KEY); } catch (e) {}
+            if (done === '1') return;
+
+            const onb = document.getElementById('tp-onboarding');
+            const fab = document.getElementById('tp-fab');
+            if (!onb || !fab) return;
+
+            const close = (persist) => {
+                onb.hidden = true;
+                if (persist) {
+                    try { localStorage.setItem(KEY, '1'); } catch (e) {}
+                }
+            };
+
+            // Delay para que el FAB ya esté en su sitio
+            setTimeout(() => {
+                onb.hidden = false;
+                if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
+            }, 1400);
+
+            document.getElementById('tp-onb-ok')?.addEventListener('click', () => close(true));
+            document.getElementById('tp-onb-dismiss')?.addEventListener('click', () => close(true));
+
+            // Si el usuario pulsa directamente el FAB, también damos el onboarding por visto
+            fab.addEventListener('click', () => close(true), { once: true });
+        }
+
+        /**
+         * Tabs documento/presupuesto/firmas.
+         * - Alterna visibilidad de los .doc-view[data-tab].
+         * - Persiste en sessionStorage.
+         * - Hash routing: #presupuesto, #firmas, o cualquier anchor dentro
+         *   de una tab (activa la tab padre y hace scroll al elemento).
+         */
+        function setupDocTabs() {
+            const tabs  = Array.from(document.querySelectorAll('.doc-tab[data-tab-target]'));
+            const views = Array.from(document.querySelectorAll('.doc-view[data-tab]'));
+            if (!tabs.length) return;
+
+            const applyTab = (tab, opts = {}) => {
+                if (!tabs.some(t => t.dataset.tabTarget === tab)) tab = 'documento';
+                tabs.forEach(t => {
+                    const active = t.dataset.tabTarget === tab;
+                    t.classList.toggle('is-active', active);
+                    t.setAttribute('aria-selected', active ? 'true' : 'false');
+                });
+                views.forEach(v => {
+                    const show = v.dataset.tab === tab;
+                    v.hidden = !show;
+                });
+                document.body.classList.remove('is-tab-documento', 'is-tab-presupuesto', 'is-tab-firmas');
+                document.body.classList.add('is-tab-' + tab);
+                try { sessionStorage.setItem('tp-doc-tab', tab); } catch (e) {}
+                if (!opts.keepScroll) window.scrollTo({ top: 0, behavior: 'instant' in window ? 'instant' : 'auto' });
+                // Refresca iconos lucide por si alguna tab estaba hidden al cargar
+                if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
+            };
+
+            tabs.forEach(t => {
+                t.addEventListener('click', () => applyTab(t.dataset.tabTarget));
+            });
+
+            // Resolución de tab inicial: hash > sessionStorage > documento
+            const resolveFromHash = () => {
+                const h = (location.hash || '').replace(/^#/, '');
+                if (!h) return null;
+                if (h === 'presupuesto' || h === 'firmas' || h === 'documento') return h;
+                // Anchor dentro de una vista: detecta qué tab la contiene
+                const target = document.getElementById(h);
+                if (!target) return null;
+                const parentView = target.closest('.doc-view[data-tab]');
+                return parentView ? parentView.dataset.tab : null;
+            };
+
+            let stored = null;
+            try { stored = sessionStorage.getItem('tp-doc-tab'); } catch (e) {}
+            const initial = resolveFromHash() || stored || 'documento';
+            applyTab(initial, { keepScroll: !!location.hash });
+
+            // Si el hash era un anchor profundo, scroll al elemento tras mostrar la tab
+            if (location.hash) {
+                const t = document.getElementById(location.hash.slice(1));
+                if (t) requestAnimationFrame(() => t.scrollIntoView({ block: 'start' }));
+            }
+
+            // Hash change en runtime (links internos entre tabs)
+            window.addEventListener('hashchange', () => {
+                const resolved = resolveFromHash();
+                if (resolved) {
+                    applyTab(resolved, { keepScroll: true });
+                    const t = document.getElementById(location.hash.slice(1));
+                    if (t) requestAnimationFrame(() => t.scrollIntoView({ block: 'start' }));
+                }
+            });
+        }
 
         /**
          * Theme toggle: alterna light/dark y persiste en localStorage.
@@ -2392,6 +2874,24 @@ if ($is_unlocked) {
 
     <!-- Feature: comentarios por sección + firma ligera -->
     <?php include __DIR__ . '/master/doc-feedback.php'; ?>
+
+    <!-- Onboarding primera visita: apunta al FAB de comentarios -->
+    <div class="tp-onboarding" id="tp-onboarding" role="dialog" aria-labelledby="tp-onb-title" hidden>
+        <button class="tp-onboarding__dismiss" type="button" id="tp-onb-dismiss" aria-label="Cerrar">
+            <i data-lucide="x"></i>
+        </button>
+        <div class="tp-onboarding__title" id="tp-onb-title">
+            <i data-lucide="message-square-text"></i>
+            <span>Tus comentarios son bienvenidos</span>
+        </div>
+        <div class="tp-onboarding__body">
+            Si quieres dejar dudas, cambios o ideas sobre cualquier parte del documento, pulsa
+            <strong>el icono de mensaje</strong> junto al título de cada sección — o el botón
+            <strong>Comentarios</strong> de abajo a la derecha. Los leemos al instante.
+        </div>
+        <button class="tp-onboarding__ok" type="button" id="tp-onb-ok">Entendido</button>
+    </div>
+    <script>window.tpSlug = <?php echo json_encode($slug); ?>;</script>
 
     <!-- Jordan-doc: agente conversacional (Haiku) — solo si habilitado global y por propuesta -->
     <?php

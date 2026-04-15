@@ -639,19 +639,19 @@
 .tp-card h3 {
   font-family: var(--tp-font-heading);
   font-size: 1.05rem !important;
-  color: #E0E0E0 !important;
+  color: var(--tp-text-primary) !important;
   margin: 0 0 .5rem 0 !important;
 }
 .tp-card p {
   margin-bottom: 0 !important;
   font-size: .92rem !important;
-  color: #C8C8C8 !important;
+  color: var(--tp-text-secondary) !important;
   line-height: 1.5 !important;
   font-weight: 400 !important;
 }
 .tp-card h3 + p {
   font-size: .88rem !important;
-  color: #999 !important;
+  color: var(--tp-text-secondary) !important;
   font-weight: 400 !important;
 }
 

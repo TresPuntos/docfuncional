@@ -182,7 +182,34 @@ if (isset($_GET['action'])) {
         $data = json_decode(file_get_contents('php://input'), true);
         $pid = (int)($data['propuesta_id'] ?? 0);
         $id = trim($data['holded_id'] ?? '');
+        $confirmOverwrite = !empty($data['confirm_overwrite']);
         if (!$pid || !$id) { echo json_encode(['success' => false, 'message' => 'Faltan datos']); exit; }
+
+        // Si la propuesta ya tiene firma del PDF legacy, avisar: la firma se hizo
+        // sobre el PDF, no sobre este Holded. Vincular sin confirmar la invalidaría.
+        if (!$confirmOverwrite) {
+            $firmaCheck = $pdo->prepare(
+                "SELECT a.firmante_nombre, a.firmante_apellidos, a.aprobado_at, a.version_firmada,
+                        (p.presupuesto_pdf IS NOT NULL AND p.presupuesto_pdf != '') AS has_pdf
+                   FROM aprobaciones a
+                   JOIN propuestas p ON p.id = a.propuesta_id
+                  WHERE a.propuesta_id = ? AND a.tipo = 'presupuesto'
+                  ORDER BY a.aprobado_at DESC LIMIT 1"
+            );
+            $firmaCheck->execute([$pid]);
+            $firma = $firmaCheck->fetch(PDO::FETCH_ASSOC);
+            if ($firma && (int)$firma['has_pdf'] === 1) {
+                $nombre = trim(($firma['firmante_nombre'] ?? '') . ' ' . ($firma['firmante_apellidos'] ?? '')) ?: '—';
+                echo json_encode([
+                    'success' => false,
+                    'needs_confirmation' => true,
+                    'message' => "Esta propuesta ya tiene una firma del PDF actual (" . $nombre . " · " . $firma['aprobado_at'] . "). Vincular Holded mostrará este nuevo presupuesto como 'aprobado' aunque el cliente nunca lo haya firmado. ¿Seguro que quieres continuar?",
+                    'firma' => ['nombre' => $nombre, 'aprobado_at' => $firma['aprobado_at'], 'version' => $firma['version_firmada']],
+                ]);
+                exit;
+            }
+        }
+
         $doc = holded_get_estimate($id);
         if (!$doc) { echo json_encode(['success' => false, 'message' => 'Presupuesto Holded no encontrado']); exit; }
 
@@ -2011,15 +2038,21 @@ else: ?>
             } catch (e) { alert('Error de red'); }
         }
 
-        async function holdedConfirm() {
+        async function holdedConfirm(force = false) {
             if (!_holdedPreviewDoc) return;
             const pid = +document.getElementById('holded-propuesta-id').value;
+            const body = { propuesta_id: pid, holded_id: _holdedPreviewDoc.id };
+            if (force) body.confirm_overwrite = true;
             const res = await fetch('admin.php?action=holded_link', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({propuesta_id: pid, holded_id: _holdedPreviewDoc.id}),
+                body: JSON.stringify(body),
             });
             const data = await res.json();
+            if (data.needs_confirmation) {
+                if (confirm(data.message)) return holdedConfirm(true);
+                return;
+            }
             if (!data.success) { alert(data.message || 'Error'); return; }
             window.location.reload();
         }
