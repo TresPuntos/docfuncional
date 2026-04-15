@@ -22,6 +22,18 @@ define('DB_PATH', __DIR__ . '/database/database.sqlite'); // Archivo oculto en s
 define('TELEGRAM_BOT_TOKEN', '8201699988:AAHZ6UeItc1I6EkULkrV6mozxkLO80t7j58');
 define('TELEGRAM_CHAT_ID', '7313439878');
 
+// === CONFIGURACIÓN ANTHROPIC (Jordan-doc) ===
+// La clave real vive en config.local.php (fuera del repo). Si no existe,
+// Jordan-doc quedará desactivado y el endpoint devolverá 503.
+// IMPORTANTE: el require_once va ANTES de los defaults, porque las
+// constantes no se pueden redefinir en PHP.
+if (file_exists(__DIR__ . '/config.local.php')) {
+    require_once __DIR__ . '/config.local.php';
+}
+if (!defined('ANTHROPIC_API_KEY')) define('ANTHROPIC_API_KEY', '');
+if (!defined('ANTHROPIC_MODEL')) define('ANTHROPIC_MODEL', 'claude-haiku-4-5');
+if (!defined('JORDAN_DOC_ENABLED')) define('JORDAN_DOC_ENABLED', false);
+
 // === HELPER CONEXIÓN PDO ===
 function getDBConnection()
 {

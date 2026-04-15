@@ -1,5 +1,6 @@
 .agent/
 .DS_Store
+config.local.php
 error_log.txt
 *.db
 database/*.sqlite
