@@ -2344,6 +2344,15 @@ if ($is_unlocked) {
 
     <!-- Feature: comentarios por sección + firma ligera -->
     <?php include __DIR__ . '/master/doc-feedback.php'; ?>
+
+    <!-- Jordan-doc: agente conversacional (Haiku) — solo si habilitado global y por propuesta -->
+    <?php
+    $jordanAllowed = defined('JORDAN_DOC_ENABLED') && JORDAN_DOC_ENABLED
+        && (!isset($proposal['enable_ai_assistant']) || (int)$proposal['enable_ai_assistant'] === 1);
+    if ($jordanAllowed) {
+        include __DIR__ . '/master/jordan-widget.php';
+    }
+    ?>
 </body>
 
 </html>

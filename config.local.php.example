@@ -1,0 +1,7 @@
+<?php
+// Copiar a config.local.php y rellenar. Este archivo SÍ entra al repo
+// como plantilla. config.local.php NO entra (está en .gitignore).
+
+define('ANTHROPIC_API_KEY', 'sk-ant-...');
+define('ANTHROPIC_MODEL', 'claude-haiku-4-5');
+define('JORDAN_DOC_ENABLED', true);
