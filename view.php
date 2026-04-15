@@ -305,6 +305,20 @@ if ($is_unlocked) {
         }
         $hasPdf = !empty($proposal['presupuesto_pdf']);
 
+        // Presupuesto vinculado a Holded (tiene prioridad sobre el PDF legacy)
+        $holdedRow = null;
+        $holdedDoc = null;
+        $hasHolded = false;
+        try {
+            $stmtH = $pdo->prepare("SELECT holded_id, holded_doc_number, holded_json, synced_at FROM presupuestos_holded WHERE propuesta_id = ?");
+            $stmtH->execute([$proposal['id']]);
+            $holdedRow = $stmtH->fetch(PDO::FETCH_ASSOC);
+            if ($holdedRow) {
+                $holdedDoc = json_decode($holdedRow['holded_json'], true);
+                $hasHolded = is_array($holdedDoc) && !empty($holdedDoc);
+            }
+        } catch (Throwable $e) { /* tabla puede no existir aún en entornos viejos */ }
+
         // Load Team
         $equipo_ids_json = $proposal['equipo_ids'] ?? '[]';
         $equipo_ids = json_decode($equipo_ids_json, true);
@@ -320,7 +334,7 @@ if ($is_unlocked) {
             $stmtTeam -> execute($equipo_ids);
             $team = $stmtTeam -> fetchAll(PDO:: FETCH_ASSOC);
         }
-        renderWrappedContent($proposal, $slug, $isDocApproved, $isPdfApproved, $hasPdf, $team, $base_path);
+        renderWrappedContent($proposal, $slug, $isDocApproved, $isPdfApproved, $hasPdf, $team, $base_path, $hasHolded, $holdedDoc);
         exit;
 }
 
@@ -486,7 +500,7 @@ if ($is_unlocked) {
                             <?php
 }
 
-                            function renderWrappedContent($proposal, $slug, $isDocApproved = false, $isPdfApproved = false, $hasPdf = false, $team = [], $base_path = '')
+                            function renderWrappedContent($proposal, $slug, $isDocApproved = false, $isPdfApproved = false, $hasPdf = false, $team = [], $base_path = '', $hasHolded = false, $holdedDoc = null)
                             {
 ?>
 <!DOCTYPE html>
@@ -1663,7 +1677,41 @@ if ($is_unlocked) {
     endif; ?>
                     </div>
 
-                    <?php if ($hasPdf): ?>
+                    <?php if ($hasHolded):
+                        // El template espera $holded_doc (snake_case) → alias del arg $holdedDoc.
+                        $holded_doc = $holdedDoc;
+                        $propuesta  = $proposal;
+                        include __DIR__ . '/master/presupuesto-holded.php';
+                    ?>
+                    <div class="cta-block" id="sec-presupuesto" style="margin-top: 3rem;">
+                        <?php if (!$isPdfApproved): ?>
+                        <h2 style="font-family: var(--font-heading); font-size: 2.2rem; color: var(--text-primary); margin-bottom: 1rem; margin-top: 0; display: block;">
+                            ¿Aprobamos el presupuesto?
+                        </h2>
+                        <p>Si todo lo anterior cuadra con lo acordado, firma aquí la aceptación y arrancamos.</p>
+                        <div class="cta-buttons">
+                            <button class="btn-cta-primary" onclick="openModal('approve-pdf')">
+                                <i data-lucide="check-circle"></i> Aprobar Presupuesto
+                            </button>
+                            <button class="btn-cta-secondary" onclick="openModal('reject-pdf')">
+                                <i data-lucide="x-circle"></i> Comentar / Pedir cambios
+                            </button>
+                            <button class="btn-cta-secondary" onclick="Calendly.initPopupWidget({url: 'https://calendly.com/trespuntos/tres-puntos'});return false;">
+                                <i data-lucide="calendar"></i> Agendar videollamada
+                            </button>
+                        </div>
+                        <?php else: ?>
+                        <div style="margin-bottom:1rem;"><i data-lucide="check-square" style="width:48px;height:48px;color:var(--tp-primary);"></i></div>
+                        <h2 style="font-size: 1.8rem; color: var(--tp-primary);">Presupuesto aprobado</h2>
+                        <p>🎉 ¡Gracias por la confianza! Nos ponemos con el kickoff ahora mismo.</p>
+                        <div class="cta-buttons" style="margin-top: 2rem;">
+                            <button class="btn-cta-secondary" onclick="Calendly.initPopupWidget({url: 'https://calendly.com/trespuntos/tres-puntos'});return false;">
+                                <i data-lucide="calendar"></i> Agendar kickoff
+                            </button>
+                        </div>
+                        <?php endif; ?>
+                    </div>
+                    <?php elseif ($hasPdf): ?>
                     <div class="cta-block" id="sec-presupuesto" style="margin-top: 4rem;">
                         <h2
                             style="font-family: var(--font-heading); font-size: 2.5rem; color: var(--text-primary); margin-bottom: 1rem; margin-top: 0; display: block;">

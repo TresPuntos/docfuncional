@@ -146,6 +146,106 @@ if (isset($_GET['action'])) {
         exit;
     }
 
+    // ===== HOLDED — vincular presupuesto Holded a propuesta =====
+    if (in_array($_GET['action'] ?? '', ['holded_search', 'holded_preview', 'holded_link', 'holded_sync', 'holded_unlink'], true)) {
+        require_once __DIR__ . '/api/holded_client.php';
+    }
+
+    if ($_GET['action'] === 'holded_search' && $_SERVER['REQUEST_METHOD'] === 'GET') {
+        $q = trim($_GET['q'] ?? '');
+        $res = holded_search_estimates($q, 10);
+        if (!$res['ok']) { echo json_encode(['success' => false, 'message' => $res['error'] ?? 'Error']); exit; }
+        // Añadir formato legible en cada item
+        $items = array_map(function ($i) {
+            return $i + [
+                'date_fmt'  => holded_format_date($i['date']),
+                'total_fmt' => holded_format_currency($i['total']),
+                'status_fmt'=> holded_status_label((int)($i['status'] ?? 0)),
+            ];
+        }, $res['items']);
+        echo json_encode(['success' => true, 'items' => $items]);
+        exit;
+    }
+
+    if ($_GET['action'] === 'holded_preview' && $_SERVER['REQUEST_METHOD'] === 'GET') {
+        $id = trim($_GET['holded_id'] ?? '');
+        $num = trim($_GET['doc_number'] ?? '');
+        $doc = null;
+        if ($id !== '') $doc = holded_get_estimate($id);
+        elseif ($num !== '') $doc = holded_find_by_number($num);
+        if (!$doc) { echo json_encode(['success' => false, 'message' => 'No encontrado en Holded']); exit; }
+        echo json_encode(['success' => true, 'data' => $doc]);
+        exit;
+    }
+
+    if ($_GET['action'] === 'holded_link' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        $data = json_decode(file_get_contents('php://input'), true);
+        $pid = (int)($data['propuesta_id'] ?? 0);
+        $id = trim($data['holded_id'] ?? '');
+        if (!$pid || !$id) { echo json_encode(['success' => false, 'message' => 'Faltan datos']); exit; }
+        $doc = holded_get_estimate($id);
+        if (!$doc) { echo json_encode(['success' => false, 'message' => 'Presupuesto Holded no encontrado']); exit; }
+
+        $json = json_encode($doc, JSON_UNESCAPED_UNICODE);
+
+        // Si ya había uno vinculado, archivamos
+        $prev = $pdo->prepare("SELECT * FROM presupuestos_holded WHERE propuesta_id = ?");
+        $prev->execute([$pid]);
+        if ($old = $prev->fetch(PDO::FETCH_ASSOC)) {
+            $pdo->prepare("INSERT INTO presupuestos_holded_history (propuesta_id, holded_id, holded_doc_number, holded_json, accion) VALUES (?, ?, ?, ?, 'reemplazado')")
+                ->execute([$pid, $old['holded_id'], $old['holded_doc_number'], $old['holded_json']]);
+            $pdo->prepare("UPDATE presupuestos_holded SET holded_id = ?, holded_doc_number = ?, holded_json = ?, synced_at = CURRENT_TIMESTAMP, estado = 'vinculado' WHERE propuesta_id = ?")
+                ->execute([$id, $doc['docNumber'] ?? '', $json, $pid]);
+        } else {
+            $pdo->prepare("INSERT INTO presupuestos_holded (propuesta_id, holded_id, holded_doc_number, holded_json) VALUES (?, ?, ?, ?)")
+                ->execute([$pid, $id, $doc['docNumber'] ?? '', $json]);
+        }
+
+        // Notificar Telegram
+        if (function_exists('sendTelegramNotification')) {
+            $cliStmt = $pdo->prepare("SELECT client_name FROM propuestas WHERE id = ?");
+            $cliStmt->execute([$pid]);
+            $cliente = $cliStmt->fetchColumn() ?: '—';
+            sendTelegramNotification(
+                "📋 <b>Presupuesto vinculado</b>"
+                . "\n<b>" . htmlspecialchars($doc['docNumber'] ?? '—', ENT_QUOTES, 'UTF-8') . "</b>"
+                . " · " . htmlspecialchars($cliente, ENT_QUOTES, 'UTF-8')
+                . "\nTotal: <b>" . htmlspecialchars(holded_format_currency($doc['total'] ?? 0), ENT_QUOTES, 'UTF-8') . "</b>"
+            );
+        }
+        echo json_encode(['success' => true, 'doc_number' => $doc['docNumber'] ?? '', 'total' => $doc['total'] ?? 0]);
+        exit;
+    }
+
+    if ($_GET['action'] === 'holded_sync' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        $data = json_decode(file_get_contents('php://input'), true);
+        $pid = (int)($data['propuesta_id'] ?? 0);
+        $row = $pdo->prepare("SELECT holded_id FROM presupuestos_holded WHERE propuesta_id = ?");
+        $row->execute([$pid]);
+        $hid = $row->fetchColumn();
+        if (!$hid) { echo json_encode(['success' => false, 'message' => 'Sin presupuesto vinculado']); exit; }
+        $doc = holded_get_estimate($hid);
+        if (!$doc) { echo json_encode(['success' => false, 'message' => 'No accesible en Holded']); exit; }
+        $pdo->prepare("UPDATE presupuestos_holded SET holded_json = ?, synced_at = CURRENT_TIMESTAMP WHERE propuesta_id = ?")
+            ->execute([json_encode($doc, JSON_UNESCAPED_UNICODE), $pid]);
+        echo json_encode(['success' => true, 'synced_at' => date('c'), 'total' => $doc['total'] ?? 0]);
+        exit;
+    }
+
+    if ($_GET['action'] === 'holded_unlink' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        $data = json_decode(file_get_contents('php://input'), true);
+        $pid = (int)($data['propuesta_id'] ?? 0);
+        $row = $pdo->prepare("SELECT * FROM presupuestos_holded WHERE propuesta_id = ?");
+        $row->execute([$pid]);
+        if ($old = $row->fetch(PDO::FETCH_ASSOC)) {
+            $pdo->prepare("INSERT INTO presupuestos_holded_history (propuesta_id, holded_id, holded_doc_number, holded_json, accion) VALUES (?, ?, ?, ?, 'desvinculado')")
+                ->execute([$pid, $old['holded_id'], $old['holded_doc_number'], $old['holded_json']]);
+            $pdo->prepare("DELETE FROM presupuestos_holded WHERE propuesta_id = ?")->execute([$pid]);
+        }
+        echo json_encode(['success' => true]);
+        exit;
+    }
+
     // Toggle Jordan-doc (activar/desactivar agente IA por propuesta)
     if ($_GET['action'] === 'toggle_jordan' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $data = json_decode(file_get_contents('php://input'), true);
@@ -408,6 +508,19 @@ if ($is_logged_in) {
     $total_proposals = $pdo->query("SELECT COUNT(*) FROM propuestas WHERE status = 1")->fetchColumn();
     $total_views = $pdo->query("SELECT SUM(views_count) FROM propuestas")->fetchColumn() ?: 0;
     $proposals = $pdo->query("SELECT * FROM propuestas ORDER BY created_at DESC")->fetchAll(PDO::FETCH_ASSOC);
+
+    // Presupuestos Holded vinculados — mapa propuesta_id → row
+    $holdedRows = $pdo->query("SELECT propuesta_id, holded_id, holded_doc_number, holded_json, synced_at FROM presupuestos_holded")->fetchAll(PDO::FETCH_ASSOC);
+    $holdedMap = [];
+    foreach ($holdedRows as $r) {
+        $j = json_decode($r['holded_json'], true) ?: [];
+        $holdedMap[(int)$r['propuesta_id']] = [
+            'id'        => $r['holded_id'],
+            'docNumber' => $r['holded_doc_number'],
+            'total'     => $j['total'] ?? 0,
+            'synced_at' => $r['synced_at'],
+        ];
+    }
 
     // Load approvals
     $appRows = $pdo->query("SELECT propuesta_id, tipo, aprobado_at FROM aprobaciones ORDER BY aprobado_at DESC")->fetchAll(PDO::FETCH_ASSOC);
@@ -817,27 +930,41 @@ else: ?>
                                     </div>
                                 </td>
                                 <td class="px-6 py-5 whitespace-nowrap text-center">
-                                    <?php if (!empty($p['presupuesto_pdf'])): ?>
-                                    <div class="flex items-center justify-center gap-2">
-                                        <span
-                                            class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-tp-primary">
-                                            <i data-lucide="file-text" class="w-3 h-3"></i> PDF
-                                        </span>
-                                        <button onclick="confirmDeletePdf(<?php echo $p['id']; ?>)"
-                                            class="text-red-500/60 hover:text-red-400 transition-colors"
-                                            title="Borrar PDF">
-                                            <i data-lucide="trash-2" class="w-3 h-3"></i>
+                                    <?php $holdedLink = $holdedMap[(int)$p['id']] ?? null; ?>
+                                    <div class="flex flex-col items-center gap-1.5">
+                                        <?php if ($holdedLink): ?>
+                                        <div class="flex items-center gap-2" title="Vinculado con Holded">
+                                            <span class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-tp-primary">
+                                                <i data-lucide="link-2" class="w-3 h-3"></i>
+                                                <?php echo htmlspecialchars($holdedLink['docNumber']); ?>
+                                            </span>
+                                            <button onclick="holdedSync(<?php echo $p['id']; ?>)" class="text-text-muted hover:text-tp-primary" title="Re-sincronizar con Holded">
+                                                <i data-lucide="refresh-cw" class="w-3 h-3"></i>
+                                            </button>
+                                            <button onclick="holdedUnlink(<?php echo $p['id']; ?>)" class="text-red-500/60 hover:text-red-400" title="Desvincular">
+                                                <i data-lucide="unlink" class="w-3 h-3"></i>
+                                            </button>
+                                        </div>
+                                        <?php elseif (!empty($p['presupuesto_pdf'])): ?>
+                                        <div class="flex items-center gap-2">
+                                            <span class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-tp-primary">
+                                                <i data-lucide="file-text" class="w-3 h-3"></i> PDF
+                                            </span>
+                                            <button onclick="confirmDeletePdf(<?php echo $p['id']; ?>)" class="text-red-500/60 hover:text-red-400 transition-colors" title="Borrar PDF">
+                                                <i data-lucide="trash-2" class="w-3 h-3"></i>
+                                            </button>
+                                        </div>
+                                        <?php else: ?>
+                                        <button onclick="openHoldedLink(<?php echo $p['id']; ?>, '<?php echo addslashes($p['client_name']); ?>')"
+                                            class="text-[10px] font-bold uppercase tracking-wider text-tp-primary hover:text-white transition-colors flex items-center gap-1 mx-auto">
+                                            <i data-lucide="link-2" class="w-3 h-3"></i> Holded
                                         </button>
+                                        <button onclick="openUploadPDF(<?php echo $p['id']; ?>, '<?php echo addslashes($p['client_name']); ?>')"
+                                            class="text-[9px] font-semibold uppercase tracking-wider text-text-muted hover:text-white transition-colors flex items-center gap-1 mx-auto">
+                                            <i data-lucide="upload-cloud" class="w-3 h-3"></i> PDF (legacy)
+                                        </button>
+                                        <?php endif; ?>
                                     </div>
-                                    <?php
-            else: ?>
-                                    <button
-                                        onclick="openUploadPDF(<?php echo $p['id']; ?>, '<?php echo addslashes($p['client_name']); ?>')"
-                                        class="text-[10px] font-bold uppercase tracking-wider text-tp-primary hover:text-white transition-colors flex items-center gap-1 mx-auto">
-                                        <i data-lucide="upload-cloud" class="w-3 h-3"></i> Subir
-                                    </button>
-                                    <?php
-            endif; ?>
                                 </td>
                                 <td class="px-6 py-5 whitespace-nowrap">
                                     <label class="relative inline-flex items-center cursor-pointer">
@@ -1204,6 +1331,86 @@ else: ?>
                             class="bg-bg-subtle text-white px-8 rounded-xl border border-border-base hover:bg-border-strong transition-colors">Salir</button>
                     </div>
                 </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Vincular Holded -->
+    <div id="holded-overlay"
+        class="fixed inset-0 bg-black/80 backdrop-blur-sm z-[90] hidden items-center justify-center">
+        <div class="bg-bg-surface border border-border-subtle rounded-2xl shadow-2xl p-8 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center mb-6">
+                <div>
+                    <h3 class="text-lg font-heading font-bold text-white flex items-center gap-2">
+                        <i data-lucide="link-2" class="w-5 h-5 text-tp-primary"></i>
+                        Vincular presupuesto Holded
+                    </h3>
+                    <p class="text-xs text-text-muted mt-1" id="holded-cliente">—</p>
+                </div>
+                <button onclick="closeHolded()" class="text-text-muted hover:text-white transition-colors">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <input type="hidden" id="holded-propuesta-id" value="">
+
+            <div class="mb-4">
+                <label class="block text-sm font-semibold text-text-secondary mb-2">
+                    Número o ID del presupuesto en Holded
+                </label>
+                <div class="flex gap-2">
+                    <input type="text" id="holded-query" placeholder="E170380"
+                        class="flex-1 bg-bg-base border border-border-base text-white rounded-xl px-4 py-3 outline-none focus:border-tp-primary font-mono">
+                    <button onclick="holdedLookup()" class="bg-tp-primary/20 text-tp-primary font-bold px-5 rounded-xl hover:bg-tp-primary/30 transition-colors flex items-center gap-2">
+                        <i data-lucide="search" class="w-4 h-4"></i> Buscar
+                    </button>
+                </div>
+                <p class="text-[11px] text-text-muted mt-2">Puedes pegar el ID largo de la URL de Holded o el número de presupuesto. Mostramos sugerencias de los últimos.</p>
+                <div id="holded-suggestions" class="mt-3 grid gap-1.5"></div>
+            </div>
+
+            <div id="holded-preview" class="mt-5 hidden">
+                <div class="bg-bg-base border border-border-base rounded-xl p-5">
+                    <div class="flex items-center justify-between mb-4 border-b border-border-base pb-3">
+                        <div>
+                            <div class="text-xs text-text-muted uppercase tracking-wider">Presupuesto</div>
+                            <div class="text-xl font-heading font-bold text-tp-primary" id="hp-num">—</div>
+                        </div>
+                        <div class="text-right">
+                            <div class="text-xs text-text-muted uppercase tracking-wider">Total</div>
+                            <div class="text-xl font-heading font-bold text-white" id="hp-total">—</div>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3 text-sm mb-4">
+                        <div>
+                            <div class="text-[10px] text-text-muted uppercase tracking-wider">Cliente</div>
+                            <div class="text-white font-semibold" id="hp-cliente">—</div>
+                        </div>
+                        <div>
+                            <div class="text-[10px] text-text-muted uppercase tracking-wider">Fecha</div>
+                            <div class="text-white font-semibold" id="hp-fecha">—</div>
+                        </div>
+                        <div>
+                            <div class="text-[10px] text-text-muted uppercase tracking-wider">Estado</div>
+                            <div class="text-white font-semibold" id="hp-estado">—</div>
+                        </div>
+                        <div>
+                            <div class="text-[10px] text-text-muted uppercase tracking-wider">Líneas</div>
+                            <div class="text-white font-semibold" id="hp-lineas">—</div>
+                        </div>
+                    </div>
+                    <details class="text-xs">
+                        <summary class="cursor-pointer text-text-muted hover:text-white">Ver líneas de detalle</summary>
+                        <ul id="hp-items" class="mt-2 space-y-1 text-text-secondary"></ul>
+                    </details>
+                </div>
+
+                <div class="flex gap-3 mt-5">
+                    <button onclick="holdedConfirm()" class="flex-1 bg-tp-primary text-bg-base font-bold hover:bg-tp-primary-hover transition-colors rounded-xl py-3 flex items-center justify-center gap-2">
+                        <i data-lucide="link-2" class="w-4 h-4"></i> Vincular a esta propuesta
+                    </button>
+                    <button onclick="closeHolded()" class="bg-bg-subtle text-white px-6 rounded-xl border border-border-base hover:bg-border-strong transition-colors">Cancelar</button>
+                </div>
             </div>
         </div>
     </div>
@@ -1737,6 +1944,122 @@ else: ?>
             };
             reader.readAsText(file);
         }
+
+        // ===== Holded — vincular / buscar / sync / unlink =====
+        let _holdedPreviewDoc = null;
+
+        function openHoldedLink(id, name) {
+            document.getElementById('holded-propuesta-id').value = id;
+            document.getElementById('holded-cliente').innerText = name;
+            document.getElementById('holded-query').value = '';
+            document.getElementById('holded-suggestions').innerHTML = '';
+            document.getElementById('holded-preview').classList.add('hidden');
+            document.getElementById('holded-overlay').style.display = 'flex';
+            _holdedPreviewDoc = null;
+            setTimeout(() => { document.getElementById('holded-query').focus(); holdedSuggest(''); }, 100);
+        }
+        function closeHolded() { document.getElementById('holded-overlay').style.display = 'none'; }
+
+        async function holdedSuggest(q) {
+            try {
+                const res = await fetch('admin.php?action=holded_search&q=' + encodeURIComponent(q));
+                const data = await res.json();
+                if (!data.success) return;
+                const el = document.getElementById('holded-suggestions');
+                el.innerHTML = data.items.map(i => `
+                    <button type="button" onclick="holdedPickSuggestion('${i.id}', '${i.docNumber}')"
+                        class="text-left bg-bg-base border border-border-base rounded-lg px-3 py-2 hover:border-tp-primary transition-colors flex justify-between items-center">
+                        <div>
+                            <span class="font-mono text-tp-primary">${i.docNumber}</span>
+                            <span class="text-text-muted ml-2">· ${i.contactName || '—'}</span>
+                        </div>
+                        <div class="text-xs text-text-secondary">${i.total_fmt} · ${i.date_fmt}</div>
+                    </button>`).join('');
+            } catch (e) { /* silencio */ }
+        }
+
+        function holdedPickSuggestion(id, num) {
+            document.getElementById('holded-query').value = num;
+            holdedLookup(id);
+        }
+
+        async function holdedLookup(forcedId) {
+            const q = (document.getElementById('holded-query').value || '').trim();
+            if (!q && !forcedId) return;
+            const params = forcedId ? 'holded_id=' + encodeURIComponent(forcedId) : 'doc_number=' + encodeURIComponent(q);
+            const btnArea = document.getElementById('holded-preview');
+            btnArea.classList.add('hidden');
+            try {
+                const res = await fetch('admin.php?action=holded_preview&' + params);
+                const data = await res.json();
+                if (!data.success) { alert(data.message || 'No encontrado'); return; }
+                _holdedPreviewDoc = data.data;
+                document.getElementById('hp-num').innerText = data.data.docNumber || '—';
+                document.getElementById('hp-total').innerText = formatEur(data.data.total || 0);
+                document.getElementById('hp-cliente').innerText = data.data.contactName || '—';
+                document.getElementById('hp-fecha').innerText = fmtDate(data.data.date);
+                document.getElementById('hp-estado').innerText = statusLabel(data.data.status);
+                const items = data.data.products || [];
+                document.getElementById('hp-lineas').innerText = items.length;
+                document.getElementById('hp-items').innerHTML = items.map(it =>
+                    `<li class="border-l border-border-base pl-2">
+                        <strong class="text-white">${escapeHtml(it.name || '')}</strong>
+                        <span class="text-text-muted">— ${it.units || 1} × ${formatEur(it.price || 0)}</span>
+                    </li>`).join('');
+                btnArea.classList.remove('hidden');
+                if (window.lucide) lucide.createIcons();
+            } catch (e) { alert('Error de red'); }
+        }
+
+        async function holdedConfirm() {
+            if (!_holdedPreviewDoc) return;
+            const pid = +document.getElementById('holded-propuesta-id').value;
+            const res = await fetch('admin.php?action=holded_link', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({propuesta_id: pid, holded_id: _holdedPreviewDoc.id}),
+            });
+            const data = await res.json();
+            if (!data.success) { alert(data.message || 'Error'); return; }
+            window.location.reload();
+        }
+
+        async function holdedSync(pid) {
+            const res = await fetch('admin.php?action=holded_sync', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({propuesta_id: pid}),
+            });
+            const d = await res.json();
+            if (!d.success) { alert(d.message || 'Error'); return; }
+            window.location.reload();
+        }
+
+        async function holdedUnlink(pid) {
+            if (!confirm('¿Desvincular este presupuesto de Holded?')) return;
+            const res = await fetch('admin.php?action=holded_unlink', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({propuesta_id: pid}),
+            });
+            const d = await res.json();
+            if (!d.success) { alert(d.message || 'Error'); return; }
+            window.location.reload();
+        }
+
+        // helpers
+        function formatEur(n) { return (new Intl.NumberFormat('es-ES', {minimumFractionDigits:2, maximumFractionDigits:2}).format(+n||0)) + ' €'; }
+        function fmtDate(ts) { if (!ts) return '—'; const d = new Date((+ts) * 1000); return isNaN(d) ? ts : d.toLocaleDateString('es-ES'); }
+        function statusLabel(s) { return ({0:'Pendiente',1:'Aprobado',2:'Rechazado',3:'Facturado',4:'Vencido'})[+s] || ('Estado '+s); }
+        function escapeHtml(s) { return (s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+        // Autocomplete en vivo
+        document.addEventListener('input', (e) => {
+            if (e.target && e.target.id === 'holded-query') {
+                clearTimeout(window._hQueryT);
+                window._hQueryT = setTimeout(() => holdedSuggest(e.target.value), 300);
+            }
+        });
 
         function openUploadPDF(id, name) {
             document.getElementById('upload-propuesta-id').value = id;
