@@ -146,6 +146,21 @@ if (isset($_GET['action'])) {
         exit;
     }
 
+    // Toggle Jordan-doc (activar/desactivar agente IA por propuesta)
+    if ($_GET['action'] === 'toggle_jordan' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        $data = json_decode(file_get_contents('php://input'), true);
+        if (isset($data['id']) && isset($data['enabled'])) {
+            try {
+                $stmt = $pdo->prepare("UPDATE propuestas SET enable_ai_assistant = :v WHERE id = :id");
+                $stmt->execute([':v' => (int)$data['enabled'], ':id' => (int)$data['id']]);
+                echo json_encode(['success' => true]);
+            } catch (Exception $e) {
+                echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+            }
+        }
+        exit;
+    }
+
     // Resetear visitas
     if ($_GET['action'] === 'reset_views' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $data = json_decode(file_get_contents('php://input'), true);
@@ -779,6 +794,21 @@ else: ?>
                                                 <input type="checkbox" class="sr-only peer"
                                                     onchange="toggleApproval(<?php echo $p['id']; ?>, 'presupuesto', this.checked, this)"
                                                     <?php echo $pres_approved ? 'checked' : '' ; ?>>
+                                                <div
+                                                    class="w-7 h-4 bg-bg-base border border-border-base rounded-full peer peer-checked:after:translate-x-[12px] after:content-[''] after:absolute after:top-[3px] after:left-[3px] after:bg-text-muted after:rounded-full after:h-2 after:w-2 after:transition-all peer-checked:after:bg-bg-base peer-checked:bg-tp-primary peer-checked:border-tp-primary">
+                                                </div>
+                                            </label>
+                                        </div>
+
+                                        <!-- Jordan IA Toggle (Haiku, scopeado al documento) -->
+                                        <?php $jordan_on = !empty($p['enable_ai_assistant']); ?>
+                                        <div class="flex items-center gap-2" title="Activa el agente Jordan (Haiku) en /p/<?php echo htmlspecialchars($p['slug']); ?>">
+                                            <span
+                                                class="text-[9px] font-bold uppercase tracking-wider <?php echo $jordan_on ? 'text-tp-primary' : 'text-text-muted'; ?>">IA</span>
+                                            <label class="relative inline-flex items-center cursor-pointer">
+                                                <input type="checkbox" class="sr-only peer"
+                                                    onchange="toggleJordan(<?php echo $p['id']; ?>, this.checked, this)"
+                                                    <?php echo $jordan_on ? 'checked' : '' ; ?>>
                                                 <div
                                                     class="w-7 h-4 bg-bg-base border border-border-base rounded-full peer peer-checked:after:translate-x-[12px] after:content-[''] after:absolute after:top-[3px] after:left-[3px] after:bg-text-muted after:rounded-full after:h-2 after:w-2 after:transition-all peer-checked:after:bg-bg-base peer-checked:bg-tp-primary peer-checked:border-tp-primary">
                                                 </div>
@@ -1422,6 +1452,24 @@ else: ?>
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ id, status: active ? 1 : 0 })
             });
+        }
+
+        async function toggleJordan(id, enabled, el) {
+            try {
+                const res = await fetch('admin.php?action=toggle_jordan', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({id, enabled: enabled ? 1 : 0}),
+                });
+                const d = await res.json();
+                if (!d.success) { el.checked = !enabled; alert(d.message || 'Error'); return; }
+                // Actualizar label visual
+                const label = el.closest('.flex').querySelector('span');
+                if (label) {
+                    label.classList.toggle('text-tp-primary', enabled);
+                    label.classList.toggle('text-text-muted', !enabled);
+                }
+            } catch (e) { el.checked = !enabled; alert('Error de red'); }
         }
 
         async function toggleApproval(propuesta_id, tipo, active, el) {

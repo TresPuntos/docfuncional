@@ -18,9 +18,10 @@ function colExists(PDO $pdo, string $table, string $col): bool {
 
 $log = [];
 
+// Default 0: Jordan OFF por defecto. Se activa desde el admin por propuesta.
 if (!colExists($pdo, 'propuestas', 'enable_ai_assistant')) {
-    $pdo->exec("ALTER TABLE propuestas ADD COLUMN enable_ai_assistant INTEGER DEFAULT 1");
-    $log[] = "+ propuestas.enable_ai_assistant";
+    $pdo->exec("ALTER TABLE propuestas ADD COLUMN enable_ai_assistant INTEGER DEFAULT 0");
+    $log[] = "+ propuestas.enable_ai_assistant (default 0)";
 } else {
     $log[] = "= propuestas.enable_ai_assistant ya existe";
 }
