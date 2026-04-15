@@ -5,3 +5,7 @@
 define('ANTHROPIC_API_KEY', 'sk-ant-...');
 define('ANTHROPIC_MODEL', 'claude-haiku-4-5');
 define('JORDAN_DOC_ENABLED', true);
+
+// Holded API — vínculo presupuestos
+define('HOLDED_API_KEY', 'tu-key-holded');
+define('HOLDED_API_BASE', 'https://api.holded.com/api/invoicing/v1');
