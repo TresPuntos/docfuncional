@@ -2,20 +2,68 @@
 
 > **Estado actual del proyecto y próximos pasos** → ver [`PLAN.md`](PLAN.md) en la raíz. Léelo al empezar sesión para entender qué está desplegado, qué cliente trabajamos y qué viene después.
 
-## 🔁 REGLA — Git después de cada deploy
+## 🔁 PROCESO OBLIGATORIO · Deploy a prod + commit a git
 
-**Siempre que se haga un deploy a producción, inmediatamente después hay que:**
+**Esta sección manda en CUALQUIER sesión futura.** Es el único flujo permitido para cambios que toquen producción.
 
-1. `git add -A` de todos los cambios pushed a live.
-2. `git commit -m "<mensaje descriptivo>"` con co-autoría Claude.
-3. `git push origin main` al repo `https://github.com/trespuntoslab/documento-funcional-.git`.
+### Requisitos previos a cualquier deploy
 
-**Regla de ramas**: push directo a `main` por defecto (equipo de uno, no merece fricción de PRs).
-Crear rama `feat/<nombre>` solo para cambios grandes o experimentales que quieras poder revertir sin tocar lo que está live. En ese caso: `git checkout -b feat/X` → commit → push rama → mergear cuando estable.
+- Todos los cambios deben estar probados en local con `php -S localhost:8000 router.php`.
+- Mostrar al usuario un resumen con: archivos tocados, efectos esperados, riesgos.
+- **Esperar autorización explícita del usuario en el turno actual** con palabras como "sube", "adelante", "deploy", "subelo a real". Sin esas palabras, NO deploy.
 
-**Nunca hacer push sin haber hecho deploy correspondiente** — el repo representa lo que está en prod. Si algo está en local pero no en live, es work-in-progress (commit pero no push, o rama de feature).
+### Pasos del deploy (ejecutar siempre en este orden)
 
-**Credenciales**: `osxkeychain` guarda el PAT tras el primer uso, futuros pushes no requieren input. Si se rota el token, volver a pushear una vez para que el keychain lo actualice.
+1. **Backup prod**: descargar los archivos que voy a sobrescribir a `/tmp/tp-prod-backup-YYYYMMDD-HHMMSS-tag/`.
+2. **Migraciones (si las hay)**: subir el `.php` temporalmente a `/doc/` raíz con path adaptado, ejecutar vía HTTPS, borrar inmediatamente.
+3. **Upload FTP**: subir los archivos modificados con `curl -T`.
+4. **Smoke tests**: `curl` a las URLs afectadas verificando HTTP 200 y ausencia de `Undefined|Deprecated|Fatal|Warning` en la respuesta.
+5. **Git commit** (inmediatamente después del deploy exitoso):
+   ```bash
+   git add -A
+   git -c user.email="jordi@trespuntoscomunicacion.es" -c user.name="Jordi (Claudio)" \
+       commit -m "<tipo>: <resumen una línea>
+
+   <detalles opcionales>
+
+   🤖 Generated with [Claude Code](https://claude.com/claude-code)
+   Co-Authored-By: Claude <noreply@anthropic.com>"
+   ```
+6. **Git push a main**:
+   ```bash
+   git push origin main
+   ```
+   (El credential helper `osxkeychain` gestiona el token después del primer uso.)
+7. **Avisar al usuario** con el hash del commit + URLs verificadas + ubicación del backup.
+
+### Regla de ramas
+
+- **Push directo a `main`** por defecto. Equipo de una persona = sin fricción de PRs.
+- Solo crear `feat/<nombre>` si el usuario pide explícitamente trabajar en rama, O si el cambio es experimental y queremos poder revertirlo sin tocar `main`.
+
+### Cuándo el usuario autoriza o NO autoriza
+
+Si el usuario dice "**prueba en local**" / "**enséñame antes**" / "**revísalo**" → trabajar solo en local, NO deploy, NO push.
+Si dice "**sube**" / "**adelante**" / "**deploy**" → ejecutar los 7 pasos completos (deploy + commit + push).
+Si dice solo "**haz el push**" después de un cambio local → git commit + push sin tocar prod.
+Si dice "**rollback**" / "**revierte**" → re-subir los archivos del backup por FTP + `git revert <sha>` + push.
+
+### Repo oficial
+
+`https://github.com/trespuntoslab/documento-funcional-.git` (privado, owner `trespuntoslab`).
+Branch `main` = espejo de producción.
+
+### Credenciales
+
+`credential.helper = osxkeychain` configurado globalmente. El PAT se guarda tras el primer uso. Si se rota el token, el siguiente push pedirá el nuevo y lo guarda de nuevo.
+
+### Lo que NUNCA hay que hacer
+
+- ❌ Push a `main` sin haber hecho deploy correspondiente (el repo representa lo que está live, sin excepción).
+- ❌ Commit con el token o cualquier secreto dentro (config.local.php está en .gitignore).
+- ❌ `git push --force` sobre `main` sin autorización explícita.
+- ❌ Deploy sin backup previo.
+- ❌ Deploy + olvidarse del git push (deja el repo desincronizado de prod → confusión futura).
 
 ---
 
