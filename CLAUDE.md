@@ -2,6 +2,23 @@
 
 > **Estado actual del proyecto y próximos pasos** → ver [`PLAN.md`](PLAN.md) en la raíz. Léelo al empezar sesión para entender qué está desplegado, qué cliente trabajamos y qué viene después.
 
+## 🔁 REGLA — Git después de cada deploy
+
+**Siempre que se haga un deploy a producción, inmediatamente después hay que:**
+
+1. `git add -A` de todos los cambios pushed a live.
+2. `git commit -m "<mensaje descriptivo>"` con co-autoría Claude.
+3. `git push origin main` al repo `https://github.com/trespuntoslab/documento-funcional-.git`.
+
+**Regla de ramas**: push directo a `main` por defecto (equipo de uno, no merece fricción de PRs).
+Crear rama `feat/<nombre>` solo para cambios grandes o experimentales que quieras poder revertir sin tocar lo que está live. En ese caso: `git checkout -b feat/X` → commit → push rama → mergear cuando estable.
+
+**Nunca hacer push sin haber hecho deploy correspondiente** — el repo representa lo que está en prod. Si algo está en local pero no en live, es work-in-progress (commit pero no push, o rama de feature).
+
+**Credenciales**: `osxkeychain` guarda el PAT tras el primer uso, futuros pushes no requieren input. Si se rota el token, volver a pushear una vez para que el keychain lo actualice.
+
+---
+
 ## ⛔ REGLA CRÍTICA — No deploy sin aprobación explícita
 
 **NUNCA desplegar a producción sin autorización directa y explícita del usuario en el turno actual.** Esto cubre:
