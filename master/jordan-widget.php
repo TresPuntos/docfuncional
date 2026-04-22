@@ -111,8 +111,12 @@ $clientFirst = explode(' ', trim($proposal['client_name'] ?? ''))[0] ?? '';
 .jd-form textarea {
     flex: 1; resize: none; min-height: 40px; max-height: 120px;
     background: var(--bg-subtle, #191919); border: 1px solid var(--border-base, #1f1f1f);
-    color: inherit; padding: .55rem .75rem; border-radius: 8px;
+    color: var(--text-primary, #f5f5f5); padding: .55rem .75rem; border-radius: 8px;
     font-family: inherit; font-size: .88rem; line-height: 1.4;
+}
+.jd-form textarea::placeholder { color: var(--text-muted, #8a8a8a); }
+[data-theme="light"] .jd-form textarea {
+    background: #f5f5f5; color: #111; border-color: #e0e0e0;
 }
 .jd-form textarea:focus { outline: none; border-color: var(--mint, #5dffbf); }
 .jd-form button {

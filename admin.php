@@ -565,6 +565,85 @@ if ($is_logged_in) {
 
     // Load team
     $team = $pdo->query("SELECT * FROM equipo ORDER BY orden ASC, created_at DESC")->fetchAll(PDO::FETCH_ASSOC);
+
+    // Stats de comentarios por propuesta (bandeja)
+    // open_no_reply = raíz abierto sin respuesta staff publicada
+    // open_answered = raíz abierto con respuesta staff publicada (espera cierre del cliente)
+    // drafts = borradores staff sin publicar
+    $commentStats = [];
+    $statRows = $pdo->query("
+        SELECT
+            propuesta_id,
+            SUM(CASE WHEN parent_id IS NULL AND resuelto = 0 THEN 1 ELSE 0 END) AS open_roots,
+            SUM(CASE WHEN is_staff = 1 AND is_draft = 1 THEN 1 ELSE 0 END) AS drafts,
+            SUM(CASE WHEN is_staff = 1 AND is_draft = 0 AND notificado_at IS NULL THEN 1 ELSE 0 END) AS published_unnotified
+        FROM comentarios_seccion
+        GROUP BY propuesta_id
+    ")->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($statRows as $s) {
+        $commentStats[(int)$s['propuesta_id']] = [
+            'open' => (int)$s['open_roots'],
+            'drafts' => (int)$s['drafts'],
+            'pending_notify' => (int)$s['published_unnotified'],
+        ];
+    }
+    // Global: total hilos abiertos en todo el sistema
+    $globalOpen = (int)$pdo->query("SELECT COUNT(*) FROM comentarios_seccion WHERE parent_id IS NULL AND resuelto = 0")->fetchColumn();
+    $globalDrafts = (int)$pdo->query("SELECT COUNT(*) FROM comentarios_seccion WHERE is_staff = 1 AND is_draft = 1")->fetchColumn();
+
+    // --- Portal proveedores: stats por propuesta ---
+    $providerStats = [];
+    try {
+        $psRows = $pdo->query("
+            SELECT p.propuesta_id,
+                   COUNT(*) AS total_proveedores,
+                   (SELECT COUNT(*) FROM proveedor_presupuestos pp JOIN propuesta_proveedores p2 ON p2.id = pp.proveedor_id WHERE p2.propuesta_id = p.propuesta_id) AS total_presupuestos
+            FROM propuesta_proveedores p
+            WHERE p.activo = 1
+            GROUP BY p.propuesta_id
+        ")->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($psRows as $ps) {
+            $providerStats[(int)$ps['propuesta_id']] = [
+                'total' => (int)$ps['total_proveedores'],
+                'presupuestos' => (int)$ps['total_presupuestos'],
+            ];
+        }
+    } catch (Exception $e) { /* tabla no existe aún */ }
+
+    // --- Sprint 2.2 · Actividad / señales calientes por propuesta ---
+    // Tabla propuesta_eventos puede no existir aún en entornos viejos → try/catch defensivo
+    $activityStats = [];
+    $globalActiveNow = 0;
+    $globalOpened24h = 0;
+    try {
+        $actRows = $pdo->query("
+            SELECT
+                propuesta_id,
+                MAX(created_at) AS last_event_at,
+                COUNT(DISTINCT sesion_id) AS sesiones_totales,
+                COUNT(DISTINCT CASE WHEN created_at >= datetime('now', '-1 day') THEN sesion_id END) AS sesiones_24h,
+                COUNT(DISTINCT CASE WHEN created_at >= datetime('now', '-2 minutes') THEN sesion_id END) AS activo_ahora,
+                SUM(CASE WHEN tipo = 'presupuesto_open' THEN 1 ELSE 0 END) AS presupuesto_opens,
+                SUM(CASE WHEN tipo = 'firma_abandoned' THEN 1 ELSE 0 END) AS firmas_abandoned,
+                SUM(CASE WHEN tipo = 'firma_approved' THEN 1 ELSE 0 END) AS firmas_ok
+            FROM propuesta_eventos
+            GROUP BY propuesta_id
+        ")->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($actRows as $a) {
+            $activityStats[(int)$a['propuesta_id']] = [
+                'last_event_at' => $a['last_event_at'],
+                'sesiones' => (int)$a['sesiones_totales'],
+                'sesiones_24h' => (int)$a['sesiones_24h'],
+                'activo_ahora' => (int)$a['activo_ahora'] > 0,
+                'vio_presupuesto' => (int)$a['presupuesto_opens'] > 0,
+                'intento_firma' => (int)$a['firmas_abandoned'] > 0 && (int)$a['firmas_ok'] === 0,
+            ];
+            if ($activityStats[(int)$a['propuesta_id']]['activo_ahora']) $globalActiveNow++;
+            if ($activityStats[(int)$a['propuesta_id']]['sesiones_24h'] > 0) $globalOpened24h++;
+        }
+    } catch (Exception $e) {
+        // Tabla aún no existe (entorno sin migrar) → stats vacías
+    }
 }
 ?>
 
@@ -749,21 +828,29 @@ if ($is_logged_in) {
     </main>
     <?php
 else: ?>
-    <header
-        class="sticky top-0 inset-x-0 z-50 w-full bg-bg-surface/80 backdrop-blur-md border-b border-border-subtle py-4">
-        <nav class="max-w-[85rem] w-full mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between">
-            <a href="admin.php">
-                <img src="logo.svg" alt="Tres Puntos" class="h-6 w-auto">
-            </a>
-            <div class="flex items-center gap-6">
-                <span class="text-xs text-text-muted hidden sm:inline-block">Admin Panel v2.0</span>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <?php
+    // Sidebar shared — dashboard activo
+    $adminSidebarActive = 'dashboard';
+    $adminSidebarPropuestaId = 0;
+    $adminSidebarPropuestaSlug = null;
+    $adminSidebarPropuestas = $proposals ?? [];
+    ?>
+    <div class="admin-layout">
+    <?php include __DIR__ . '/master/admin-sidebar.php'; ?>
+
+    <main class="admin-main">
+        <div class="admin-main-header">
+            <h1 class="admin-main-title">
+                <i data-lucide="layout-dashboard"></i>
+                Dashboard
+                <small>· Admin Panel v2.0</small>
+            </h1>
+            <div class="admin-main-actions">
                 <a class="text-sm font-medium text-text-secondary hover:text-white transition-colors"
                     href="?logout=1">Cerrar Sesión</a>
             </div>
-        </nav>
-    </header>
-
-    <main class="max-w-[85rem] w-full mx-auto px-4 sm:px-6 lg:px-8 py-10 flex-grow">
+        </div>
         <?php if (!empty($error_msg)): ?>
         <div class="bg-red-500/10 border border-red-500/20 text-red-400 text-sm rounded-lg p-4 mb-6" role="alert">
             <?php echo htmlspecialchars($error_msg); ?>
@@ -778,7 +865,7 @@ else: ?>
         <?php
     endif; ?>
 
-        <div class="grid sm:grid-cols-2 gap-6 mb-10">
+        <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
             <div class="bg-bg-surface border border-border-subtle rounded-2xl p-6 shadow-surface">
                 <p class="text-xs uppercase tracking-widest text-text-muted font-bold mb-2">Propuestas Activas</p>
                 <div class="flex items-end gap-2">
@@ -797,6 +884,38 @@ else: ?>
                     <i data-lucide="eye" class="w-5 h-5 mb-2 ml-1 text-text-muted"></i>
                 </div>
             </div>
+            <a href="admin_feedback.php" class="bg-bg-surface border <?php echo $globalOpen > 0 ? 'border-tp-primary/60 hover:border-tp-primary' : 'border-border-subtle'; ?> rounded-2xl p-6 shadow-surface block transition-all hover:-translate-y-0.5">
+                <p class="text-xs uppercase tracking-widest text-text-muted font-bold mb-2">Comentarios pendientes</p>
+                <div class="flex items-end gap-2">
+                    <h3 class="text-4xl font-heading font-bold <?php echo $globalOpen > 0 ? 'text-tp-primary' : 'text-white'; ?>">
+                        <?php echo $globalOpen; ?>
+                    </h3>
+                    <i data-lucide="message-square-text" class="w-5 h-5 mb-2 ml-1 <?php echo $globalOpen > 0 ? 'text-tp-primary' : 'text-text-muted'; ?>"></i>
+                </div>
+                <?php if ($globalDrafts > 0): ?>
+                    <p class="text-xs text-text-muted mt-2"><?php echo $globalDrafts; ?> borrador<?php echo $globalDrafts === 1 ? '' : 'es'; ?> sin publicar</p>
+                <?php elseif ($globalOpen === 0): ?>
+                    <p class="text-xs text-text-muted mt-2">Todo al día ✓</p>
+                <?php else: ?>
+                    <p class="text-xs text-text-muted mt-2">Ir a la bandeja →</p>
+                <?php endif; ?>
+            </a>
+            <a href="admin_analytics.php" class="bg-bg-surface border <?php echo $globalActiveNow > 0 ? 'border-red-500/60' : 'border-border-subtle'; ?> rounded-2xl p-6 shadow-surface block transition-all hover:-translate-y-0.5 <?php echo $globalActiveNow > 0 ? 'animate-pulse' : ''; ?>">
+                <p class="text-xs uppercase tracking-widest text-text-muted font-bold mb-2">Actividad en vivo</p>
+                <div class="flex items-end gap-2">
+                    <h3 class="text-4xl font-heading font-bold <?php echo $globalActiveNow > 0 ? 'text-red-400' : 'text-white'; ?>">
+                        <?php echo $globalActiveNow; ?>
+                    </h3>
+                    <?php if ($globalActiveNow > 0): ?>
+                        <span class="text-red-400 text-xs mb-1 font-medium italic">🔴 ahora</span>
+                    <?php else: ?>
+                        <i data-lucide="activity" class="w-5 h-5 mb-2 ml-1 text-text-muted"></i>
+                    <?php endif; ?>
+                </div>
+                <p class="text-xs text-text-muted mt-2">
+                    <?php echo $globalOpened24h; ?> propuesta<?php echo $globalOpened24h === 1 ? '' : 's'; ?> abierta<?php echo $globalOpened24h === 1 ? '' : 's'; ?> en 24h · <span class="text-tp-primary">ver analytics →</span>
+                </p>
+            </a>
         </div>
 
         <!-- View Selector Tabs -->
@@ -862,15 +981,102 @@ else: ?>
                             </tr>
                             <?php
     else:
-        foreach ($proposals as $p): ?>
+        foreach ($proposals as $p):
+            $cs = $commentStats[(int)$p['id']] ?? ['open' => 0, 'drafts' => 0, 'pending_notify' => 0];
+            $as = $activityStats[(int)$p['id']] ?? null;
+            // Señal "fría" — sin abrir hace >5 días (y alguna vez se abrió)
+            $coldDays = null;
+            if ($as && $as['last_event_at']) {
+                $daysSince = (time() - strtotime($as['last_event_at'])) / 86400;
+                if ($daysSince > 5) $coldDays = (int)floor($daysSince);
+            }
+    ?>
                             <tr class="hover:bg-bg-subtle/30 transition-colors">
                                 <td class="px-6 py-5 whitespace-nowrap">
-                                    <div class="text-sm font-semibold text-white">
+                                    <div class="text-sm font-semibold text-white flex items-center gap-2 flex-wrap">
                                         <?php echo htmlspecialchars($p['client_name']); ?>
+                                        <?php if ($as && $as['activo_ahora']): ?>
+                                            <a href="admin_feedback.php?propuesta_id=<?php echo (int)$p['id']; ?>"
+                                               class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 border border-red-500/50 animate-pulse"
+                                               title="Alguien está viendo la propuesta ahora mismo">
+                                                🔴 En vivo
+                                            </a>
+                                        <?php endif; ?>
+                                        <?php if ($as && $as['vio_presupuesto']): ?>
+                                            <span class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-tp-primary/15 text-tp-primary border border-tp-primary/30"
+                                                  title="El cliente ha abierto la sección de presupuesto">
+                                                💰 Vio precio
+                                            </span>
+                                        <?php endif; ?>
+                                        <?php if ($as && $as['intento_firma']): ?>
+                                            <a href="admin_feedback.php?propuesta_id=<?php echo (int)$p['id']; ?>"
+                                               class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-400 border border-orange-500/40"
+                                               title="Abrió el modal de firma pero no completó — posible duda">
+                                                ⚠️ Intentó firmar
+                                            </a>
+                                        <?php endif; ?>
+                                        <?php if ($as && $as['sesiones_24h'] >= 3): ?>
+                                            <span class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/30"
+                                                  title="<?php echo $as['sesiones_24h']; ?> sesiones en las últimas 24h — cliente muy activo">
+                                                🔥 <?php echo $as['sesiones_24h']; ?>× hoy
+                                            </span>
+                                        <?php endif; ?>
+                                        <?php if ($coldDays !== null): ?>
+                                            <span class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-bg-muted text-text-muted border border-border-subtle"
+                                                  title="Última apertura hace <?php echo $coldDays; ?> días">
+                                                ❄️ <?php echo $coldDays; ?>d sin abrir
+                                            </span>
+                                        <?php endif; ?>
+                                        <?php if ($cs['open'] > 0): ?>
+                                            <a href="admin_feedback.php?propuesta_id=<?php echo (int)$p['id']; ?>"
+                                               class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-tp-primary/15 text-tp-primary border border-tp-primary/30 hover:bg-tp-primary/25 transition-colors"
+                                               title="<?php echo $cs['open']; ?> hilo<?php echo $cs['open'] === 1 ? '' : 's'; ?> abierto<?php echo $cs['open'] === 1 ? '' : 's'; ?>">
+                                                💬 <?php echo $cs['open']; ?>
+                                            </a>
+                                        <?php endif; ?>
+                                        <?php if ($cs['drafts'] > 0): ?>
+                                            <a href="admin_feedback.php?propuesta_id=<?php echo (int)$p['id']; ?>"
+                                               class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-yellow-500/15 text-yellow-400 border border-yellow-500/30 hover:bg-yellow-500/25 transition-colors"
+                                               title="<?php echo $cs['drafts']; ?> borrador<?php echo $cs['drafts'] === 1 ? '' : 'es'; ?> sin publicar">
+                                                ✏️ <?php echo $cs['drafts']; ?>
+                                            </a>
+                                        <?php endif; ?>
+                                        <?php if ($cs['pending_notify'] > 0 && $cs['drafts'] === 0): ?>
+                                            <a href="admin_feedback.php?propuesta_id=<?php echo (int)$p['id']; ?>"
+                                               class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/30 hover:bg-blue-500/25 transition-colors"
+                                               title="<?php echo $cs['pending_notify']; ?> respuesta<?php echo $cs['pending_notify'] === 1 ? '' : 's'; ?> sin avisar al cliente">
+                                                ✉ <?php echo $cs['pending_notify']; ?>
+                                            </a>
+                                        <?php endif; ?>
                                     </div>
                                     <div class="text-[10px] text-text-muted mt-1 uppercase tracking-tighter">
-                                        <?php echo $p['last_accessed_at'] ? 'Visto: ' . date('d/m/y H:i', strtotime($p['last_accessed_at'])) : 'Sin aperturas'; ?>
+                                        <?php
+                                        if ($as && $as['last_event_at']) {
+                                            $diff = time() - strtotime($as['last_event_at']);
+                                            if ($diff < 120) echo 'Activo hace ' . $diff . 's';
+                                            elseif ($diff < 3600) echo 'Activo hace ' . (int)($diff/60) . 'min';
+                                            elseif ($diff < 86400) echo 'Activo hace ' . (int)($diff/3600) . 'h';
+                                            else echo 'Activo ' . date('d/m/y H:i', strtotime($as['last_event_at']));
+                                            echo ' · ' . $as['sesiones'] . ' ' . ($as['sesiones'] === 1 ? 'sesión' : 'sesiones');
+                                        } elseif ($p['last_accessed_at']) {
+                                            echo 'Visto: ' . date('d/m/y H:i', strtotime($p['last_accessed_at']));
+                                        } else {
+                                            echo 'Sin aperturas';
+                                        }
+                                        ?>
                                     </div>
+                                    <?php $ps = $providerStats[(int)$p['id']] ?? null; if ($ps): ?>
+                                        <a href="admin_providers.php?propuesta_id=<?php echo (int)$p['id']; ?>"
+                                           class="inline-flex items-center gap-1.5 mt-2 text-[10px] text-text-muted hover:text-purple-300 border-t border-border-subtle pt-1.5 transition-colors"
+                                           title="Gestionar proveedores">
+                                            <span class="font-semibold uppercase tracking-wider text-text-muted/70">Colaboradores:</span>
+                                            <span class="text-purple-300 font-bold">🏗️ <?php echo $ps['total']; ?></span>
+                                            <?php if ($ps['presupuestos']>0): ?>
+                                                <span class="text-text-muted">·</span>
+                                                <span class="text-purple-300 font-bold">📄 <?php echo $ps['presupuestos']; ?></span>
+                                            <?php endif; ?>
+                                        </a>
+                                    <?php endif; ?>
                                 </td>
                                 <td class="px-6 py-5 whitespace-nowrap">
                                     <div class="flex items-center gap-2 group">
@@ -1138,6 +1344,7 @@ else: ?>
             </div>
         </div>
     </main>
+    </div><!-- /.admin-layout -->
 
     <!-- Overlay Sidebar -->
     <div id="hs-overlay-create" class="drawer">

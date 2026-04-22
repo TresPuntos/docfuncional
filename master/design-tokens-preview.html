@@ -1,0 +1,1072 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Design Tokens — Tres Puntos</title>
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+  <style>
+    /* ── Design Tokens (canonical) ── */
+    :root {
+      --mint: #5dffbf;
+      --mint-hover: #49e6a8;
+      --mint-rgb: 93, 255, 191;
+      --bg-base: #0e0e0e;
+      --bg-surface: #141414;
+      --bg-subtle: #191919;
+      --bg-muted: #1f1f1f;
+      --text-primary: #f5f5f5;
+      --text-secondary: #b3b3b3;
+      --text-muted: #8a8a8a;
+      --text-inverse: #0e0e0e;
+      --border-base: #1f1f1f;
+      --border-subtle: #1a1a1a;
+      --border-strong: #2a2a2a;
+      --border-focus: var(--mint);
+      --font-heading: 'Plus Jakarta Sans', sans-serif;
+      --font-body: 'Inter', system-ui, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+      --radius-sm: 6px;
+      --radius-md: 10px;
+      --radius-lg: 14px;
+      --radius-xl: 20px;
+      --radius-2xl: 24px;
+      --radius-full: 9999px;
+      --transition-fast: .15s ease;
+      --transition-base: .25s ease;
+      --transition-spring: .4s cubic-bezier(0.34, 1.56, 0.64, 1);
+      --shadow-elevation: 0 8px 32px rgba(0,0,0,.6), 0 2px 8px rgba(0,0,0,.4);
+      --shadow-brand: 0 0 24px rgba(93,255,191,.2);
+      --gradient-brand: linear-gradient(135deg, #5dffbf 0, #4ea5ff 50%, #c084fc 100%);
+    }
+
+    [data-theme="light"] {
+      --bg-base: #ffffff;
+      --bg-surface: #f8f9fa;
+      --bg-subtle: #f1f3f5;
+      --bg-muted: #e9ecef;
+      --text-primary: #111827;
+      --text-secondary: #4b5563;
+      --text-muted: #9ca3af;
+      --text-inverse: #ffffff;
+      --border-base: #e5e7eb;
+      --border-subtle: #f3f4f6;
+      --border-strong: #d1d5db;
+      --mint: #059669;
+      --mint-hover: #047857;
+      --mint-rgb: 5, 150, 105;
+      --shadow-elevation: 0 4px 16px rgba(0,0,0,.08), 0 1px 4px rgba(0,0,0,.04);
+      --shadow-brand: 0 0 24px rgba(5,150,105,.15);
+      --gradient-brand: linear-gradient(135deg, #059669 0%, #2563eb 50%, #7c3aed 100%);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg-base);
+      color: var(--text-primary);
+      font-family: var(--font-body);
+      -webkit-font-smoothing: antialiased;
+      line-height: 1.6;
+    }
+
+    /* ── Layout ── */
+    .ds-layout {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      min-height: 100vh;
+    }
+
+    @media (max-width: 900px) {
+      .ds-layout { grid-template-columns: 1fr; }
+      .ds-sidebar { display: none; }
+      .ds-main { grid-column: 1; padding: 2rem 1.25rem 4rem; }
+    }
+
+    /* ── Sidebar ── */
+    .ds-sidebar {
+      position: fixed;
+      top: 0; left: 0;
+      width: 220px;
+      height: 100vh;
+      overflow-y: auto;
+      padding: 2rem 1.25rem;
+      background: var(--bg-surface);
+      border-right: 1px solid var(--border-base);
+      z-index: 50;
+    }
+
+    .ds-sidebar-title {
+      font-family: var(--font-heading);
+      font-size: .85rem;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin-bottom: .25rem;
+    }
+
+    .ds-sidebar-version {
+      font-family: var(--font-mono);
+      font-size: .6rem;
+      color: var(--text-muted);
+      margin-bottom: 2rem;
+    }
+
+    .ds-nav-label {
+      font-size: .6rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .1em;
+      color: var(--text-muted);
+      margin: 1.5rem 0 .5rem .5rem;
+    }
+
+    .ds-nav-link {
+      display: block;
+      padding: .4rem .75rem;
+      font-size: .8rem;
+      color: var(--text-secondary);
+      text-decoration: none;
+      border-radius: var(--radius-sm);
+      transition: all .15s;
+    }
+
+    .ds-nav-link:hover { color: var(--text-primary); background: rgba(255,255,255,.04); }
+
+    /* ── Main ── */
+    .ds-main {
+      grid-column: 2;
+      padding: 3rem 4rem 6rem;
+      max-width: 920px;
+    }
+
+    /* ── Sections ── */
+    .ds-section { margin-bottom: 4rem; scroll-margin-top: 2rem; }
+
+    .ds-section-title {
+      font-family: var(--font-heading);
+      font-size: 1.4rem;
+      font-weight: 800;
+      letter-spacing: -.03em;
+      margin-bottom: .4rem;
+    }
+
+    .ds-section-desc {
+      font-size: .85rem;
+      color: var(--text-muted);
+      line-height: 1.6;
+      margin-bottom: 2rem;
+      max-width: 560px;
+    }
+
+    .ds-subsection { margin-bottom: 2rem; }
+
+    .ds-subsection-title {
+      font-family: var(--font-heading);
+      font-size: .8rem;
+      font-weight: 700;
+      color: var(--text-secondary);
+      margin-bottom: .75rem;
+      padding-bottom: .4rem;
+      border-bottom: 1px solid var(--border-base);
+    }
+
+    .ds-sep {
+      height: 1px;
+      background: linear-gradient(to right, transparent, rgba(93,255,191,.2), transparent);
+      margin: 3rem 0;
+    }
+
+    [data-theme="light"] .ds-sep {
+      background: linear-gradient(to right, transparent, rgba(5,150,105,.2), transparent);
+    }
+
+    /* ── Swatches ── */
+    .ds-swatches {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: .6rem;
+    }
+
+    .ds-swatch {
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      border: 1px solid var(--border-base);
+      cursor: pointer;
+      transition: border-color .2s, transform .15s;
+    }
+
+    .ds-swatch:hover { border-color: var(--border-strong); transform: translateY(-2px); }
+
+    .ds-swatch-color {
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .ds-swatch-info { padding: .45rem .65rem; background: var(--bg-surface); }
+
+    .ds-swatch-name {
+      font-family: var(--font-mono);
+      font-size: .6rem;
+      color: var(--text-secondary);
+      margin-bottom: .1rem;
+    }
+
+    .ds-swatch-hex {
+      font-family: var(--font-mono);
+      font-size: .55rem;
+      color: var(--text-muted);
+    }
+
+    /* ── Preview Box ── */
+    .ds-preview {
+      padding: 2rem;
+      background: var(--bg-muted);
+      border: 1px solid var(--border-base);
+      border-radius: var(--radius-lg);
+      margin-bottom: 1rem;
+    }
+
+    .ds-preview-row {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+
+    .ds-preview-label {
+      font-family: var(--font-mono);
+      font-size: .6rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      margin-bottom: .3rem;
+    }
+
+    /* ── Code ── */
+    .ds-code {
+      font-family: var(--font-mono);
+      font-size: .7rem;
+      color: var(--mint);
+      background: var(--bg-subtle);
+      padding: .15rem .4rem;
+      border-radius: 4px;
+      border: 1px solid var(--border-base);
+    }
+
+    /* ── Type Row ── */
+    .ds-type-row {
+      display: flex;
+      align-items: baseline;
+      gap: 1.5rem;
+      padding: .75rem 0;
+      border-bottom: 1px solid var(--border-base);
+    }
+
+    .ds-type-meta {
+      flex-shrink: 0;
+      width: 110px;
+      font-family: var(--font-mono);
+      font-size: .6rem;
+      color: var(--text-muted);
+    }
+
+    /* ── Radius ── */
+    .ds-radius-grid {
+      display: flex;
+      gap: 1.25rem;
+      flex-wrap: wrap;
+    }
+
+    .ds-radius-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: .4rem;
+    }
+
+    .ds-radius-box {
+      width: 56px;
+      height: 56px;
+      background: var(--bg-muted);
+      border: 2px solid var(--mint);
+    }
+
+    .ds-radius-label {
+      font-family: var(--font-mono);
+      font-size: .55rem;
+      color: var(--text-muted);
+      text-align: center;
+    }
+
+    /* ── Elevation ── */
+    .ds-elevation-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1rem;
+    }
+
+    .ds-elevation-card {
+      height: 90px;
+      border-radius: var(--radius-md);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: .2rem;
+      border: 1px solid var(--border-base);
+    }
+
+    .ds-elevation-label {
+      font-family: var(--font-mono);
+      font-size: .55rem;
+      color: var(--text-muted);
+    }
+
+    .ds-elevation-name {
+      font-size: .65rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+
+    /* ── Buttons ── */
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: .5rem;
+      padding: .875rem 2rem;
+      background: var(--mint);
+      color: #0e0e0e;
+      font-family: var(--font-heading);
+      font-weight: 700;
+      font-size: .9375rem;
+      border-radius: var(--radius-lg);
+      text-decoration: none;
+      border: 0;
+      cursor: pointer;
+      transition: background .2s, box-shadow .2s, transform .15s;
+      box-shadow: 0 0 20px rgba(93,255,191,.15);
+    }
+    .btn-primary:hover {
+      background: var(--mint-hover);
+      box-shadow: 0 0 30px rgba(93,255,191,.25);
+      transform: translateY(-1px);
+    }
+
+    .btn-secondary {
+      display: inline-flex;
+      align-items: center;
+      gap: .5rem;
+      padding: .875rem 2rem;
+      background: transparent;
+      color: var(--text-primary);
+      font-family: var(--font-heading);
+      font-weight: 600;
+      font-size: .9375rem;
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--border-strong);
+      text-decoration: none;
+      cursor: pointer;
+      transition: color .2s, border-color .2s, transform .15s;
+    }
+    .btn-secondary:hover {
+      color: var(--mint);
+      border-color: rgba(93,255,191,.4);
+      transform: translateY(-1px);
+    }
+
+    .btn-ghost {
+      display: inline-flex;
+      align-items: center;
+      gap: .5rem;
+      font-size: .875rem;
+      font-weight: 600;
+      color: var(--mint);
+      text-decoration: none;
+      cursor: pointer;
+      background: none;
+      border: none;
+      transition: gap .2s;
+    }
+    .btn-ghost:hover { gap: .75rem; }
+
+    /* ── Badge ── */
+    .section-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 14px;
+      background: rgba(93,255,191,.08);
+      border: 1px solid rgba(93,255,191,.2);
+      border-radius: var(--radius-full);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--mint);
+    }
+    .section-badge::before {
+      content: '';
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--mint);
+      animation: pulse-dot 2s infinite;
+    }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: .4; transform: scale(.7); }
+    }
+
+    /* ── Forms ── */
+    .input {
+      width: 100%;
+      padding: .75rem 1rem;
+      background: var(--bg-subtle);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-md);
+      color: var(--text-primary);
+      font-family: var(--font-body);
+      font-size: .875rem;
+      transition: border-color .2s, box-shadow .2s;
+      outline: 0;
+    }
+    .input::placeholder { color: var(--text-muted); }
+    .input:focus {
+      border-color: var(--mint);
+      box-shadow: 0 0 0 3px rgba(93,255,191,.08);
+    }
+
+    .label {
+      font-size: .8rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      margin-bottom: .4rem;
+      display: block;
+    }
+
+    /* ── Gradient Text ── */
+    .text-gradient {
+      background: linear-gradient(45deg, #5dffbf 0, #4ea5ff 35%, #c084fc 70%, #5dffbf 100%);
+      background-size: 300% 300%;
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      animation: cyber-aurora 6s ease infinite;
+    }
+
+    [data-theme="light"] .text-gradient {
+      background: linear-gradient(45deg, #059669 0%, #2563eb 35%, #7c3aed 70%, #059669 100%);
+      background-size: 300% 300%;
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    @keyframes cyber-aurora {
+      0% { background-position: 0 50%; }
+      50% { background-position: 100% 50%; }
+      100% { background-position: 0 50%; }
+    }
+
+    /* ── Theme Toggle ── */
+    .ds-theme-toggle {
+      position: fixed;
+      top: 1rem;
+      right: 1.5rem;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+      padding: .4rem .6rem;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-full);
+      cursor: pointer;
+      transition: all .3s;
+    }
+    .ds-theme-toggle:hover { border-color: rgba(93,255,191,.4); }
+
+    .ds-toggle-track {
+      width: 34px; height: 18px;
+      border-radius: 9px;
+      background: var(--border-strong);
+      position: relative;
+      transition: background .3s;
+    }
+    .ds-toggle-thumb {
+      position: absolute;
+      top: 2px; left: 2px;
+      width: 14px; height: 14px;
+      border-radius: 50%;
+      background: var(--text-primary);
+      transition: transform .3s cubic-bezier(.34,1.56,.64,1);
+    }
+    .ds-toggle-label {
+      font-family: var(--font-mono);
+      font-size: .55rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      min-width: 28px;
+    }
+
+    [data-theme="light"] .ds-toggle-track { background: #10b981; }
+    [data-theme="light"] .ds-toggle-thumb { transform: translateX(16px); background: #fff; }
+
+    /* ── Light overrides ── */
+    [data-theme="light"] .ds-sidebar { background: #f8f9fa; border-right-color: #e5e7eb; }
+    [data-theme="light"] .ds-nav-link:hover { background: rgba(0,0,0,.04); }
+    [data-theme="light"] .ds-swatch { border-color: #d1d5db; }
+    [data-theme="light"] .ds-swatch:hover { border-color: #059669; }
+    [data-theme="light"] .ds-swatch-info { background: #fff; }
+    [data-theme="light"] .ds-swatch-name { color: #111827; }
+    [data-theme="light"] .ds-preview { background: #f1f3f5; border-color: #e5e7eb; }
+    [data-theme="light"] .ds-code { color: #059669; background: #f1f3f5; border-color: #e5e7eb; }
+    [data-theme="light"] .ds-type-row { border-bottom-color: #e5e7eb; }
+    [data-theme="light"] .ds-radius-box { background: #f1f3f5; border-color: #059669; }
+    [data-theme="light"] .ds-elevation-card { border-color: #e5e7eb; }
+    [data-theme="light"] .btn-primary { background: #059669; color: #fff; box-shadow: 0 0 20px rgba(5,150,105,.15); }
+    [data-theme="light"] .btn-primary:hover { background: #047857; }
+    [data-theme="light"] .btn-secondary { color: #111827; border-color: #d1d5db; }
+    [data-theme="light"] .btn-secondary:hover { color: #059669; border-color: rgba(5,150,105,.5); }
+    [data-theme="light"] .btn-ghost { color: #059669; }
+    [data-theme="light"] .section-badge { background: rgba(5,150,105,.08); border-color: rgba(5,150,105,.2); color: #059669; }
+    [data-theme="light"] .section-badge::before { background: #059669; }
+    [data-theme="light"] .input { background: #fff; border-color: #d1d5db; color: #111827; }
+    [data-theme="light"] .input::placeholder { color: #9ca3af; }
+    [data-theme="light"] .input:focus { border-color: #059669; box-shadow: 0 0 0 3px rgba(5,150,105,.1); }
+    [data-theme="light"] .label { color: #374151; }
+
+    /* ── Toast ── */
+    .ds-toast {
+      position: fixed;
+      bottom: 2rem; right: 2rem;
+      background: var(--mint);
+      color: var(--text-inverse);
+      font-size: .75rem;
+      font-weight: 600;
+      padding: .4rem .8rem;
+      border-radius: var(--radius-md);
+      opacity: 0;
+      transform: translateY(10px);
+      transition: all .2s;
+      z-index: 999;
+      pointer-events: none;
+    }
+    .ds-toast.show { opacity: 1; transform: translateY(0); }
+
+    /* ── Animations ── */
+    .ds-anim-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      gap: .6rem;
+    }
+    .ds-anim-card {
+      aspect-ratio: 1;
+      background: var(--bg-muted);
+      border: 1px solid var(--border-base);
+      border-radius: var(--radius-md);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: .4rem;
+      cursor: pointer;
+      transition: border-color .2s;
+      overflow: hidden;
+    }
+    .ds-anim-card:hover { border-color: rgba(93,255,191,.3); }
+    .ds-anim-dot {
+      width: 14px; height: 14px;
+      background: var(--mint);
+      border-radius: 50%;
+      transition: all .3s;
+    }
+    .ds-anim-name {
+      font-family: var(--font-mono);
+      font-size: .5rem;
+      color: var(--text-muted);
+    }
+    .ds-anim-card:hover .ds-anim-dot {
+      animation-duration: 1.5s;
+      animation-iteration-count: infinite;
+    }
+
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes pulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .4; transform: scale(.8); } }
+    @keyframes glowPulse { 0%,100% { box-shadow: 0 0 20px rgba(93,255,191,.08); } 50% { box-shadow: 0 0 40px rgba(93,255,191,.18); } }
+    @keyframes slideInLeft { from { opacity: 0; transform: translateX(-40px); } to { opacity: 1; transform: translateX(0); } }
+    @keyframes scaleIn { from { opacity: 0; transform: scale(.9); } to { opacity: 1; transform: scale(1); } }
+    @keyframes shimmer { from { background-position: -200% 0; } to { background-position: 200% 0; } }
+
+    /* ── Gradient bar ── */
+    .ds-gradient-bar {
+      height: 48px;
+      border-radius: var(--radius-md);
+      margin-bottom: .4rem;
+    }
+
+    /* ── Token table ── */
+    .ds-token-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: .75rem;
+    }
+    .ds-token-table th {
+      text-align: left;
+      font-family: var(--font-mono);
+      font-size: .6rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      padding: .5rem .75rem;
+      border-bottom: 1px solid var(--border-base);
+    }
+    .ds-token-table td {
+      padding: .5rem .75rem;
+      border-bottom: 1px solid var(--border-base);
+      color: var(--text-secondary);
+    }
+    .ds-token-table td:first-child {
+      font-family: var(--font-mono);
+      font-size: .7rem;
+      color: var(--mint);
+    }
+    .ds-token-table td:last-child {
+      font-family: var(--font-mono);
+      font-size: .65rem;
+      color: var(--text-muted);
+    }
+  </style>
+</head>
+<body>
+
+<!-- Theme Toggle -->
+<div class="ds-theme-toggle" onclick="toggleTheme()">
+  <span class="ds-toggle-label" id="theme-label">Dark</span>
+  <div class="ds-toggle-track"><div class="ds-toggle-thumb"></div></div>
+</div>
+
+<div class="ds-layout">
+
+  <!-- SIDEBAR -->
+  <aside class="ds-sidebar">
+    <div class="ds-sidebar-title">Tres Puntos</div>
+    <div class="ds-sidebar-version">Design Tokens v1.0</div>
+    <nav>
+      <div class="ds-nav-label">Foundation</div>
+      <a href="#colors" class="ds-nav-link">Colors</a>
+      <a href="#typography" class="ds-nav-link">Typography</a>
+      <a href="#spacing" class="ds-nav-link">Spacing & Radius</a>
+      <a href="#elevation" class="ds-nav-link">Elevation</a>
+      <div class="ds-nav-label">Components</div>
+      <a href="#buttons" class="ds-nav-link">Buttons</a>
+      <a href="#badges" class="ds-nav-link">Badges</a>
+      <a href="#forms" class="ds-nav-link">Forms</a>
+      <a href="#gradients" class="ds-nav-link">Gradients</a>
+      <div class="ds-nav-label">Patterns</div>
+      <a href="#animations" class="ds-nav-link">Animations</a>
+      <a href="#tokens-table" class="ds-nav-link">All Tokens</a>
+    </nav>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="ds-main">
+
+    <!-- Header -->
+    <div style="margin-bottom:3rem;">
+      <span class="section-badge" style="margin-bottom:1rem;">trespuntos-context</span>
+      <h1 style="font-family:var(--font-heading);font-size:clamp(1.75rem,4vw,2.75rem);font-weight:800;letter-spacing:-.04em;line-height:1.1;margin-bottom:.75rem;">
+        Design <span class="text-gradient">Tokens</span>
+      </h1>
+      <p style="font-size:.9rem;color:var(--text-secondary);line-height:1.7;max-width:500px;">
+        Single source of truth para todas las apps y agentes IA de Tres Puntos. Extraido del design system de la web.
+      </p>
+    </div>
+
+    <div class="ds-sep"></div>
+
+    <!-- ═══ COLORS ═══ -->
+    <section class="ds-section" id="colors">
+      <h2 class="ds-section-title">Colors</h2>
+      <p class="ds-section-desc">Click en cualquier swatch para copiar el token CSS.</p>
+
+      <div class="ds-subsection">
+        <h3 class="ds-subsection-title">Brand</h3>
+        <div class="ds-swatches">
+          <div class="ds-swatch" onclick="copy('--mint','#5dffbf')">
+            <div class="ds-swatch-color" style="background:#5dffbf;"></div>
+            <div class="ds-swatch-info"><div class="ds-swatch-name">--mint</div><div class="ds-swatch-hex">#5dffbf</div></div>
+          </div>
+          <div class="ds-swatch" onclick="copy('--mint-hover','#49e6a8')">
+            <div class="ds-swatch-color" style="background:#49e6a8;"></div>
+            <div class="ds-swatch-info"><div class="ds-swatch-name">--mint-hover</div><div class="ds-swatch-hex">#49e6a8</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="ds-subsection">
+        <h3 class="ds-subsection-title">Backgrounds</h3>
+        <div class="ds-swatches">
+          <div class="ds-swatch" onclick="copy('--bg-base','#0e0e0e')">
+            <div class="ds-swatch-color" style="background:#0e0e0e;border-bottom:1px solid #2a2a2a;"></div>
+            <div class="ds-swatch-info"><div class="ds-swatch-name">--bg-base</div><div class="ds-swatch-hex">#0e0e0e</div></div>
+          </div>
+          <div class="ds-swatch" onclick="copy('--bg-surface','#141414')">
+            <div class="ds-swatch-color" style="background:#141414;border-bottom:1px solid #2a2a2a;"></div>
+            <div class="ds-swatch-info"><div class="ds-swatch-name">--bg-surface</div><div class="ds-swatch-hex">#141414</div></div>
+          </div>
+          <div class="ds-swatch" onclick="copy('--bg-subtle','#191919')">
+            <div class="ds-swatch-color" style="background:#191919;border-bottom:1px solid #2a2a2a;"></div>
+            <div class="ds-swatch-info"><div class="ds-swatch-name">--bg-subtle</div><div class="ds-swatch-hex">#191919</div></div>
+          </div>
+          <div class="ds-swatch" onclick="copy('--bg-muted','#1f1f1f')">
+            <div class="ds-swatch-color" style="background:#1f1f1f;border-bottom:1px solid #2a2a2a;"></div>
+            <div class="ds-swatch-info"><div class="ds-swatch-name">--bg-muted</div><div class="ds-swatch-hex">#1f1f1f</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="ds-subsection">
+        <h3 class="ds-subsection-title">Text</h3>
+        <div class="ds-swatches">
+          <div class="ds-swatch" onclick="copy('--text-primary','#f5f5f5')">
+            <div class="ds-swatch-color" style="background:#f5f5f5;"></div>
+            <div class="ds-swatch-info"><div class="ds-swatch-name">--text-primary</div><div class="ds-swatch-hex">#f5f5f5</div></div>
+          </div>
+          <div class="ds-swatch" onclick="copy('--text-secondary','#b3b3b3')">
+            <div class="ds-swatch-color" style="background:#b3b3b3;"></div>
+            <div class="ds-swatch-info"><div class="ds-swatch-name">--text-secondary</div><div class="ds-swatch-hex">#b3b3b3</div></div>
+          </div>
+          <div class="ds-swatch" onclick="copy('--text-muted','#8a8a8a')">
+            <div class="ds-swatch-color" style="background:#8a8a8a;"></div>
+            <div class="ds-swatch-info"><div class="ds-swatch-name">--text-muted</div><div class="ds-swatch-hex">#8a8a8a</div></div>
+          </div>
+          <div class="ds-swatch" onclick="copy('--text-inverse','#0e0e0e')">
+            <div class="ds-swatch-color" style="background:#0e0e0e;border-bottom:1px solid #2a2a2a;"></div>
+            <div class="ds-swatch-info"><div class="ds-swatch-name">--text-inverse</div><div class="ds-swatch-hex">#0e0e0e</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="ds-subsection">
+        <h3 class="ds-subsection-title">Borders</h3>
+        <div class="ds-swatches">
+          <div class="ds-swatch" onclick="copy('--border-base','#1f1f1f')">
+            <div class="ds-swatch-color" style="background:#1f1f1f;border-bottom:1px solid #2a2a2a;"></div>
+            <div class="ds-swatch-info"><div class="ds-swatch-name">--border-base</div><div class="ds-swatch-hex">#1f1f1f</div></div>
+          </div>
+          <div class="ds-swatch" onclick="copy('--border-subtle','#1a1a1a')">
+            <div class="ds-swatch-color" style="background:#1a1a1a;border-bottom:1px solid #2a2a2a;"></div>
+            <div class="ds-swatch-info"><div class="ds-swatch-name">--border-subtle</div><div class="ds-swatch-hex">#1a1a1a</div></div>
+          </div>
+          <div class="ds-swatch" onclick="copy('--border-strong','#2a2a2a')">
+            <div class="ds-swatch-color" style="background:#2a2a2a;border-bottom:1px solid #444;"></div>
+            <div class="ds-swatch-info"><div class="ds-swatch-name">--border-strong</div><div class="ds-swatch-hex">#2a2a2a</div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="ds-sep"></div>
+
+    <!-- ═══ TYPOGRAPHY ═══ -->
+    <section class="ds-section" id="typography">
+      <h2 class="ds-section-title">Typography</h2>
+      <p class="ds-section-desc">Tres familias: Jakarta para headings, Inter para body, JetBrains Mono para codigo.</p>
+
+      <div class="ds-subsection">
+        <h3 class="ds-subsection-title">Heading — Plus Jakarta Sans</h3>
+        <div class="ds-type-row">
+          <div class="ds-type-meta">800 / 2.5rem<br>-0.03em</div>
+          <div style="font-family:var(--font-heading);font-size:2.5rem;font-weight:800;letter-spacing:-.03em;line-height:1.15;">Arquitectura Digital</div>
+        </div>
+        <div class="ds-type-row">
+          <div class="ds-type-meta">700 / 1.4rem<br>-0.02em</div>
+          <div style="font-family:var(--font-heading);font-size:1.4rem;font-weight:700;letter-spacing:-.02em;">Plataformas que convierten</div>
+        </div>
+        <div class="ds-type-row">
+          <div class="ds-type-meta">700 / .9375rem</div>
+          <div style="font-family:var(--font-heading);font-size:.9375rem;font-weight:700;">Button Label</div>
+        </div>
+      </div>
+
+      <div class="ds-subsection">
+        <h3 class="ds-subsection-title">Body — Inter</h3>
+        <div class="ds-type-row">
+          <div class="ds-type-meta">400 / 1rem<br>lh 1.6</div>
+          <div style="font-family:var(--font-body);font-size:1rem;line-height:1.6;">Construimos plataformas digitales que convierten trafico en clientes. Sin friccion. Sin deuda tecnica.</div>
+        </div>
+        <div class="ds-type-row">
+          <div class="ds-type-meta">500 / .875rem</div>
+          <div style="font-family:var(--font-body);font-size:.875rem;font-weight:500;">Navigation links and captions</div>
+        </div>
+        <div class="ds-type-row">
+          <div class="ds-type-meta">600 / 11px<br>ls .1em</div>
+          <div style="font-family:var(--font-body);font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--mint);">BADGE LABEL</div>
+        </div>
+      </div>
+
+      <div class="ds-subsection">
+        <h3 class="ds-subsection-title">Mono — JetBrains Mono</h3>
+        <div class="ds-type-row">
+          <div class="ds-type-meta">400 / .75rem</div>
+          <div style="font-family:var(--font-mono);font-size:.75rem;">var(--mint): #5dffbf;</div>
+        </div>
+      </div>
+    </section>
+
+    <div class="ds-sep"></div>
+
+    <!-- ═══ SPACING & RADIUS ═══ -->
+    <section class="ds-section" id="spacing">
+      <h2 class="ds-section-title">Spacing & Radius</h2>
+      <p class="ds-section-desc">Border radius scale usada en todos los componentes.</p>
+
+      <div class="ds-radius-grid">
+        <div class="ds-radius-item">
+          <div class="ds-radius-box" style="border-radius:6px;"></div>
+          <div class="ds-radius-label">--radius-sm<br>6px</div>
+        </div>
+        <div class="ds-radius-item">
+          <div class="ds-radius-box" style="border-radius:10px;"></div>
+          <div class="ds-radius-label">--radius-md<br>10px</div>
+        </div>
+        <div class="ds-radius-item">
+          <div class="ds-radius-box" style="border-radius:14px;"></div>
+          <div class="ds-radius-label">--radius-lg<br>14px</div>
+        </div>
+        <div class="ds-radius-item">
+          <div class="ds-radius-box" style="border-radius:20px;"></div>
+          <div class="ds-radius-label">--radius-xl<br>20px</div>
+        </div>
+        <div class="ds-radius-item">
+          <div class="ds-radius-box" style="border-radius:24px;"></div>
+          <div class="ds-radius-label">--radius-2xl<br>24px</div>
+        </div>
+        <div class="ds-radius-item">
+          <div class="ds-radius-box" style="border-radius:9999px;"></div>
+          <div class="ds-radius-label">--radius-full<br>pill</div>
+        </div>
+      </div>
+    </section>
+
+    <div class="ds-sep"></div>
+
+    <!-- ═══ ELEVATION ═══ -->
+    <section class="ds-section" id="elevation">
+      <h2 class="ds-section-title">Elevation & Shadows</h2>
+      <div class="ds-elevation-grid">
+        <div class="ds-elevation-card" style="background:var(--bg-surface);">
+          <div class="ds-elevation-name">Flat</div>
+          <div class="ds-elevation-label">border only</div>
+        </div>
+        <div class="ds-elevation-card" style="box-shadow:var(--shadow-elevation);background:var(--bg-surface);">
+          <div class="ds-elevation-name">Elevation</div>
+          <div class="ds-elevation-label">--shadow-elevation</div>
+        </div>
+        <div class="ds-elevation-card" style="box-shadow:var(--shadow-brand);background:var(--bg-surface);border-color:rgba(93,255,191,.2);">
+          <div class="ds-elevation-name">Brand Glow</div>
+          <div class="ds-elevation-label">--shadow-brand</div>
+        </div>
+      </div>
+    </section>
+
+    <div class="ds-sep"></div>
+
+    <!-- ═══ BUTTONS ═══ -->
+    <section class="ds-section" id="buttons">
+      <h2 class="ds-section-title">Buttons</h2>
+      <p class="ds-section-desc">Tres niveles de jerarquia visual.</p>
+      <div class="ds-preview">
+        <div class="ds-preview-label">Interactive</div>
+        <div class="ds-preview-row">
+          <button class="btn-primary">Cuentanos tu proyecto</button>
+          <button class="btn-secondary">Analiza tu plataforma</button>
+          <button class="btn-ghost">Ver caso de estudio &rarr;</button>
+        </div>
+      </div>
+    </section>
+
+    <div class="ds-sep"></div>
+
+    <!-- ═══ BADGES ═══ -->
+    <section class="ds-section" id="badges">
+      <h2 class="ds-section-title">Badges</h2>
+      <div class="ds-preview">
+        <div class="ds-preview-row">
+          <span class="section-badge">Design System</span>
+          <span class="section-badge">UX/UI</span>
+          <span class="section-badge">E-commerce</span>
+        </div>
+      </div>
+    </section>
+
+    <div class="ds-sep"></div>
+
+    <!-- ═══ FORMS ═══ -->
+    <section class="ds-section" id="forms">
+      <h2 class="ds-section-title">Form Elements</h2>
+      <div class="ds-preview" style="max-width:400px;">
+        <div style="display:flex;flex-direction:column;gap:1rem;">
+          <div>
+            <label class="label">Nombre</label>
+            <input class="input" type="text" placeholder="Tu nombre completo">
+          </div>
+          <div>
+            <label class="label">Email</label>
+            <input class="input" type="email" placeholder="nombre@empresa.com">
+          </div>
+          <div>
+            <label class="label">Mensaje</label>
+            <textarea class="input" rows="3" placeholder="Cuentanos tu proyecto..."></textarea>
+          </div>
+          <button class="btn-primary" style="align-self:flex-start;">Enviar</button>
+        </div>
+      </div>
+    </section>
+
+    <div class="ds-sep"></div>
+
+    <!-- ═══ GRADIENTS ═══ -->
+    <section class="ds-section" id="gradients">
+      <h2 class="ds-section-title">Gradients</h2>
+
+      <div class="ds-subsection">
+        <h3 class="ds-subsection-title">Brand Gradient</h3>
+        <div class="ds-gradient-bar" style="background:var(--gradient-brand);"></div>
+        <div class="ds-code">--gradient-brand: linear-gradient(135deg, #5dffbf 0, #4ea5ff 50%, #c084fc 100%)</div>
+      </div>
+
+      <div class="ds-subsection" style="margin-top:1.5rem;">
+        <h3 class="ds-subsection-title">Gradient Text</h3>
+        <div style="font-family:var(--font-heading);font-size:2rem;font-weight:800;letter-spacing:-.03em;">
+          <span class="text-gradient">Arquitectura Digital de Conversion</span>
+        </div>
+      </div>
+
+      <div class="ds-subsection" style="margin-top:1.5rem;">
+        <h3 class="ds-subsection-title">Separator Line</h3>
+        <div class="ds-sep" style="margin:1rem 0;"></div>
+        <div class="ds-code">linear-gradient(to right, transparent, rgba(93,255,191,.2), transparent)</div>
+      </div>
+    </section>
+
+    <div class="ds-sep"></div>
+
+    <!-- ═══ ANIMATIONS ═══ -->
+    <section class="ds-section" id="animations">
+      <h2 class="ds-section-title">Animations</h2>
+      <p class="ds-section-desc">Hover para ver cada animacion.</p>
+      <div class="ds-anim-grid">
+        <div class="ds-anim-card" onmouseenter="this.querySelector('.ds-anim-dot').style.animation='fadeUp .6s ease forwards';" onmouseleave="this.querySelector('.ds-anim-dot').style.animation='';">
+          <div class="ds-anim-dot"></div>
+          <div class="ds-anim-name">fadeUp</div>
+        </div>
+        <div class="ds-anim-card" onmouseenter="this.querySelector('.ds-anim-dot').style.animation='pulse 1.5s infinite';" onmouseleave="this.querySelector('.ds-anim-dot').style.animation='';">
+          <div class="ds-anim-dot"></div>
+          <div class="ds-anim-name">pulse</div>
+        </div>
+        <div class="ds-anim-card" onmouseenter="this.querySelector('.ds-anim-dot').style.animation='glowPulse 2s infinite';" onmouseleave="this.querySelector('.ds-anim-dot').style.animation='';">
+          <div class="ds-anim-dot"></div>
+          <div class="ds-anim-name">glowPulse</div>
+        </div>
+        <div class="ds-anim-card" onmouseenter="this.querySelector('.ds-anim-dot').style.animation='slideInLeft .6s ease forwards';" onmouseleave="this.querySelector('.ds-anim-dot').style.animation='';">
+          <div class="ds-anim-dot"></div>
+          <div class="ds-anim-name">slideInLeft</div>
+        </div>
+        <div class="ds-anim-card" onmouseenter="this.querySelector('.ds-anim-dot').style.animation='scaleIn .4s ease forwards';" onmouseleave="this.querySelector('.ds-anim-dot').style.animation='';">
+          <div class="ds-anim-dot"></div>
+          <div class="ds-anim-name">scaleIn</div>
+        </div>
+      </div>
+
+      <div style="margin-top:1.5rem;">
+        <h3 class="ds-subsection-title">Transitions</h3>
+        <table class="ds-token-table">
+          <tr><th>Token</th><th>Value</th><th>Usage</th></tr>
+          <tr><td>--transition-fast</td><td>.15s ease</td><td>Hover, focus</td></tr>
+          <tr><td>--transition-base</td><td>.25s ease</td><td>Interactive elements</td></tr>
+          <tr><td>--transition-spring</td><td>.4s cubic-bezier(.34,1.56,.64,1)</td><td>Bouncy, playful</td></tr>
+        </table>
+      </div>
+    </section>
+
+    <div class="ds-sep"></div>
+
+    <!-- ═══ ALL TOKENS TABLE ═══ -->
+    <section class="ds-section" id="tokens-table">
+      <h2 class="ds-section-title">All Tokens</h2>
+      <p class="ds-section-desc">Referencia completa de CSS custom properties.</p>
+      <table class="ds-token-table">
+        <thead>
+          <tr><th>Token</th><th>Dark Value</th><th>Light Value</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>--mint</td><td>#5dffbf</td><td>#059669</td></tr>
+          <tr><td>--mint-hover</td><td>#49e6a8</td><td>#047857</td></tr>
+          <tr><td>--mint-rgb</td><td>93, 255, 191</td><td>5, 150, 105</td></tr>
+          <tr><td>--bg-base</td><td>#0e0e0e</td><td>#ffffff</td></tr>
+          <tr><td>--bg-surface</td><td>#141414</td><td>#f8f9fa</td></tr>
+          <tr><td>--bg-subtle</td><td>#191919</td><td>#f1f3f5</td></tr>
+          <tr><td>--bg-muted</td><td>#1f1f1f</td><td>#e9ecef</td></tr>
+          <tr><td>--text-primary</td><td>#f5f5f5</td><td>#111827</td></tr>
+          <tr><td>--text-secondary</td><td>#b3b3b3</td><td>#4b5563</td></tr>
+          <tr><td>--text-muted</td><td>#8a8a8a</td><td>#9ca3af</td></tr>
+          <tr><td>--text-inverse</td><td>#0e0e0e</td><td>#ffffff</td></tr>
+          <tr><td>--border-base</td><td>#1f1f1f</td><td>#e5e7eb</td></tr>
+          <tr><td>--border-subtle</td><td>#1a1a1a</td><td>#f3f4f6</td></tr>
+          <tr><td>--border-strong</td><td>#2a2a2a</td><td>#d1d5db</td></tr>
+          <tr><td>--font-heading</td><td colspan="2">'Plus Jakarta Sans', sans-serif</td></tr>
+          <tr><td>--font-body</td><td colspan="2">'Inter', system-ui, sans-serif</td></tr>
+          <tr><td>--font-mono</td><td colspan="2">'JetBrains Mono', monospace</td></tr>
+          <tr><td>--radius-sm</td><td colspan="2">6px</td></tr>
+          <tr><td>--radius-md</td><td colspan="2">10px</td></tr>
+          <tr><td>--radius-lg</td><td colspan="2">14px</td></tr>
+          <tr><td>--radius-xl</td><td colspan="2">20px</td></tr>
+          <tr><td>--radius-2xl</td><td colspan="2">24px</td></tr>
+          <tr><td>--radius-full</td><td colspan="2">9999px</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <div style="margin-top:4rem;padding:2rem;background:var(--bg-surface);border-radius:var(--radius-xl);border:1px solid var(--border-base);text-align:center;">
+      <p style="font-size:.75rem;color:var(--text-muted);font-family:var(--font-mono);">
+        trespuntos-context/brand/05-design-tokens.md<br>
+        Source of truth for all Tres Puntos apps and AI agents
+      </p>
+    </div>
+
+  </main>
+</div>
+
+<div class="ds-toast" id="toast">Copied!</div>
+
+<script>
+function copy(name, hex) {
+  navigator.clipboard.writeText(`var(${name})`).then(() => {
+    const t = document.getElementById('toast');
+    t.textContent = `${name}: ${hex}`;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 1500);
+  });
+}
+
+function toggleTheme() {
+  const html = document.documentElement;
+  const current = html.getAttribute('data-theme');
+  const next = current === 'light' ? 'dark' : 'light';
+  html.setAttribute('data-theme', next);
+  document.getElementById('theme-label').textContent = next === 'light' ? 'Light' : 'Dark';
+}
+</script>
+
+</body>
+</html>

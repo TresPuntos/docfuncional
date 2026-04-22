@@ -97,6 +97,32 @@ if ($method === 'POST' && $action === 'restore' && $id) {
     handleRestore($pdo, $id);
 }
 
+// --- Comments / feedback loop ---
+if ($method === 'GET' && $action === 'comments' && $id) {
+    handleListComments($pdo, $id);
+}
+if ($method === 'GET' && $action === 'thread' && $id) {
+    handleGetThread($pdo, $id);
+}
+if ($method === 'POST' && $action === 'reply_draft' && $id) {
+    handleReply($pdo, $id, true);   // crea borrador (is_draft=1)
+}
+if ($method === 'POST' && $action === 'reply_publish' && $id) {
+    handleReply($pdo, $id, false);  // crea publicada directamente
+}
+if ($method === 'POST' && $action === 'publish_reply' && $id) {
+    handlePublishReply($pdo, $id);
+}
+if ($method === 'POST' && $action === 'discard_reply' && $id) {
+    handleDiscardReply($pdo, $id);
+}
+if ($method === 'POST' && $action === 'resolve' && $id) {
+    handleResolveComment($pdo, $id);
+}
+if ($method === 'POST' && $action === 'notify' && $id) {
+    handleMarkNotified($pdo, $id);
+}
+
 // --- CRUD ---
 switch ($method) {
     case 'GET':
@@ -539,4 +565,175 @@ function notifyTelegram(string $text): void {
     ]);
     curl_exec($ch);
     curl_close($ch);
+}
+
+// ============================================================
+// COMMENTS / FEEDBACK LOOP
+// ============================================================
+
+/**
+ * GET /api/proposals.php?id=X&action=comments[&status=open|closed|all][&include_drafts=1]
+ * Lista todos los comentarios de una propuesta, agrupados por hilo.
+ */
+function handleListComments(PDO $pdo, int $propuestaId): void {
+    $status = $_GET['status'] ?? 'all';
+    $includeDrafts = !empty($_GET['include_drafts']);
+
+    $sql = "SELECT id, section_anchor, section_title, autor_nombre, autor_apellidos, autor_email,
+                   texto, parent_id, resuelto, resuelto_por, resuelto_at, is_staff,
+                   COALESCE(is_draft, 0) AS is_draft, notificado_at, created_at
+            FROM comentarios_seccion
+            WHERE propuesta_id = ?";
+    $params = [$propuestaId];
+    if (!$includeDrafts) { $sql .= " AND (is_draft IS NULL OR is_draft = 0)"; }
+    $sql .= " ORDER BY COALESCE(parent_id, id) ASC, created_at ASC";
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $all = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $threads = [];
+    $byRoot = [];
+    foreach ($all as $c) {
+        if (empty($c['parent_id'])) {
+            $c['replies'] = [];
+            $byRoot[$c['id']] = &$c;
+            $threads[] = &$c;
+            unset($c);
+        }
+    }
+    foreach ($all as $c) {
+        if (!empty($c['parent_id']) && isset($byRoot[$c['parent_id']])) {
+            $byRoot[$c['parent_id']]['replies'][] = $c;
+        }
+    }
+
+    if ($status === 'open')   $threads = array_values(array_filter($threads, fn($t) => (int)$t['resuelto'] === 0));
+    if ($status === 'closed') $threads = array_values(array_filter($threads, fn($t) => (int)$t['resuelto'] === 1));
+
+    jsonSuccess([
+        'propuesta_id' => $propuestaId,
+        'total' => count($threads),
+        'threads' => $threads,
+    ]);
+}
+
+function handleGetThread(PDO $pdo, int $commentId): void {
+    $root = $pdo->prepare("SELECT id, propuesta_id, section_anchor, section_title, autor_nombre, autor_apellidos,
+                                  autor_email, texto, resuelto, resuelto_por, resuelto_at, created_at
+                           FROM comentarios_seccion WHERE id = ? AND parent_id IS NULL");
+    $root->execute([$commentId]);
+    $r = $root->fetch(PDO::FETCH_ASSOC);
+    if (!$r) jsonError('Comentario raíz no encontrado', 404);
+
+    $replies = $pdo->prepare("SELECT id, autor_nombre, autor_apellidos, texto, is_staff,
+                                     COALESCE(is_draft, 0) AS is_draft, notificado_at, created_at
+                              FROM comentarios_seccion WHERE parent_id = ? ORDER BY created_at ASC");
+    $replies->execute([$commentId]);
+    $r['replies'] = $replies->fetchAll(PDO::FETCH_ASSOC);
+    jsonSuccess($r);
+}
+
+/**
+ * POST /api/proposals.php?id=COMMENT_ID&action=reply_draft
+ * Body JSON: { "texto": "…" }
+ * Crea respuesta staff (is_staff=1). Si $isDraft=true → queda como borrador (cliente no la ve).
+ */
+function handleReply(PDO $pdo, int $parentId, bool $isDraft): void {
+    $input = json_decode(file_get_contents('php://input'), true) ?: [];
+    $texto = trim($input['texto'] ?? '');
+    if ($texto === '' || mb_strlen($texto) > 4000) jsonError('Texto inválido (vacío o >4000 caracteres)', 422);
+
+    $parent = $pdo->prepare("SELECT propuesta_id, section_anchor, section_title FROM comentarios_seccion WHERE id = ?");
+    $parent->execute([$parentId]);
+    $p = $parent->fetch(PDO::FETCH_ASSOC);
+    if (!$p) jsonError('Comentario raíz no encontrado', 404);
+
+    $pdo->prepare("INSERT INTO comentarios_seccion
+        (propuesta_id, section_anchor, section_title, autor_nombre, autor_apellidos, autor_email,
+         texto, parent_id, is_staff, is_draft, ip_address, user_agent)
+        VALUES (?, ?, ?, 'Tres Puntos', '', 'hola@trespuntoscomunicacion.es', ?, ?, 1, ?, ?, ?)")
+        ->execute([
+            $p['propuesta_id'], $p['section_anchor'], $p['section_title'],
+            $texto, $parentId, $isDraft ? 1 : 0,
+            $_SERVER['REMOTE_ADDR'] ?? null,
+            mb_substr($_SERVER['HTTP_USER_AGENT'] ?? 'api', 0, 255),
+        ]);
+    $id = (int)$pdo->lastInsertId();
+
+    if (!$isDraft) {
+        $resumen = mb_substr($texto, 0, 120) . (mb_strlen($texto) > 120 ? '…' : '');
+        notifyTelegram("✅ Respuesta via API · <i>" . htmlspecialchars($p['section_title'] ?: $p['section_anchor']) . "</i>\n" . htmlspecialchars($resumen));
+    }
+
+    jsonSuccess(['id' => $id, 'is_draft' => $isDraft, 'parent_id' => $parentId]);
+}
+
+function handlePublishReply(PDO $pdo, int $replyId): void {
+    $input = json_decode(file_get_contents('php://input'), true) ?: [];
+    $texto = isset($input['texto']) ? trim($input['texto']) : null;
+
+    $row = $pdo->prepare("SELECT is_staff, is_draft, texto, section_anchor, section_title FROM comentarios_seccion WHERE id = ?");
+    $row->execute([$replyId]);
+    $r = $row->fetch(PDO::FETCH_ASSOC);
+    if (!$r) jsonError('Reply no encontrado', 404);
+    if ((int)$r['is_staff'] !== 1) jsonError('Solo se publican respuestas staff', 422);
+    if ((int)$r['is_draft'] !== 1) jsonError('La respuesta ya está publicada', 409);
+
+    $textoFinal = $texto !== null && $texto !== '' ? $texto : $r['texto'];
+    if (mb_strlen($textoFinal) > 4000) jsonError('Texto demasiado largo', 422);
+
+    $pdo->prepare("UPDATE comentarios_seccion SET texto = ?, is_draft = 0 WHERE id = ?")->execute([$textoFinal, $replyId]);
+
+    $resumen = mb_substr($textoFinal, 0, 120) . (mb_strlen($textoFinal) > 120 ? '…' : '');
+    notifyTelegram("✅ Publicada via API · <i>" . htmlspecialchars($r['section_title'] ?: $r['section_anchor']) . "</i>\n" . htmlspecialchars($resumen));
+
+    jsonSuccess(['id' => $replyId, 'published' => true]);
+}
+
+function handleDiscardReply(PDO $pdo, int $replyId): void {
+    $stmt = $pdo->prepare("DELETE FROM comentarios_seccion WHERE id = ? AND is_staff = 1 AND is_draft = 1");
+    $stmt->execute([$replyId]);
+    if ($stmt->rowCount() === 0) jsonError('Solo se descartan borradores staff', 422);
+    jsonSuccess(['discarded' => true]);
+}
+
+/**
+ * POST /api/proposals.php?id=ROOT_COMMENT_ID&action=resolve
+ * Body JSON: { "actor": "staff" | "author", "actor_name": "..." }
+ * Cierra un hilo raíz. "staff" es override de admin (el flujo normal es que cierre el autor desde view.php).
+ */
+function handleResolveComment(PDO $pdo, int $rootId): void {
+    $input = json_decode(file_get_contents('php://input'), true) ?: [];
+    $actor = $input['actor'] ?? 'staff';
+    $actorName = trim($input['actor_name'] ?? 'Tres Puntos');
+
+    $row = $pdo->prepare("SELECT resuelto, parent_id, autor_nombre, autor_apellidos, section_anchor, section_title FROM comentarios_seccion WHERE id = ?");
+    $row->execute([$rootId]);
+    $r = $row->fetch(PDO::FETCH_ASSOC);
+    if (!$r) jsonError('Comentario no encontrado', 404);
+    if ($r['parent_id']) jsonError('Solo se cierran comentarios raíz', 422);
+
+    $newState = (int)$r['resuelto'] === 1 ? 0 : 1;
+
+    if ($newState === 1) {
+        $who = $actor === 'author' ? trim($r['autor_nombre'] . ' ' . $r['autor_apellidos']) : $actorName;
+        $pdo->prepare("UPDATE comentarios_seccion SET resuelto = 1, resuelto_por = ?, resuelto_at = CURRENT_TIMESTAMP WHERE id = ?")
+            ->execute([$who, $rootId]);
+        notifyTelegram("✅ Cerrado via API por " . htmlspecialchars($who) . " · <i>" . htmlspecialchars($r['section_title'] ?: $r['section_anchor']) . "</i>");
+    } else {
+        $pdo->prepare("UPDATE comentarios_seccion SET resuelto = 0, resuelto_por = NULL, resuelto_at = NULL WHERE id = ?")
+            ->execute([$rootId]);
+        notifyTelegram("↩️ Reabierto via API · <i>" . htmlspecialchars($r['section_title'] ?: $r['section_anchor']) . "</i>");
+    }
+
+    jsonSuccess(['id' => $rootId, 'resuelto' => $newState]);
+}
+
+function handleMarkNotified(PDO $pdo, int $propuestaId): void {
+    $stmt = $pdo->prepare("UPDATE comentarios_seccion
+        SET notificado_at = CURRENT_TIMESTAMP
+        WHERE propuesta_id = ? AND is_staff = 1 AND (is_draft IS NULL OR is_draft = 0) AND notificado_at IS NULL");
+    $stmt->execute([$propuestaId]);
+    jsonSuccess(['updated' => $stmt->rowCount()]);
 }

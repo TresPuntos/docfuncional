@@ -5,6 +5,104 @@ Inicio: 2026-04-14 · Primer caso real: `h2bhipotecas-1`.
 
 ---
 
+## 🔥 Sprint activo (2026-04-20) · Loop de feedback cliente ↔ Tres Puntos
+
+**Contexto**: H2B Hipotecas (Jennifer/Eloi/Eduard) ha dejado comentarios en la propuesta live y espera respuesta. Hoy el admin no ve avisos en el dashboard y no puede responder desde ninguna UI. Hay que cerrar el loop **ya** y además sorprender con un paso por delante (borrador pre-redactado, visibilidad de aperturas, hilos).
+
+### Qué tenemos ya hecho
+
+- `comentarios_seccion` con `parent_id` + `resuelto` en schema (sin UI que los use).
+- `admin_feedback.php` (página suelta, sin enlace desde el dashboard, sin responder).
+- `propuestas.views_count` + `last_accessed_at` → el contador de aperturas ya existe, solo hay que **destacarlo** en el dashboard y pintar *"Visto hace X"*.
+- Notificaciones Telegram al crear comentario (ya integradas).
+
+### Sprint 1 · Desbloquear al cliente · ✅ COMPLETADO (2026-04-20)
+
+- [x] **T1 · Bandeja en dashboard admin** — card global "Comentarios pendientes" + badges `💬 N` `✏️ N` `✉ N` por propuesta en [admin.php](admin.php).
+- [x] **T2 · Endpoint responder (staff reply)** — `admin.php?action=add_staff_reply` con `parent_id`, autor fijo *Tres Puntos*, `is_staff=1`. Notificación Telegram activa.
+  - Migración `database/migrate_staff_replies.php` → `is_staff`, `resuelto_por`, `resuelto_at`.
+- [x] **T3 · UI de respuesta en `admin_feedback.php`** — botón "Responder" inline por hilo, textarea, hilos anidados.
+- [x] **T4 · Hilos + cierre visible para el cliente** — en [master/doc-feedback.php](master/doc-feedback.php): respuestas indentadas con pill mint *Equipo*, pill de estado abierto/respondido/cerrado, botón "Marcar resuelto" solo al autor. FAB global + botones inline por sección con 3 estados visuales (pending/answered/resolved).
+- [x] **T5 · Gate para nueva versión** — banner verde "🚀 Todos los hilos resueltos · Lista para nueva versión" que lleva al editor cuando 0 abiertos.
+- [x] **T-drafts · Sistema de borradores** — migración `is_draft` + Claude.ai puede redactar en borrador vía MCP API. Admin revisa con botones Editar/Publicar/Descartar. Cliente solo ve publicados.
+- [x] **T-notify · Email automático vía Resend** — botón "✉️ Avisar cliente" envía email HTML con logo TP, botón CTA negro/mint (dark-mode-safe), firma Jordan, CC a `jordi@trespuntoscomunicacion.es`, reply-to a Jordi real. Dominio `trespuntos-lab.com` verificado en Resend. Alias `jordan@trespuntos-lab.com` creado.
+- [x] **T-api · Endpoints REST para MCP** — `api/proposals.php` ampliado con: `comments`, `thread`, `reply_draft`, `reply_publish`, `publish_reply`, `discard_reply`, `resolve`, `notify`. Spec en [mcp/comments-tools-spec.md](mcp/comments-tools-spec.md).
+
+### Sprint 2 · Visibilidad (siguiente) — **objetivo real: cerrar doc + presupuesto + firma**
+
+La analítica no es un fin en sí — es munición para rematar la conversión. Todo lo que hagamos aquí tiene que responder a *"¿por qué este cliente no ha firmado todavía?"* y darte información accionable para el siguiente follow-up.
+
+- [ ] **T8 · Tracking de sección (base del mapa de calor)** — en `view.php` añadir `IntersectionObserver` sobre cada `h2[id]` + tiempo de permanencia (dwell). Envío batched a `api/track.php` cada 10s o al `beforeunload`. Tabla nueva:
+  ```sql
+  CREATE TABLE propuesta_eventos (
+    id INTEGER PRIMARY KEY,
+    propuesta_id INTEGER NOT NULL,
+    sesion_id TEXT,            -- uuid en sessionStorage del cliente
+    visitor_hash TEXT,         -- sha256(ip + ua) para distinguir personas sin invasión
+    tipo TEXT NOT NULL,        -- 'open','section_view','section_dwell','click','scroll_depth','presupuesto_open','firma_intent'
+    section_anchor TEXT,
+    dwell_ms INTEGER,
+    scroll_depth INTEGER,      -- 0-100
+    meta TEXT,                 -- json con extras (click target, etc)
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  ```
+- [ ] **T9 · Heatmap por secciones en admin** — vista `admin_analytics.php?propuesta_id=X`:
+  - **Barra de calor vertical** a la izquierda replicando el sitemap del doc, con intensidad = dwell total acumulado por sección. Colores: frío (gris) → tibio (amarillo) → caliente (mint).
+  - **Drill-down por visitante**: filtro por `visitor_hash` → ves la sesión individual paso a paso (secuencia de secciones, tiempo en cada una).
+  - **Diferencia entre firmantes potenciales** (Jennifer, Eloi, Eduard) si detectamos identidades distintas por `tp_signer` guardado.
+- [ ] **T10 · Scroll-depth heatmap visual** tipo Hotjar lite:
+  - Overlay opcional sobre la vista del admin del propio doc (iframe o clon) donde al pasar el ratón se ven las zonas más visitadas tintadas.
+  - Implementación light: `ResizeObserver` + `IntersectionObserver` con % de viewport visible + dwell. No capturamos clicks ni movimiento de ratón (privacidad + peso).
+- [ ] **T11 · Señales de cierre en el dashboard principal** — por propuesta:
+  - *"Llegó al presupuesto"* ✅/❌ (evento `presupuesto_open`).
+  - *"Leyó el resumen ejecutivo"* ✅/❌.
+  - *"Secciones ignoradas"* — lista de H2 con dwell < 5s.
+  - *"Intento de firma"* — si abrió el modal de firma sin completarla, aviso caliente al admin.
+  - *"Tiempo total invertido"* agregado por visitante.
+- [ ] **T12 · Inbox unificado** `/admin/inbox.php` reemplazando `admin_feedback.php` — feed cronológico con filtros (*pendientes de responder / sin abrir / firmados esta semana / sin llegar al presupuesto*), favicon badge.
+- [ ] **T13 · Telegram/email de alertas calientes** — disparar push cuando:
+  - Cliente vuelve a abrir el doc por 3ª vez el mismo día.
+  - Llega al presupuesto y no firma en >15 min.
+  - Añade un comentario nuevo.
+  - Abre pero sale sin pasar del 20% de scroll (señal de rechazo).
+
+**Privacidad y legal** (por estar en live con RGPD):
+- Nada de capturar movimiento de ratón, teclas ni scroll continuo. Solo eventos agregados por sección.
+- `visitor_hash` es `sha256(ip + ua + slug)` — no identifica personas, solo sesiones.
+- Añadir línea en el splash del PIN: *"Registramos accesos y tiempo por sección para el seguimiento comercial"*.
+- Datos solo accesibles por admin con sesión; no se exponen en ningún endpoint público.
+
+### Sprint 3 · Pulido comercial (nice-to-have, alto ROI)
+
+- [ ] Pantalla post-firma fullscreen con "Siguiente paso" + descarga PDF firmado server-side (DOMPDF del estado exacto + hash).
+- [ ] Diff visual entre versiones usando `propuestas_history`.
+- [ ] Reacciones 👍❤️ en comentarios (tabla `comentario_reacciones`).
+- [ ] Plantillas de respuesta guardadas por admin ("Lo ajustamos en v1.1", etc.).
+- [ ] Estados de propuesta (borrador → enviado → visto → en_revisión → firmado → caducado) + expiración con recordatorios automáticos.
+- [ ] Subpin read-only para compartir interno del cliente.
+
+### MCP · Ampliación para agentes (T11)
+
+El MCP actual (`mcp-proposals.vercel.app`) solo expone proposals. Ampliar `api/proposals.php` + MCP tools para:
+
+- [ ] `list_comments(propuesta_id?, status?)` → leer comentarios y respuestas.
+- [ ] `get_comment_thread(comment_id)` → comentario raíz + hilo.
+- [ ] `reply_to_comment(comment_id, texto)` → crea respuesta staff (usa el mismo endpoint `add_staff_reply`).
+- [ ] `resolve_comment(comment_id)` → marcar resuelto desde agente (solo si política lo permite; probablemente admin-only, no cliente).
+- [ ] `edit_comment(comment_id, texto)` → editar texto (auditar quién: staff vs autor).
+- [ ] Auth: mismo `Bearer API_TOKEN` que el resto.
+- [ ] Documentar en `api/API_AGENT_INSTRUCTIONS.md`.
+
+### Decisiones de diseño cerradas
+
+- **Quién cierra un comentario**: solo el autor original (match por `tp_signer` nombre+apellidos). Staff puede responder pero no cerrar en nombre del cliente — evita la sensación de *"me han cerrado la duda sin resolverla"*.
+- **Copy explícito** cuando no eres el autor: pill `🟡 Abierto · solo [Nombre] puede cerrarlo` + tooltip *"El comentario lo cerrará quien lo abrió una vez esté resuelto"*.
+- **Staff identity** fija: todas las respuestas van firmadas como "Tres Puntos" (no por persona), pill mint para distinguir del cliente. Futuro: permitir firmar por persona si hacemos cuentas internas.
+- **Contador de vistas**: ya existe (`views_count` / `last_accessed_at`), lo visibilizamos sin tabla nueva en esta fase.
+
+---
+
 ## 📍 Estado actual (2026-04-14)
 
 ### ✅ Desplegado en producción

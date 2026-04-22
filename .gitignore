@@ -6,8 +6,20 @@ error_log.txt
 database/*.sqlite
 uploads/presupuestos/*
 uploads/equipo/*
+uploads/proveedores/*
 !uploads/presupuestos/.gitkeep
 !uploads/equipo/.gitkeep
+!uploads/proveedores/.gitkeep
+!uploads/proveedores/.htaccess
+
+# Dev fixtures locales (seed scripts con data de prueba)
+dev-fixtures/
+
+# Backups temporales
+*.bak
+*.bak2
+*.tmp
+*.orig
 fix_view.patch
 query_res.txt
 response.txt

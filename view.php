@@ -73,6 +73,68 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['pin'])) {
 
 $is_unlocked = isset($_SESSION[$session_key]) && $_SESSION[$session_key] === true;
 
+// ─── PROVIDER MODE ───────────────────────────────────────────
+// Si viene de provider.php autenticado, usa la sesión del proveedor para bypass del PIN gate.
+// Indicadores: ?__provider=TOKEN en URL y sesión guardada desde provider.php.
+$isProviderMode = false;
+$isAdminMode = false;   // Admin viendo el doc con herramientas de respuesta staff
+$__provider = null;
+if (isset($_GET['__provider'])) {
+    $ptoken = preg_replace('/[^a-f0-9]/i', '', $_GET['__provider']);
+    if (strlen($ptoken) >= 24) {
+        $psess = 'provider_unlocked_' . $ptoken;
+        $adminSess = !empty($_SESSION['admin_logged']);
+        // Entra si el proveedor ya pasó el PIN, O si el admin pasa ?__admin_view=1
+        $allowByAdmin = isset($_GET['__admin_view']) && $adminSess;
+        if (!empty($_SESSION[$psess]) || $allowByAdmin) {
+            $pq = $pdo->prepare("SELECT * FROM propuesta_proveedores WHERE token = ? AND activo = 1 AND propuesta_id = ?");
+            $pq->execute([$ptoken, $proposal['id']]);
+            $__provider = $pq->fetch(PDO::FETCH_ASSOC);
+            if ($__provider) {
+                $isProviderMode = true;
+                $is_unlocked = true;
+                if ($allowByAdmin) $isAdminMode = true;
+            }
+        }
+    }
+}
+// Admin mode sobre la vista CLIENTE (ve el doc del cliente y puede responder a sus comentarios como staff)
+if (!$isProviderMode && isset($_GET['__admin_view']) && !empty($_SESSION['admin_logged'])) {
+    $isAdminMode = true;
+    $is_unlocked = true;
+}
+
+// Endpoint AJAX: admin responde como staff a un comentario de cliente.
+// Solo requiere admin session, no PIN cliente. Por eso se procesa ANTES del PIN gate.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['api_action'] ?? '') === 'staff_reply') {
+    header('Content-Type: application/json; charset=utf-8');
+    if (empty($_SESSION['admin_logged'])) {
+        echo json_encode(['success' => false, 'error' => 'Solo admin']);
+        exit;
+    }
+    $parentId = (int)($_POST['parent_id'] ?? 0);
+    $texto = trim($_POST['texto'] ?? '');
+    if (!$parentId || $texto === '' || mb_strlen($texto) > 4000) {
+        echo json_encode(['success' => false, 'error' => 'Datos inválidos']);
+        exit;
+    }
+    $parent = $pdo->prepare("SELECT propuesta_id, section_anchor, section_title FROM comentarios_seccion WHERE id = ? AND propuesta_id = ?");
+    $parent->execute([$parentId, $proposal['id']]);
+    $p = $parent->fetch(PDO::FETCH_ASSOC);
+    if (!$p) { echo json_encode(['success' => false, 'error' => 'No encontrado']); exit; }
+
+    $pdo->prepare("INSERT INTO comentarios_seccion
+        (propuesta_id, section_anchor, section_title, autor_nombre, autor_apellidos, autor_email, texto, parent_id, is_staff, is_draft)
+        VALUES (?, ?, ?, 'Tres Puntos', '', 'hola@trespuntoscomunicacion.es', ?, ?, 1, 0)")
+        ->execute([$p['propuesta_id'], $p['section_anchor'], $p['section_title'], $texto, $parentId]);
+    $id = (int)$pdo->lastInsertId();
+
+    $resumen = mb_substr($texto, 0, 120) . (mb_strlen($texto) > 120 ? '…' : '');
+    sendTelegramNotification("✅ Respuesta admin a cliente · <b>" . htmlspecialchars($proposal['client_name']) . "</b>\n<i>" . htmlspecialchars($p['section_title'] ?: $p['section_anchor']) . "</i>\n" . htmlspecialchars($resumen));
+    echo json_encode(['success' => true, 'id' => $id]);
+    exit;
+}
+
 if ($is_unlocked) {
     $view_timer_key = 'last_view_time_' . $proposal['id'];
     $user_ip = $_SERVER['REMOTE_ADDR'] ?? '';
@@ -84,7 +146,12 @@ if ($is_unlocked) {
 
     $content = $proposal['html_content'];
 
-    // AJAX Handler for approvals
+    // AJAX Handler for approvals — bloquear todos los endpoints de cliente si estamos en provider mode
+    if ($isProviderMode && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['api_action'])) {
+        header('Content-Type: application/json');
+        echo json_encode(['success' => false, 'error' => 'Acción no disponible en modo proveedor']);
+        exit;
+    }
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['api_action'])) {
         header('Content-Type: application/json');
         $clientName = $proposal['client_name'] ?? '';
@@ -213,9 +280,48 @@ if ($is_unlocked) {
         }
 
         if ($_POST['api_action'] === 'list_section_comments') {
-            $stmt = $pdo->prepare("SELECT id, section_anchor, section_title, autor_nombre, autor_apellidos, texto, parent_id, resuelto, created_at FROM comentarios_seccion WHERE propuesta_id = ? ORDER BY created_at ASC");
+            // El cliente nunca ve borradores del staff (is_draft=1)
+            $stmt = $pdo->prepare("SELECT id, section_anchor, section_title, autor_nombre, autor_apellidos, texto, parent_id, resuelto, resuelto_por, resuelto_at, is_staff, created_at
+                FROM comentarios_seccion
+                WHERE propuesta_id = ? AND (is_draft IS NULL OR is_draft = 0)
+                ORDER BY created_at ASC");
             $stmt->execute([$proposal['id']]);
             echo json_encode(['success' => true, 'comments' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
+            exit;
+        }
+
+        // Cerrar / reabrir un hilo — SOLO el autor del comentario raíz
+        if ($_POST['api_action'] === 'toggle_resolved_comment') {
+            $id = (int)($_POST['id'] ?? 0);
+            $signer = $readSigner();
+            if (!$id || !$signer['valid']) { echo json_encode(['success' => false, 'error' => 'Faltan datos.']); exit; }
+
+            $stmt = $pdo->prepare("SELECT autor_nombre, autor_apellidos, resuelto, parent_id, section_title, section_anchor FROM comentarios_seccion WHERE id = ? AND propuesta_id = ?");
+            $stmt->execute([$id, $proposal['id']]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$row) { echo json_encode(['success' => false, 'error' => 'Comentario no encontrado.']); exit; }
+            if ($row['parent_id']) { echo json_encode(['success' => false, 'error' => 'Solo se cierran los comentarios raíz.']); exit; }
+            if (mb_strtolower($row['autor_nombre']) !== mb_strtolower($signer['nombre']) || mb_strtolower($row['autor_apellidos']) !== mb_strtolower($signer['apellidos'])) {
+                echo json_encode(['success' => false, 'error' => 'Solo el autor puede cerrar o reabrir su comentario.']);
+                exit;
+            }
+
+            $nuevo = ((int)$row['resuelto'] === 1) ? 0 : 1;
+            if ($nuevo === 1) {
+                $pdo->prepare("UPDATE comentarios_seccion SET resuelto = 1, resuelto_por = ?, resuelto_at = CURRENT_TIMESTAMP WHERE id = ?")
+                    ->execute([trim($signer['nombre'] . ' ' . $signer['apellidos']), $id]);
+                $accion = "✅ Cerrado";
+            } else {
+                $pdo->prepare("UPDATE comentarios_seccion SET resuelto = 0, resuelto_por = NULL, resuelto_at = NULL WHERE id = ?")
+                    ->execute([$id]);
+                $accion = "↩️ Reabierto";
+            }
+            sendTelegramNotification(
+                $accion . " · <b>" . htmlspecialchars($clientName, ENT_QUOTES, 'UTF-8') . "</b>"
+                . "\n<i>" . htmlspecialchars($row['section_title'] ?: $row['section_anchor'], ENT_QUOTES, 'UTF-8') . "</i>"
+                . " · " . htmlspecialchars($signer['nombre'], ENT_QUOTES, 'UTF-8')
+            );
+            echo json_encode(['success' => true, 'resuelto' => $nuevo]);
             exit;
         }
 
@@ -336,7 +442,7 @@ if ($is_unlocked) {
             $stmtTeam -> execute($equipo_ids);
             $team = $stmtTeam -> fetchAll(PDO:: FETCH_ASSOC);
         }
-        renderWrappedContent($proposal, $slug, $isDocApproved, $isPdfApproved, $hasPdf, $team, $base_path, $hasHolded, $holdedDoc, $firmas);
+        renderWrappedContent($proposal, $slug, $isDocApproved, $isPdfApproved, $hasPdf, $team, $base_path, $hasHolded, $holdedDoc, $firmas, $isProviderMode, $__provider, $isAdminMode);
         exit;
 }
 
@@ -502,7 +608,7 @@ if ($is_unlocked) {
                             <?php
 }
 
-                            function renderWrappedContent($proposal, $slug, $isDocApproved = false, $isPdfApproved = false, $hasPdf = false, $team = [], $base_path = '', $hasHolded = false, $holdedDoc = null, $firmas = [])
+                            function renderWrappedContent($proposal, $slug, $isDocApproved = false, $isPdfApproved = false, $hasPdf = false, $team = [], $base_path = '', $hasHolded = false, $holdedDoc = null, $firmas = [], $isProviderMode = false, $__provider = null, $isAdminMode = false)
                             {
 ?>
 <!DOCTYPE html>
@@ -1917,8 +2023,8 @@ if ($is_unlocked) {
                 </p>
 
                 <?php
-                    $hasPresupuestoTab = $hasHolded || $hasPdf;
-                    $hasFirmasTab      = !empty($firmas);
+                    $hasPresupuestoTab = ($hasHolded || $hasPdf) && !$isProviderMode;
+                    $hasFirmasTab      = !empty($firmas) && !$isProviderMode;
                     $showTabs          = $hasPresupuestoTab || $hasFirmasTab;
                     $presupuestoLabel  = $hasHolded ? ('Presupuesto · ' . htmlspecialchars($holdedDoc['docNumber'] ?? '', ENT_QUOTES, 'UTF-8')) : 'Presupuesto';
                 ?>
@@ -1944,6 +2050,35 @@ if ($is_unlocked) {
                 </nav>
                 <?php endif; ?>
 
+                <?php if ($isAdminMode): ?>
+                    <div class="tp-admin-banner">
+                        <i data-lucide="shield"></i>
+                        <span>Estás viendo el documento como <strong>administrador</strong><?= $isProviderMode && $__provider ? ' · sesión del proveedor <strong>' . htmlspecialchars($__provider['nombre']) . '</strong>' : ' · vista del cliente' ?>. Las respuestas que envíes aparecerán firmadas como <strong>Tres Puntos</strong>.</span>
+                        <a href="admin.php" class="tp-admin-banner-exit">Salir del modo admin</a>
+                    </div>
+                    <style>
+                        .tp-admin-banner {
+                            background: linear-gradient(135deg, rgba(192,132,252,.18), rgba(192,132,252,.04));
+                            border: 1px solid rgba(192,132,252,.4);
+                            border-radius: 10px;
+                            padding: .8rem 1rem;
+                            margin: 0 0 1.5rem;
+                            display: flex; align-items: center; gap: .7rem;
+                            font-size: .85rem; color: var(--text-primary, #f5f5f5);
+                        }
+                        .tp-admin-banner i[data-lucide] { color: #c084fc; width: 18px; height: 18px; flex-shrink: 0; }
+                        .tp-admin-banner strong { color: #c084fc; }
+                        .tp-admin-banner-exit {
+                            margin-left: auto;
+                            background: transparent; border: 1px solid rgba(192,132,252,.4);
+                            color: #c084fc; padding: .3rem .75rem; border-radius: 6px;
+                            text-decoration: none; font-size: .75rem; font-weight: 600;
+                        }
+                        .tp-admin-banner-exit:hover { background: rgba(192,132,252,.15); }
+                    </style>
+                <?php endif; ?>
+                <?php if ($isProviderMode && !$isAdminMode): include __DIR__ . '/master/provider-upload.php'; endif; ?>
+
                 <div id="content-area" class="doc-view" data-tab="documento">
                     <?php echo $proposal['html_content']; ?>
                 </div>
@@ -1952,7 +2087,7 @@ if ($is_unlocked) {
                     <div class="doc-view" data-tab="documento">
                     <?php include __DIR__ . '/metodologia.php'; ?>
                     <div id="equipo-extension-area" style="margin-top: 4rem;"></div>
-                    <div class="cta-block" id="sec-avanzamos-doc">
+                    <div class="cta-block" id="sec-avanzamos-doc"<?= $isProviderMode ? ' hidden' : '' ?>>
                         <?php if (!$isDocApproved): ?>
                         <h2
                             style="font-family: var(--font-heading); font-size: 2.5rem; color: var(--text-primary); margin-bottom: 1rem; margin-top: 0; display: block;">
@@ -2873,7 +3008,16 @@ if ($is_unlocked) {
     <script src="https://assets.calendly.com/assets/external/widget.js" type="text/javascript" async></script>
 
     <!-- Feature: comentarios por sección + firma ligera -->
-    <?php include __DIR__ . '/master/doc-feedback.php'; ?>
+    <?php if (!$isProviderMode) include __DIR__ . '/master/doc-tracking.php'; ?>
+    <?php if ($isAdminMode): ?>
+        <script>window.__isAdminViewing = true;</script>
+    <?php endif; ?>
+    <?php if ($isProviderMode): ?>
+        <script>window.__providerApiUrl = <?= json_encode('/s/' . $__provider['token']) ?>;</script>
+        <?php include __DIR__ . '/master/doc-feedback-provider.php'; ?>
+    <?php else: ?>
+        <?php include __DIR__ . '/master/doc-feedback.php'; ?>
+    <?php endif; ?>
 
     <!-- Onboarding primera visita: apunta al FAB de comentarios -->
     <div class="tp-onboarding" id="tp-onboarding" role="dialog" aria-labelledby="tp-onb-title" hidden>
@@ -2897,7 +3041,7 @@ if ($is_unlocked) {
     <?php
     $jordanAllowed = defined('JORDAN_DOC_ENABLED') && JORDAN_DOC_ENABLED
         && (!isset($proposal['enable_ai_assistant']) || (int)$proposal['enable_ai_assistant'] === 1);
-    if ($jordanAllowed) {
+    if ($jordanAllowed && !$isProviderMode) {
         include __DIR__ . '/master/jordan-widget.php';
     }
     ?>

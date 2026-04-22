@@ -1,0 +1,106 @@
+{
+  "name": "Tres Puntos Dark Theme",
+  "version": "1.0.0",
+  "description": "Design tokens for Tres Puntos proposal system",
+  "tokens": {
+    "color": {
+      "brand": {
+        "primary": { "value": "#5DFFBF", "description": "Main accent color - mint/cyan neon" },
+        "primary-hover": { "value": "#49E6A8", "description": "Primary hover state" },
+        "primary-rgb": { "value": "93, 255, 191", "description": "RGB values for rgba() usage" }
+      },
+      "background": {
+        "base": { "value": "#0E0E0E", "description": "Page background" },
+        "surface": { "value": "#141414", "description": "Card/sidebar surface" },
+        "subtle": { "value": "#191919", "description": "Subtle elevated surface" }
+      },
+      "text": {
+        "heading": { "value": "#FFFFFF", "description": "Headings and emphasis" },
+        "primary": { "value": "#B0B0B0", "description": "Body text" },
+        "secondary": { "value": "#BDBDBD", "description": "Secondary text" },
+        "muted": { "value": "#8A8A8A", "description": "Muted/disabled text" }
+      },
+      "border": {
+        "base": { "value": "#1F1F1F", "description": "Default borders" },
+        "subtle": { "value": "#2A2A2A", "description": "Subtle/hover borders" }
+      },
+      "button": {
+        "primary-bg": { "value": "#5DFFBF", "description": "Primary button background" },
+        "primary-text": { "value": "#000000", "description": "Primary button text (black for contrast)" },
+        "secondary-bg": { "value": "transparent", "description": "Secondary button background" },
+        "secondary-text": { "value": "#CCCCCC", "description": "Secondary button text" },
+        "secondary-border": { "value": "#2A2A2A", "description": "Secondary button border" }
+      }
+    },
+    "typography": {
+      "fontFamily": {
+        "heading": { "value": "'Plus Jakarta Sans', sans-serif", "description": "Headings" },
+        "body": { "value": "'Inter', sans-serif", "description": "Body text" }
+      },
+      "fontSize": {
+        "hero": { "value": "3.5rem", "description": "Hero/page title" },
+        "h1": { "value": "2.5rem", "description": "Section titles" },
+        "h2": { "value": "2.2rem", "description": "Subsection titles" },
+        "h3": { "value": "1.4rem", "description": "Card/block titles" },
+        "body": { "value": "1rem", "description": "Body text" },
+        "small": { "value": "0.85rem", "description": "Nav links, labels" },
+        "tiny": { "value": "0.7rem", "description": "Tags, badges" }
+      },
+      "fontWeight": {
+        "regular": { "value": "400" },
+        "medium": { "value": "500" },
+        "semibold": { "value": "600" },
+        "bold": { "value": "700" },
+        "extrabold": { "value": "800" }
+      },
+      "lineHeight": {
+        "tight": { "value": "1.2" },
+        "normal": { "value": "1.6" },
+        "relaxed": { "value": "1.8" }
+      },
+      "letterSpacing": {
+        "tight": { "value": "-0.03em", "description": "Headings" },
+        "wide": { "value": "0.1em", "description": "Uppercase labels" }
+      }
+    },
+    "spacing": {
+      "borderRadius": {
+        "sm": { "value": "8px" },
+        "md": { "value": "12px" },
+        "lg": { "value": "16px" },
+        "xl": { "value": "20px" }
+      },
+      "padding": {
+        "card": { "value": "2rem" },
+        "button": { "value": "1rem 2rem" },
+        "buttonSmall": { "value": "0.875rem 1.75rem" },
+        "section": { "value": "2.5rem 1.5rem" }
+      }
+    },
+    "effects": {
+      "transition": {
+        "fast": { "value": "all 0.2s" },
+        "medium": { "value": "all 0.25s" },
+        "slow": { "value": "all 0.4s cubic-bezier(0.4, 0, 0.2, 1)" }
+      },
+      "shadow": {
+        "card-hover": { "value": "0 12px 30px rgba(0,0,0,0.4)" },
+        "glow-primary": { "value": "0 0 12px #5DFFBF" },
+        "glow-subtle": { "value": "0 0 15px rgba(93, 255, 191, 0.1)" }
+      },
+      "gradient": {
+        "primary-line": { "value": "linear-gradient(90deg, #5DFFBF, transparent)" },
+        "primary-center": { "value": "linear-gradient(90deg, transparent, #5DFFBF, transparent)" },
+        "primary-dark": { "value": "linear-gradient(90deg, #5DFFBF, #115939)" }
+      }
+    }
+  },
+  "googleFonts": {
+    "import": "https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+  },
+  "icons": {
+    "library": "lucide",
+    "cdn": "https://unpkg.com/lucide@latest",
+    "usage": "<i data-lucide=\"icon-name\"></i>"
+  }
+}
