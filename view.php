@@ -867,6 +867,48 @@ if ($is_unlocked) {
             margin-bottom: 3rem;
         }
 
+        /* Beta badge junto al logo */
+        .beta-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: .4rem;
+            margin-top: .55rem;
+            padding: .18rem .55rem;
+            font-size: 9px;
+            font-weight: 700;
+            letter-spacing: .12em;
+            text-transform: uppercase;
+            color: var(--tp-primary);
+            background: rgba(var(--tp-primary-rgb), .08);
+            border: 1px solid rgba(var(--tp-primary-rgb), .25);
+            border-radius: 999px;
+            font-family: var(--font-heading, inherit);
+            white-space: nowrap;
+        }
+        .beta-badge::before {
+            content: "";
+            width: 5px;
+            height: 5px;
+            border-radius: 999px;
+            background: var(--tp-primary);
+            box-shadow: 0 0 6px rgba(var(--tp-primary-rgb), .8);
+        }
+        .beta-badge-sub {
+            color: var(--text-muted);
+            font-weight: 500;
+            text-transform: none;
+            letter-spacing: .02em;
+            font-size: 10px;
+            margin-top: .2rem;
+            display: block;
+        }
+        .mobile-header .beta-badge {
+            margin-top: 0;
+            margin-left: .6rem;
+            font-size: 8px;
+            padding: .14rem .45rem;
+        }
+
         .sidebar-nav-container {
             flex: 1;
             overflow-y: auto;
@@ -2125,7 +2167,10 @@ if ($is_unlocked) {
 
 <body>
     <div class="mobile-header">
-        <img src="/logo.svg" alt="Tres Puntos" class="mobile-logo">
+        <div style="display:flex; align-items:center;">
+            <img src="/logo.svg" alt="Tres Puntos" class="mobile-logo">
+            <span class="beta-badge" title="Entorno en desarrollo activo">Beta</span>
+        </div>
         <button class="menu-toggle" onclick="toggleMobileMenu()"><i data-lucide="menu"></i></button>
     </div>
 
@@ -2142,7 +2187,11 @@ if ($is_unlocked) {
     <div class="progress-label" id="progressLabel"></div>
     <div class="app-container">
         <aside>
-            <div class="sidebar-brand"><img src="/logo.svg" alt="Tres Puntos" style="height: 38px;"></div>
+            <div class="sidebar-brand">
+                <img src="/logo.svg" alt="Tres Puntos" style="height: 38px; display: block;">
+                <span class="beta-badge" title="Este entorno está en desarrollo activo. Feedback bienvenido.">Beta</span>
+                <span class="beta-badge-sub">by TresPuntos Lab</span>
+            </div>
             <div class="sidebar-nav-container">
                 <ul id="sidebar-nav"></ul>
             </div>
