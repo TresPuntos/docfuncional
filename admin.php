@@ -846,10 +846,31 @@ else: ?>
                 Dashboard
                 <small>· Admin Panel v2.0</small>
             </h1>
-            <div class="admin-main-actions">
+            <div class="admin-main-actions" style="display:flex;align-items:center;gap:.85rem;">
+                <?php $tpInternal = ($_COOKIE['tp_internal'] ?? '') === '1'; ?>
+                <button type="button" id="tp-internal-toggle"
+                        onclick="toggleInternalBrowser()"
+                        title="Cuando está ON, este navegador no cuenta como sesión del cliente (no activa EN VIVO ni sesiones)"
+                        style="display:inline-flex;align-items:center;gap:.4rem;font-size:.75rem;font-weight:600;padding:.4rem .7rem;border-radius:999px;border:1px solid <?= $tpInternal ? 'rgba(147,51,234,.5)' : 'var(--border-subtle,#2a2a2a)' ?>;background:<?= $tpInternal ? 'rgba(147,51,234,.12)' : 'transparent' ?>;color:<?= $tpInternal ? '#c084fc' : 'var(--text-secondary,#b3b3b3)' ?>;cursor:pointer;">
+                    <span style="display:inline-block;width:.5rem;height:.5rem;border-radius:999px;background:<?= $tpInternal ? '#c084fc' : '#666' ?>;"></span>
+                    Navegador interno · <?= $tpInternal ? 'ON' : 'OFF' ?>
+                </button>
                 <a class="text-sm font-medium text-text-secondary hover:text-white transition-colors"
                     href="?logout=1">Cerrar Sesión</a>
             </div>
+            <script>
+            function toggleInternalBrowser() {
+                const on = document.cookie.split(';').some(c => c.trim().startsWith('tp_internal=1'));
+                if (on) {
+                    document.cookie = 'tp_internal=; Path=/; Max-Age=0; SameSite=Lax';
+                    alert('Navegador interno OFF. Las visitas de este navegador volverán a contar como sesiones.');
+                } else {
+                    document.cookie = 'tp_internal=1; Path=/; Max-Age=31536000; SameSite=Lax';
+                    alert('Navegador interno ON. Tus visitas a /p/ no aparecerán como EN VIVO ni sumarán sesiones.\n\nActívalo también en iPhone / incógnito si haces tests desde ahí.');
+                }
+                location.reload();
+            }
+            </script>
         </div>
         <?php if (!empty($error_msg)): ?>
         <div class="bg-red-500/10 border border-red-500/20 text-red-400 text-sm rounded-lg p-4 mb-6" role="alert">

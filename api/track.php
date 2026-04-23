@@ -43,6 +43,14 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
+// --- Opt-out navegador interno (cookie tp_internal=1) ---
+// Puesta desde admin.php, persiste 1 año. Hace que track.php ignore los eventos
+// del propio equipo (Jordi/Claudio) sin contaminar las stats del cliente.
+if (($_COOKIE['tp_internal'] ?? '') === '1') {
+    echo json_encode(['success' => true, 'inserted' => 0, 'internal' => true]);
+    exit;
+}
+
 // --- Parse payload ---
 $raw = file_get_contents('php://input');
 $payload = json_decode($raw, true);
