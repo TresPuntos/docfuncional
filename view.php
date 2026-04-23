@@ -876,7 +876,7 @@ if ($is_unlocked) {
             display: flex;
             flex-direction: column;
             align-items: flex-start;
-            gap: .25rem;
+            gap: .55rem;
             line-height: 1.1;
         }
         .beta-badge {
