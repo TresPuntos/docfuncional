@@ -796,11 +796,13 @@ window.TP_INITIAL_SIGNER = <?= json_encode($__initialSigner, JSON_UNESCAPED_UNIC
     function refreshIdentityUI() {
         const compact = document.getElementById('tp-identity-compact');
         const fields = document.getElementById('tp-identity-fields');
-        if (state.signer && state.signer.nombre && state.signer.apellidos) {
-            document.getElementById('tp-identity-name').textContent = state.signer.nombre + ' ' + state.signer.apellidos;
+        if (state.signer && state.signer.nombre && state.signer.email) {
+            document.getElementById('tp-identity-name').textContent = state.signer.nombre + (state.signer.apellidos ? ' ' + state.signer.apellidos : '');
             compact.hidden = false; fields.hidden = true;
             document.getElementById('tp-drawer-nombre').value = state.signer.nombre;
-            document.getElementById('tp-drawer-apellidos').value = state.signer.apellidos;
+            document.getElementById('tp-drawer-apellidos').value = state.signer.apellidos || '';
+            // Inputs ocultos no deben bloquear el submit con "required"
+            document.getElementById('tp-drawer-apellidos').required = false;
             if (state.signer.email) document.getElementById('tp-drawer-email').value = state.signer.email;
         } else {
             compact.hidden = true; fields.hidden = false;
@@ -828,7 +830,7 @@ window.TP_INITIAL_SIGNER = <?= json_encode($__initialSigner, JSON_UNESCAPED_UNIC
         const apellidos = document.getElementById('tp-drawer-apellidos').value.trim();
         const email = (document.getElementById('tp-drawer-email').value || '').trim();
         const texto = document.getElementById('tp-drawer-texto').value.trim();
-        if (!nombre || !apellidos) { alert('Necesitamos nombre y apellidos.'); return; }
+        if (!nombre) { alert('Necesitamos tu nombre.'); return; }
         if (!email) { alert('Necesitamos tu email para avisarte cuando te respondan.'); document.getElementById('tp-drawer-email').focus(); return; }
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { alert('Email no válido.'); document.getElementById('tp-drawer-email').focus(); return; }
         if (!texto) { document.getElementById('tp-drawer-texto').focus(); return; }
@@ -986,11 +988,12 @@ window.TP_INITIAL_SIGNER = <?= json_encode($__initialSigner, JSON_UNESCAPED_UNIC
     function refreshModalIdentityUI() {
         const compact = document.getElementById('tp-modal-identity-compact');
         const fields = document.getElementById('tp-modal-identity-fields');
-        if (state.signer && state.signer.nombre && state.signer.apellidos) {
-            document.getElementById('tp-modal-identity-name').textContent = state.signer.nombre + ' ' + state.signer.apellidos;
+        if (state.signer && state.signer.nombre && state.signer.email) {
+            document.getElementById('tp-modal-identity-name').textContent = state.signer.nombre + (state.signer.apellidos ? ' ' + state.signer.apellidos : '');
             compact.hidden = false; fields.hidden = true;
             document.getElementById('tp-modal-nombre').value = state.signer.nombre;
-            document.getElementById('tp-modal-apellidos').value = state.signer.apellidos;
+            document.getElementById('tp-modal-apellidos').value = state.signer.apellidos || '';
+            document.getElementById('tp-modal-apellidos').required = false;
             if (state.signer.email) document.getElementById('tp-modal-email').value = state.signer.email;
         } else {
             compact.hidden = true; fields.hidden = false;
@@ -1003,7 +1006,7 @@ window.TP_INITIAL_SIGNER = <?= json_encode($__initialSigner, JSON_UNESCAPED_UNIC
         const apellidos = document.getElementById('tp-modal-apellidos').value.trim();
         const email = (document.getElementById('tp-modal-email').value || '').trim();
         const texto = document.getElementById('tp-modal-texto').value.trim();
-        if (!nombre || !apellidos) { alert('Necesitamos nombre y apellidos.'); return; }
+        if (!nombre) { alert('Necesitamos tu nombre.'); return; }
         if (!email) { alert('Necesitamos tu email para avisarte cuando te respondan.'); document.getElementById('tp-modal-email').focus(); return; }
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { alert('Email no válido.'); document.getElementById('tp-modal-email').focus(); return; }
         if (!texto) { document.getElementById('tp-modal-texto').focus(); return; }
