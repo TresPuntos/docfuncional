@@ -889,56 +889,64 @@ else: ?>
         <?php
     endif; ?>
 
-        <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
-            <div class="bg-bg-surface border border-border-subtle rounded-2xl p-6 shadow-surface">
-                <p class="text-xs uppercase tracking-widest text-text-muted font-bold mb-2">Propuestas Activas</p>
-                <div class="flex items-end gap-2">
-                    <h3 class="text-4xl font-heading font-bold text-white">
-                        <?php echo $total_proposals; ?>
-                    </h3>
-                    <span class="text-tp-primary text-xs mb-1 font-medium italic">Online</span>
+        <!-- 4 KPIs uniformes (sin destacado) · reverted Fix 4 feedback 2026-04-24 -->
+        <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
+            <!-- KPI 1 · Propuestas Activas -->
+            <div class="bg-bg-surface border border-border-subtle/70 rounded-2xl p-5 shadow-[0_1px_2px_rgba(0,0,0,0.15)]">
+                <p class="text-xs uppercase tracking-wider text-text-muted font-semibold mb-3">Propuestas Activas</p>
+                <div class="flex flex-col">
+                    <h3 class="text-4xl font-heading font-bold text-white leading-none"><?php echo $total_proposals; ?></h3>
+                    <span class="text-xs text-tp-primary font-medium mt-2">Online</span>
                 </div>
             </div>
-            <div class="bg-bg-surface border border-border-subtle rounded-2xl p-6 shadow-surface">
-                <p class="text-xs uppercase tracking-widest text-text-muted font-bold mb-2">Visualizaciones Totales</p>
-                <div class="flex items-end gap-2">
-                    <h3 class="text-4xl font-heading font-bold text-white">
-                        <?php echo number_format($total_views); ?>
-                    </h3>
-                    <i data-lucide="eye" class="w-5 h-5 mb-2 ml-1 text-text-muted"></i>
+
+            <!-- KPI 2 · Visualizaciones -->
+            <div class="bg-bg-surface border border-border-subtle/70 rounded-2xl p-5 shadow-[0_1px_2px_rgba(0,0,0,0.15)]">
+                <p class="text-xs uppercase tracking-wider text-text-muted font-semibold mb-3">Visualizaciones</p>
+                <div class="flex flex-col">
+                    <h3 class="text-4xl font-heading font-bold text-white leading-none"><?php echo number_format($total_views); ?></h3>
+                    <span class="inline-flex items-center gap-1.5 text-xs text-text-muted mt-2">
+                        <i data-lucide="eye" class="w-3.5 h-3.5"></i> Lifetime
+                    </span>
                 </div>
             </div>
-            <a href="admin_feedback.php" class="bg-bg-surface border <?php echo $globalOpen > 0 ? 'border-tp-primary/60 hover:border-tp-primary' : 'border-border-subtle'; ?> rounded-2xl p-6 shadow-surface block transition-all hover:-translate-y-0.5">
-                <p class="text-xs uppercase tracking-widest text-text-muted font-bold mb-2">Comentarios pendientes</p>
-                <div class="flex items-end gap-2">
-                    <h3 class="text-4xl font-heading font-bold <?php echo $globalOpen > 0 ? 'text-tp-primary' : 'text-white'; ?>">
+
+            <!-- KPI 3 · Comentarios pendientes -->
+            <a href="admin_feedback.php"
+               class="bg-bg-surface border <?= $globalOpen > 0 ? 'border-tp-primary/40 shadow-[0_0_20px_rgba(93,255,191,0.08)]' : 'border-border-subtle/70 shadow-[0_1px_2px_rgba(0,0,0,0.15)]' ?> rounded-2xl p-5 block transition-all hover:-translate-y-0.5 hover:border-tp-primary/60">
+                <p class="text-xs uppercase tracking-wider <?= $globalOpen > 0 ? 'text-tp-primary' : 'text-text-muted' ?> font-semibold mb-3">Comentarios pendientes</p>
+                <div class="flex flex-col">
+                    <h3 class="text-4xl font-heading font-bold <?= $globalOpen > 0 ? 'text-tp-primary' : 'text-white' ?> leading-none">
                         <?php echo $globalOpen; ?>
                     </h3>
-                    <i data-lucide="message-square-text" class="w-5 h-5 mb-2 ml-1 <?php echo $globalOpen > 0 ? 'text-tp-primary' : 'text-text-muted'; ?>"></i>
-                </div>
-                <?php if ($globalDrafts > 0): ?>
-                    <p class="text-xs text-text-muted mt-2"><?php echo $globalDrafts; ?> borrador<?php echo $globalDrafts === 1 ? '' : 'es'; ?> sin publicar</p>
-                <?php elseif ($globalOpen === 0): ?>
-                    <p class="text-xs text-text-muted mt-2">Todo al día ✓</p>
-                <?php else: ?>
-                    <p class="text-xs text-text-muted mt-2">Ir a la bandeja →</p>
-                <?php endif; ?>
-            </a>
-            <a href="admin_analytics.php" class="bg-bg-surface border <?php echo $globalActiveNow > 0 ? 'border-red-500/60' : 'border-border-subtle'; ?> rounded-2xl p-6 shadow-surface block transition-all hover:-translate-y-0.5 <?php echo $globalActiveNow > 0 ? 'animate-pulse' : ''; ?>">
-                <p class="text-xs uppercase tracking-widest text-text-muted font-bold mb-2">Actividad en vivo</p>
-                <div class="flex items-end gap-2">
-                    <h3 class="text-4xl font-heading font-bold <?php echo $globalActiveNow > 0 ? 'text-red-400' : 'text-white'; ?>">
-                        <?php echo $globalActiveNow; ?>
-                    </h3>
-                    <?php if ($globalActiveNow > 0): ?>
-                        <span class="text-red-400 text-xs mb-1 font-medium italic">🔴 ahora</span>
+                    <?php if ($globalDrafts > 0): ?>
+                        <span class="text-xs text-text-muted mt-2"><?= $globalDrafts ?> borrador<?= $globalDrafts === 1 ? '' : 'es' ?> sin publicar</span>
+                    <?php elseif ($globalOpen === 0): ?>
+                        <span class="inline-flex items-center gap-1.5 text-xs text-text-muted mt-2">Todo al día <i data-lucide="check" class="w-3 h-3 text-tp-primary"></i></span>
                     <?php else: ?>
-                        <i data-lucide="activity" class="w-5 h-5 mb-2 ml-1 text-text-muted"></i>
+                        <span class="text-xs text-tp-primary font-medium mt-2">Ir a la bandeja →</span>
                     <?php endif; ?>
                 </div>
-                <p class="text-xs text-text-muted mt-2">
-                    <?php echo $globalOpened24h; ?> propuesta<?php echo $globalOpened24h === 1 ? '' : 's'; ?> abierta<?php echo $globalOpened24h === 1 ? '' : 's'; ?> en 24h · <span class="text-tp-primary">ver analytics →</span>
-                </p>
+            </a>
+
+            <!-- KPI 4 · Actividad en vivo -->
+            <a href="admin_analytics.php"
+               class="bg-bg-surface border <?= $globalActiveNow > 0 ? 'border-red-500/40 shadow-[0_0_20px_rgba(239,68,68,0.08)]' : 'border-border-subtle/70 shadow-[0_1px_2px_rgba(0,0,0,0.15)]' ?> rounded-2xl p-5 block transition-all hover:-translate-y-0.5 hover:border-red-500/40">
+                <p class="text-xs uppercase tracking-wider <?= $globalActiveNow > 0 ? 'text-red-400' : 'text-text-muted' ?> font-semibold mb-3">Actividad en vivo</p>
+                <div class="flex flex-col">
+                    <div class="flex items-center gap-2.5 leading-none">
+                        <h3 class="text-4xl font-heading font-bold <?= $globalActiveNow > 0 ? 'text-red-400' : 'text-white' ?>"><?= $globalActiveNow ?></h3>
+                        <?php if ($globalActiveNow > 0): ?>
+                            <span class="relative inline-flex w-2.5 h-2.5 mb-1">
+                                <span class="absolute inline-flex w-full h-full rounded-full bg-red-400 opacity-60 animate-ping"></span>
+                                <span class="relative inline-flex w-2.5 h-2.5 rounded-full bg-red-400"></span>
+                            </span>
+                        <?php endif; ?>
+                    </div>
+                    <span class="text-xs text-text-muted mt-2">
+                        <?= $globalOpened24h ?> propuesta<?= $globalOpened24h === 1 ? '' : 's' ?> abierta<?= $globalOpened24h === 1 ? '' : 's' ?> en 24h
+                    </span>
+                </div>
             </a>
         </div>
 
@@ -968,39 +976,17 @@ else: ?>
                     <table class="min-w-full divide-y divide-border-subtle">
                         <thead class="bg-bg-subtle/50">
                             <tr>
-                                <th
-                                    class="px-6 py-4 text-start text-xs font-bold text-text-muted uppercase tracking-wider">
-                                    Cliente</th>
-                                <th
-                                    class="px-6 py-4 text-start text-xs font-bold text-text-muted uppercase tracking-wider">
-                                    URL / Slug</th>
-                                <th
-                                    class="px-6 py-4 text-start text-xs font-bold text-text-muted uppercase tracking-wider">
-                                    PIN / Versión</th>
-                                <th
-                                    class="px-6 py-4 text-start text-xs font-bold text-text-muted uppercase tracking-wider">
-                                    Actualización</th>
-                                <th
-                                    class="px-6 py-4 text-center text-xs font-bold text-text-muted uppercase tracking-wider">
-                                    Aprobaciones</th>
-                                <th
-                                    class="px-6 py-4 text-center text-xs font-bold text-text-muted uppercase tracking-wider">
-                                    Presupuesto</th>
-                                <th
-                                    class="px-6 py-4 text-start text-xs font-bold text-text-muted uppercase tracking-wider">
-                                    Estado</th>
-                                <th
-                                    class="px-6 py-4 text-center text-xs font-bold text-text-muted uppercase tracking-wider">
-                                    Vistas</th>
-                                <th
-                                    class="px-6 py-4 text-end text-xs font-bold text-text-muted uppercase tracking-wider">
-                                    Acciones</th>
+                                <th class="px-6 py-4 text-start text-xs font-semibold text-text-muted uppercase tracking-wider">Cliente</th>
+                                <th class="px-6 py-4 text-start text-xs font-semibold text-text-muted uppercase tracking-wider">Documento</th>
+                                <th class="px-6 py-4 text-center text-xs font-semibold text-text-muted uppercase tracking-wider">Estado</th>
+                                <th class="px-6 py-4 text-center text-xs font-semibold text-text-muted uppercase tracking-wider">Tráfico</th>
+                                <th class="px-6 py-4 text-end text-xs font-semibold text-text-muted uppercase tracking-wider">Acciones</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-border-subtle">
                             <?php if (empty($proposals)): ?>
                             <tr>
-                                <td colspan="9" class="px-6 py-12 text-center text-text-muted italic">No hay propuestas
+                                <td colspan="5" class="px-6 py-12 text-center text-text-muted italic">No hay propuestas
                                     registradas.</td>
                             </tr>
                             <?php
@@ -1015,80 +1001,103 @@ else: ?>
                 if ($daysSince > 5) $coldDays = (int)floor($daysSince);
             }
     ?>
+                            <?php
+                            // Fix 1 + 3 + 10: 3 tiers de chips + jerarquía clara + dot pulsante en lugar de chip "En vivo"
+                            // Tier 1 — URGENTE (rojo): intento firma, (dot directamente para en vivo)
+                            // Tier 2 — INTERESANTE (mint): vio precio, 🔥 hoy, 💬 comentarios abiertos
+                            // Tier 3 — INFO (gris): ❄️ frío, ✏️ borradores, ✉ sin avisar
+                            $tier1 = 'inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/40';
+                            $tier2 = 'inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-tp-primary/10 text-tp-primary border border-tp-primary/25';
+                            $tier3 = 'inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-full bg-bg-muted/60 text-text-muted border border-border-subtle';
+                            ?>
                             <tr class="hover:bg-bg-subtle/30 transition-colors">
                                 <td class="px-6 py-5 whitespace-nowrap">
-                                    <div class="text-sm font-semibold text-white flex items-center gap-2 flex-wrap">
-                                        <?php echo htmlspecialchars($p['client_name']); ?>
-                                        <?php if ($as && $as['activo_ahora']): ?>
-                                            <a href="admin_feedback.php?propuesta_id=<?php echo (int)$p['id']; ?>"
-                                               class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 border border-red-500/50 animate-pulse"
-                                               title="Alguien está viendo la propuesta ahora mismo">
-                                                🔴 En vivo
-                                            </a>
-                                        <?php endif; ?>
-                                        <?php if ($as && $as['vio_presupuesto']): ?>
-                                            <span class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-tp-primary/15 text-tp-primary border border-tp-primary/30"
-                                                  title="El cliente ha abierto la sección de presupuesto">
-                                                💰 Vio precio
+                                    <div class="flex flex-col gap-1.5">
+                                        <!-- Nombre cliente: grande, peso semibold, color dominante + dot pulsante si activo -->
+                                        <div class="flex items-center gap-2.5">
+                                            <span class="text-base font-semibold text-white leading-tight">
+                                                <?php echo htmlspecialchars($p['client_name']); ?>
                                             </span>
-                                        <?php endif; ?>
-                                        <?php if ($as && $as['intento_firma']): ?>
-                                            <a href="admin_feedback.php?propuesta_id=<?php echo (int)$p['id']; ?>"
-                                               class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-400 border border-orange-500/40"
-                                               title="Abrió el modal de firma pero no completó — posible duda">
-                                                ⚠️ Intentó firmar
-                                            </a>
-                                        <?php endif; ?>
-                                        <?php if ($as && $as['sesiones_24h'] >= 3): ?>
-                                            <span class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/30"
-                                                  title="<?php echo $as['sesiones_24h']; ?> sesiones en las últimas 24h — cliente muy activo">
-                                                🔥 <?php echo $as['sesiones_24h']; ?>× hoy
-                                            </span>
-                                        <?php endif; ?>
-                                        <?php if ($coldDays !== null): ?>
-                                            <span class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-bg-muted text-text-muted border border-border-subtle"
-                                                  title="Última apertura hace <?php echo $coldDays; ?> días">
-                                                ❄️ <?php echo $coldDays; ?>d sin abrir
-                                            </span>
-                                        <?php endif; ?>
-                                        <?php if ($cs['open'] > 0): ?>
-                                            <a href="admin_feedback.php?propuesta_id=<?php echo (int)$p['id']; ?>"
-                                               class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-tp-primary/15 text-tp-primary border border-tp-primary/30 hover:bg-tp-primary/25 transition-colors"
-                                               title="<?php echo $cs['open']; ?> hilo<?php echo $cs['open'] === 1 ? '' : 's'; ?> abierto<?php echo $cs['open'] === 1 ? '' : 's'; ?>">
-                                                💬 <?php echo $cs['open']; ?>
-                                            </a>
-                                        <?php endif; ?>
-                                        <?php if ($cs['drafts'] > 0): ?>
-                                            <a href="admin_feedback.php?propuesta_id=<?php echo (int)$p['id']; ?>"
-                                               class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-yellow-500/15 text-yellow-400 border border-yellow-500/30 hover:bg-yellow-500/25 transition-colors"
-                                               title="<?php echo $cs['drafts']; ?> borrador<?php echo $cs['drafts'] === 1 ? '' : 'es'; ?> sin publicar">
-                                                ✏️ <?php echo $cs['drafts']; ?>
-                                            </a>
-                                        <?php endif; ?>
-                                        <?php if ($cs['pending_notify'] > 0 && $cs['drafts'] === 0): ?>
-                                            <a href="admin_feedback.php?propuesta_id=<?php echo (int)$p['id']; ?>"
-                                               class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/30 hover:bg-blue-500/25 transition-colors"
-                                               title="<?php echo $cs['pending_notify']; ?> respuesta<?php echo $cs['pending_notify'] === 1 ? '' : 's'; ?> sin avisar al cliente">
-                                                ✉ <?php echo $cs['pending_notify']; ?>
-                                            </a>
-                                        <?php endif; ?>
-                                    </div>
-                                    <div class="text-[10px] text-text-muted mt-1 uppercase tracking-tighter">
-                                        <?php
-                                        if ($as && $as['last_event_at']) {
-                                            $diff = time() - strtotime($as['last_event_at']);
-                                            if ($diff < 120) echo 'Activo hace ' . $diff . 's';
-                                            elseif ($diff < 3600) echo 'Activo hace ' . (int)($diff/60) . 'min';
-                                            elseif ($diff < 86400) echo 'Activo hace ' . (int)($diff/3600) . 'h';
-                                            else echo 'Activo ' . date('d/m/y H:i', strtotime($as['last_event_at']));
-                                            echo ' · ' . $as['sesiones'] . ' ' . ($as['sesiones'] === 1 ? 'sesión' : 'sesiones');
-                                        } elseif ($p['last_accessed_at']) {
-                                            echo 'Visto: ' . date('d/m/y H:i', strtotime($p['last_accessed_at']));
-                                        } else {
-                                            echo 'Sin aperturas';
-                                        }
-                                        ?>
-                                    </div>
+                                            <?php if ($as && $as['activo_ahora']): ?>
+                                                <!-- Fix 10: dot pulsante en lugar de chip 'En vivo' -->
+                                                <a href="admin_feedback.php?propuesta_id=<?php echo (int)$p['id']; ?>"
+                                                   title="En vivo ahora mismo" aria-label="En vivo"
+                                                   class="relative inline-flex w-2.5 h-2.5">
+                                                    <span class="absolute inline-flex w-full h-full rounded-full bg-red-400 opacity-60 animate-ping"></span>
+                                                    <span class="relative inline-flex w-2.5 h-2.5 rounded-full bg-red-400"></span>
+                                                </a>
+                                            <?php endif; ?>
+                                        </div>
+
+                                        <!-- Chips en 3 tiers — subordinadas al nombre -->
+                                        <div class="flex flex-wrap gap-1.5 items-center">
+                                            <!-- Tier 1: URGENTE (rojo) -->
+                                            <?php if ($as && $as['intento_firma']): ?>
+                                                <a href="admin_feedback.php?propuesta_id=<?php echo (int)$p['id']; ?>"
+                                                   class="<?= $tier1 ?>"
+                                                   title="Abrió el modal de firma pero no completó">
+                                                    Intentó firmar
+                                                </a>
+                                            <?php endif; ?>
+
+                                            <!-- Tier 2: INTERESANTE (mint) -->
+                                            <?php if ($as && $as['vio_presupuesto']): ?>
+                                                <span class="<?= $tier2 ?>" title="El cliente ha abierto la sección de presupuesto">
+                                                    Vio precio
+                                                </span>
+                                            <?php endif; ?>
+                                            <?php if ($as && $as['sesiones_24h'] >= 3): ?>
+                                                <span class="<?= $tier2 ?>" title="<?= $as['sesiones_24h'] ?> sesiones en las últimas 24h — muy activo">
+                                                    <?= $as['sesiones_24h'] ?>× hoy
+                                                </span>
+                                            <?php endif; ?>
+                                            <?php if ($cs['open'] > 0): ?>
+                                                <a href="admin_feedback.php?propuesta_id=<?php echo (int)$p['id']; ?>"
+                                                   class="<?= $tier2 ?> hover:bg-tp-primary/20"
+                                                   title="<?= $cs['open'] ?> hilo<?= $cs['open'] === 1 ? '' : 's' ?> abierto<?= $cs['open'] === 1 ? '' : 's' ?>">
+                                                    <i data-lucide="message-circle" class="w-3 h-3"></i> <?= $cs['open'] ?>
+                                                </a>
+                                            <?php endif; ?>
+
+                                            <!-- Tier 3: INFO (gris) -->
+                                            <?php if ($coldDays !== null): ?>
+                                                <span class="<?= $tier3 ?>" title="Última apertura hace <?= $coldDays ?> días">
+                                                    <?= $coldDays ?>d sin abrir
+                                                </span>
+                                            <?php endif; ?>
+                                            <?php if ($cs['drafts'] > 0): ?>
+                                                <a href="admin_feedback.php?propuesta_id=<?php echo (int)$p['id']; ?>"
+                                                   class="<?= $tier3 ?> hover:bg-bg-muted"
+                                                   title="<?= $cs['drafts'] ?> borrador<?= $cs['drafts'] === 1 ? '' : 'es' ?> sin publicar">
+                                                    <i data-lucide="edit-3" class="w-3 h-3"></i> <?= $cs['drafts'] ?>
+                                                </a>
+                                            <?php endif; ?>
+                                            <?php if ($cs['pending_notify'] > 0 && $cs['drafts'] === 0): ?>
+                                                <a href="admin_feedback.php?propuesta_id=<?php echo (int)$p['id']; ?>"
+                                                   class="<?= $tier3 ?> hover:bg-bg-muted"
+                                                   title="<?= $cs['pending_notify'] ?> respuesta<?= $cs['pending_notify'] === 1 ? '' : 's' ?> sin avisar al cliente">
+                                                    <i data-lucide="mail" class="w-3 h-3"></i> <?= $cs['pending_notify'] ?>
+                                                </a>
+                                            <?php endif; ?>
+                                        </div>
+
+                                        <!-- Metadata: actividad + sesiones (más tenue, sin uppercase) -->
+                                        <div class="text-xs text-text-muted">
+                                            <?php
+                                            if ($as && $as['last_event_at']) {
+                                                $diff = time() - strtotime($as['last_event_at']);
+                                                if ($diff < 120) echo 'Activo hace ' . $diff . 's';
+                                                elseif ($diff < 3600) echo 'Activo hace ' . (int)($diff/60) . 'min';
+                                                elseif ($diff < 86400) echo 'Activo hace ' . (int)($diff/3600) . 'h';
+                                                else echo 'Activo ' . date('d/m/y H:i', strtotime($as['last_event_at']));
+                                                echo ' · ' . $as['sesiones'] . ' ' . ($as['sesiones'] === 1 ? 'sesión' : 'sesiones');
+                                            } elseif ($p['last_accessed_at']) {
+                                                echo 'Visto: ' . date('d/m/y H:i', strtotime($p['last_accessed_at']));
+                                            } else {
+                                                echo 'Sin aperturas';
+                                            }
+                                            ?>
+                                        </div>
                                     <?php $ps = $providerStats[(int)$p['id']] ?? null; if ($ps): ?>
                                         <a href="admin_providers.php?propuesta_id=<?php echo (int)$p['id']; ?>"
                                            class="inline-flex items-center gap-1.5 mt-2 text-[10px] text-text-muted hover:text-purple-300 border-t border-border-subtle pt-1.5 transition-colors"
@@ -1102,162 +1111,130 @@ else: ?>
                                         </a>
                                     <?php endif; ?>
                                 </td>
+                                <!-- Col 2 · DOCUMENTO (URL + PIN + Versión + fecha envío, stacked) -->
                                 <td class="px-6 py-5 whitespace-nowrap">
-                                    <div class="flex items-center gap-2 group">
-                                        <a href="<?php echo htmlspecialchars($base_path); ?>/p/<?php echo htmlspecialchars($p['slug']); ?>"
-                                            target="_blank"
-                                            class="text-xs font-mono text-text-secondary hover:text-white group-hover:text-tp-primary transition-colors flex items-center gap-1.5">
-                                            <?php echo htmlspecialchars($base_path); ?>/p/
-                                            <?php echo htmlspecialchars($p['slug']); ?>
-                                            <i data-lucide="external-link"
-                                                class="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity"></i>
-                                        </a>
-                                        <button
-                                            onclick="copyToClipboard('<?php echo 'https://' . $_SERVER['HTTP_HOST'] . $base_path . '/p/' . $p['slug']; ?>')"
-                                            class="text-text-muted hover:text-white opacity-0 group-hover:opacity-100 transition-all ml-1">
-                                            <i data-lucide="copy" class="w-3.5 h-3.5"></i>
-                                        </button>
+                                    <div class="flex flex-col gap-1.5">
+                                        <div class="flex items-center gap-2 group">
+                                            <a href="<?= htmlspecialchars($base_path) ?>/p/<?= htmlspecialchars($p['slug']) ?>"
+                                               target="_blank"
+                                               class="text-xs font-mono text-text-secondary hover:text-tp-primary transition-colors flex items-center gap-1">
+                                                /p/<?= htmlspecialchars($p['slug']) ?>
+                                                <i data-lucide="external-link" class="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity"></i>
+                                            </a>
+                                            <button onclick="copyToClipboard('<?= 'https://' . $_SERVER['HTTP_HOST'] . $base_path . '/p/' . $p['slug'] ?>')"
+                                                    class="text-text-muted hover:text-white opacity-0 group-hover:opacity-100 transition-all"
+                                                    title="Copiar URL">
+                                                <i data-lucide="copy" class="w-3 h-3"></i>
+                                            </button>
+                                        </div>
+                                        <div class="flex items-center gap-2 text-xs">
+                                            <span class="bg-bg-base border border-border-base px-2 py-0.5 rounded-md font-mono text-tp-primary text-[11px]"><?= htmlspecialchars($p['pin']) ?></span>
+                                            <span class="font-semibold text-white"><?= htmlspecialchars($p['version'] ?? 'v1.0') ?></span>
+                                            <span class="text-text-muted">·</span>
+                                            <span class="text-text-muted"><?= $p['sent_date'] ? date('d/m/y', strtotime($p['sent_date'])) : '--/--/--' ?></span>
+                                        </div>
                                     </div>
                                 </td>
+
+                                <!-- Col 3 · ESTADO (toggles Doc/Pres/IA + Holded/PDF + Status on/off) -->
                                 <td class="px-6 py-5 whitespace-nowrap">
-                                    <div class="flex items-center gap-2">
-                                        <span
-                                            class="bg-bg-base border border-border-base px-2 py-1 rounded-md font-mono text-xs text-tp-primary">
-                                            <?php echo htmlspecialchars($p['pin']); ?>
-                                        </span>
-                                        <span class="text-xs text-text-muted">/</span>
-                                        <span class="text-xs font-semibold text-white">
-                                            <?php echo htmlspecialchars($p['version'] ?? 'v1.0'); ?>
-                                        </span>
-                                    </div>
-                                </td>
-                                <td class="px-6 py-5 whitespace-nowrap">
-                                    <span class="text-xs text-text-secondary">
-                                        <?php echo $p['sent_date'] ? date('d/m/y', strtotime($p['sent_date'])) : '--/--/--'; ?>
-                                    </span>
-                                </td>
-                                <td class="px-6 py-5 whitespace-nowrap text-center">
-                                    <div class="flex flex-col items-center gap-2">
-                                        <?php
-            $doc_approved = isset($approvals_map[$p['id']]['documento_funcional']);
-            $pres_approved = isset($approvals_map[$p['id']]['presupuesto']);
-?>
-                                        <!-- Documento Toggle -->
-                                        <div class="flex items-center gap-2">
-                                            <span
-                                                class="text-[9px] font-bold uppercase tracking-wider <?php echo $doc_approved ? 'text-tp-primary' : 'text-text-muted'; ?>">Doc</span>
-                                            <label class="relative inline-flex items-center cursor-pointer">
+                                    <?php
+                                    $doc_approved = isset($approvals_map[$p['id']]['documento_funcional']);
+                                    $pres_approved = isset($approvals_map[$p['id']]['presupuesto']);
+                                    $jordan_on = !empty($p['enable_ai_assistant']);
+                                    $holdedLink = $holdedMap[(int)$p['id']] ?? null;
+                                    $toggleBase = "w-9 h-5 bg-bg-base border border-border-base rounded-full peer peer-checked:after:translate-x-[16px] after:content-[''] after:absolute after:top-[3px] after:left-[3px] after:bg-text-muted after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:after:bg-bg-base peer-checked:bg-tp-primary peer-checked:border-tp-primary";
+                                    ?>
+                                    <div class="flex items-center gap-5 justify-center flex-wrap">
+                                        <!-- Toggles Doc · Pres · IA compactos en una fila -->
+                                        <div class="flex items-center gap-3">
+                                            <label class="relative inline-flex items-center cursor-pointer gap-1.5" title="Aprobado: Documento funcional">
                                                 <input type="checkbox" class="sr-only peer"
-                                                    onchange="toggleApproval(<?php echo $p['id']; ?>, 'documento_funcional', this.checked, this)"
-                                                    <?php echo $doc_approved ? 'checked' : '' ; ?>>
-                                                <div
-                                                    class="w-7 h-4 bg-bg-base border border-border-base rounded-full peer peer-checked:after:translate-x-[12px] after:content-[''] after:absolute after:top-[3px] after:left-[3px] after:bg-text-muted after:rounded-full after:h-2 after:w-2 after:transition-all peer-checked:after:bg-bg-base peer-checked:bg-tp-primary peer-checked:border-tp-primary">
-                                                </div>
+                                                       onchange="toggleApproval(<?= $p['id'] ?>, 'documento_funcional', this.checked, this)"
+                                                       <?= $doc_approved ? 'checked' : '' ?>>
+                                                <div class="<?= $toggleBase ?>"></div>
+                                                <span class="text-[10px] font-semibold uppercase tracking-wider <?= $doc_approved ? 'text-tp-primary' : 'text-text-muted' ?>">Doc</span>
+                                            </label>
+                                            <label class="relative inline-flex items-center cursor-pointer gap-1.5" title="Aprobado: Presupuesto">
+                                                <input type="checkbox" class="sr-only peer"
+                                                       onchange="toggleApproval(<?= $p['id'] ?>, 'presupuesto', this.checked, this)"
+                                                       <?= $pres_approved ? 'checked' : '' ?>>
+                                                <div class="<?= $toggleBase ?>"></div>
+                                                <span class="text-[10px] font-semibold uppercase tracking-wider <?= $pres_approved ? 'text-tp-primary' : 'text-text-muted' ?>">Pres</span>
+                                            </label>
+                                            <label class="relative inline-flex items-center cursor-pointer gap-1.5" title="Jordan IA activo en /p/<?= htmlspecialchars($p['slug']) ?>">
+                                                <input type="checkbox" class="sr-only peer"
+                                                       onchange="toggleJordan(<?= $p['id'] ?>, this.checked, this)"
+                                                       <?= $jordan_on ? 'checked' : '' ?>>
+                                                <div class="<?= $toggleBase ?>"></div>
+                                                <span class="text-[10px] font-semibold uppercase tracking-wider <?= $jordan_on ? 'text-tp-primary' : 'text-text-muted' ?>">IA</span>
                                             </label>
                                         </div>
 
-                                        <!-- Presupuesto Toggle -->
-                                        <div class="flex items-center gap-2">
-                                            <span
-                                                class="text-[9px] font-bold uppercase tracking-wider <?php echo $pres_approved ? 'text-tp-primary' : 'text-text-muted'; ?>">Pres</span>
-                                            <label class="relative inline-flex items-center cursor-pointer">
-                                                <input type="checkbox" class="sr-only peer"
-                                                    onchange="toggleApproval(<?php echo $p['id']; ?>, 'presupuesto', this.checked, this)"
-                                                    <?php echo $pres_approved ? 'checked' : '' ; ?>>
-                                                <div
-                                                    class="w-7 h-4 bg-bg-base border border-border-base rounded-full peer peer-checked:after:translate-x-[12px] after:content-[''] after:absolute after:top-[3px] after:left-[3px] after:bg-text-muted after:rounded-full after:h-2 after:w-2 after:transition-all peer-checked:after:bg-bg-base peer-checked:bg-tp-primary peer-checked:border-tp-primary">
-                                                </div>
-                                            </label>
+                                        <!-- Holded / PDF presupuesto (separador visual vía border-l) -->
+                                        <div class="flex items-center gap-2 border-l border-border-subtle pl-5">
+                                            <?php if ($holdedLink): ?>
+                                                <span class="inline-flex items-center gap-1 text-[11px] text-tp-primary" title="Vinculado con Holded">
+                                                    <i data-lucide="link-2" class="w-3 h-3"></i>
+                                                    <?= htmlspecialchars($holdedLink['docNumber']) ?>
+                                                </span>
+                                                <button onclick="holdedSync(<?= $p['id'] ?>)" class="text-text-muted hover:text-tp-primary" title="Re-sincronizar">
+                                                    <i data-lucide="refresh-cw" class="w-3 h-3"></i>
+                                                </button>
+                                                <button onclick="holdedUnlink(<?= $p['id'] ?>)" class="text-red-500/60 hover:text-red-400" title="Desvincular">
+                                                    <i data-lucide="unlink" class="w-3 h-3"></i>
+                                                </button>
+                                            <?php elseif (!empty($p['presupuesto_pdf'])): ?>
+                                                <span class="inline-flex items-center gap-1 text-[11px] text-tp-primary">
+                                                    <i data-lucide="file-text" class="w-3 h-3"></i> PDF
+                                                </span>
+                                                <button onclick="confirmDeletePdf(<?= $p['id'] ?>)" class="text-red-500/60 hover:text-red-400" title="Borrar PDF">
+                                                    <i data-lucide="trash-2" class="w-3 h-3"></i>
+                                                </button>
+                                            <?php else: ?>
+                                                <button onclick="openHoldedLink(<?= $p['id'] ?>, '<?= addslashes($p['client_name']) ?>')"
+                                                        class="text-[10px] font-semibold uppercase tracking-wider text-tp-primary hover:text-white transition-colors inline-flex items-center gap-1">
+                                                    <i data-lucide="link-2" class="w-3 h-3"></i> Holded
+                                                </button>
+                                            <?php endif; ?>
                                         </div>
 
-                                        <!-- Jordan IA Toggle (Haiku, scopeado al documento) -->
-                                        <?php $jordan_on = !empty($p['enable_ai_assistant']); ?>
-                                        <div class="flex items-center gap-2" title="Activa el agente Jordan (Haiku) en /p/<?php echo htmlspecialchars($p['slug']); ?>">
-                                            <span
-                                                class="text-[9px] font-bold uppercase tracking-wider <?php echo $jordan_on ? 'text-tp-primary' : 'text-text-muted'; ?>">IA</span>
-                                            <label class="relative inline-flex items-center cursor-pointer">
-                                                <input type="checkbox" class="sr-only peer"
-                                                    onchange="toggleJordan(<?php echo $p['id']; ?>, this.checked, this)"
-                                                    <?php echo $jordan_on ? 'checked' : '' ; ?>>
-                                                <div
-                                                    class="w-7 h-4 bg-bg-base border border-border-base rounded-full peer peer-checked:after:translate-x-[12px] after:content-[''] after:absolute after:top-[3px] after:left-[3px] after:bg-text-muted after:rounded-full after:h-2 after:w-2 after:transition-all peer-checked:after:bg-bg-base peer-checked:bg-tp-primary peer-checked:border-tp-primary">
-                                                </div>
-                                            </label>
-                                        </div>
+                                        <!-- Status Online/Offline al final -->
+                                        <label class="relative inline-flex items-center cursor-pointer gap-1.5 border-l border-border-subtle pl-5" title="Propuesta online/offline">
+                                            <input type="checkbox" class="sr-only peer"
+                                                   onchange="toggleStatus(<?= $p['id'] ?>, this.checked)"
+                                                   <?= $p['status']==1 ? 'checked' : '' ?>>
+                                            <div class="<?= $toggleBase ?>"></div>
+                                            <span class="text-[10px] font-semibold uppercase tracking-wider <?= $p['status']==1 ? 'text-tp-primary' : 'text-text-muted' ?>">Live</span>
+                                        </label>
                                     </div>
                                 </td>
+
+                                <!-- Col 4 · TRÁFICO (vistas) -->
                                 <td class="px-6 py-5 whitespace-nowrap text-center">
-                                    <?php $holdedLink = $holdedMap[(int)$p['id']] ?? null; ?>
-                                    <div class="flex flex-col items-center gap-1.5">
-                                        <?php if ($holdedLink): ?>
-                                        <div class="flex items-center gap-2" title="Vinculado con Holded">
-                                            <span class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-tp-primary">
-                                                <i data-lucide="link-2" class="w-3 h-3"></i>
-                                                <?php echo htmlspecialchars($holdedLink['docNumber']); ?>
-                                            </span>
-                                            <button onclick="holdedSync(<?php echo $p['id']; ?>)" class="text-text-muted hover:text-tp-primary" title="Re-sincronizar con Holded">
-                                                <i data-lucide="refresh-cw" class="w-3 h-3"></i>
-                                            </button>
-                                            <button onclick="holdedUnlink(<?php echo $p['id']; ?>)" class="text-red-500/60 hover:text-red-400" title="Desvincular">
-                                                <i data-lucide="unlink" class="w-3 h-3"></i>
-                                            </button>
-                                        </div>
-                                        <?php elseif (!empty($p['presupuesto_pdf'])): ?>
-                                        <div class="flex items-center gap-2">
-                                            <span class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-tp-primary">
-                                                <i data-lucide="file-text" class="w-3 h-3"></i> PDF
-                                            </span>
-                                            <button onclick="confirmDeletePdf(<?php echo $p['id']; ?>)" class="text-red-500/60 hover:text-red-400 transition-colors" title="Borrar PDF">
-                                                <i data-lucide="trash-2" class="w-3 h-3"></i>
-                                            </button>
-                                        </div>
-                                        <?php else: ?>
-                                        <button onclick="openHoldedLink(<?php echo $p['id']; ?>, '<?php echo addslashes($p['client_name']); ?>')"
-                                            class="text-[10px] font-bold uppercase tracking-wider text-tp-primary hover:text-white transition-colors flex items-center gap-1 mx-auto">
-                                            <i data-lucide="link-2" class="w-3 h-3"></i> Holded
-                                        </button>
-                                        <button onclick="openUploadPDF(<?php echo $p['id']; ?>, '<?php echo addslashes($p['client_name']); ?>')"
-                                            class="text-[9px] font-semibold uppercase tracking-wider text-text-muted hover:text-white transition-colors flex items-center gap-1 mx-auto">
-                                            <i data-lucide="upload-cloud" class="w-3 h-3"></i> PDF (legacy)
-                                        </button>
-                                        <?php endif; ?>
-                                    </div>
-                                </td>
-                                <td class="px-6 py-5 whitespace-nowrap">
-                                    <label class="relative inline-flex items-center cursor-pointer">
-                                        <input type="checkbox" class="sr-only peer"
-                                            onchange="toggleStatus(<?php echo $p['id']; ?>, this.checked)" <?php echo
-                                            $p['status']==1 ? 'checked' : '' ; ?>>
-                                        <div
-                                            class="w-10 h-5 bg-bg-base border border-border-base rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[4px] after:left-[4px] after:bg-text-muted after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:after:bg-bg-base peer-checked:bg-tp-primary peer-checked:border-tp-primary">
-                                        </div>
-                                    </label>
-                                </td>
-                                <td class="px-6 py-5 whitespace-nowrap font-heading font-bold text-white text-center">
                                     <div class="flex items-center gap-2 justify-center">
-                                        <span>
-                                            <?php echo $p['views_count']; ?>
-                                        </span>
-                                        <button
-                                            onclick="resetViews(<?php echo $p['id']; ?>, '<?php echo addslashes($p['client_name']); ?>')"
-                                            class="text-tp-primary/40 hover:text-tp-primary transition-colors cursor-pointer"
-                                            title="Resetear visitas">
+                                        <span class="font-heading font-bold text-xl text-white leading-none"><?= $p['views_count'] ?></span>
+                                        <button onclick="resetViews(<?= $p['id'] ?>, '<?= addslashes($p['client_name']) ?>')"
+                                                class="text-tp-primary/40 hover:text-tp-primary transition-colors"
+                                                title="Resetear visitas">
                                             <i data-lucide="refresh-cw" class="w-3 h-3"></i>
                                         </button>
                                     </div>
+                                    <div class="text-[10px] text-text-muted mt-0.5">vistas</div>
                                 </td>
-                                <td class="px-6 py-5 whitespace-nowrap text-end text-sm">
-                                    <div class="flex items-center justify-end gap-3">
+
+                                <!-- Col 5 · ACCIONES -->
+                                <td class="px-6 py-5 whitespace-nowrap text-end">
+                                    <div class="flex items-center justify-end gap-2">
                                         <button onclick="editProposal(JSON.parse(this.dataset.proposal))"
-                                            data-proposal="<?php echo htmlspecialchars(json_encode($p), ENT_QUOTES, 'UTF-8'); ?>"
-                                            class="text-text-secondary hover:text-tp-primary transition-colors p-1"
-                                            title="Editar">
+                                                data-proposal="<?= htmlspecialchars(json_encode($p), ENT_QUOTES, 'UTF-8') ?>"
+                                                class="text-text-secondary hover:text-tp-primary transition-colors p-1.5 rounded hover:bg-bg-subtle"
+                                                title="Editar propuesta">
                                             <i data-lucide="edit-3" class="w-4 h-4"></i>
                                         </button>
-                                        <button
-                                            onclick="confirmDeleteProposal(<?php echo $p['id']; ?>, <?php echo htmlspecialchars(json_encode($p['client_name']), ENT_QUOTES, 'UTF-8'); ?>)"
-                                            class="text-red-500/60 hover:text-red-400 transition-colors p-1"
-                                            title="Borrar Propuesta">
+                                        <button onclick="confirmDeleteProposal(<?= $p['id'] ?>, <?= htmlspecialchars(json_encode($p['client_name']), ENT_QUOTES, 'UTF-8') ?>)"
+                                                class="text-red-500/60 hover:text-red-400 transition-colors p-1.5 rounded hover:bg-red-500/10"
+                                                title="Borrar propuesta">
                                             <i data-lucide="trash-2" class="w-4 h-4"></i>
                                         </button>
                                     </div>
