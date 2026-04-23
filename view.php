@@ -865,22 +865,32 @@ if ($is_unlocked) {
 
         .sidebar-brand {
             margin-bottom: 3rem;
+            display: flex;
+            align-items: center;
+            gap: .9rem;
         }
+        .sidebar-brand img { display: block; }
 
-        /* Beta badge junto al logo */
+        /* Columna con pill "Beta" + subtítulo "by TresPuntos Lab" */
+        .beta-stack {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: .25rem;
+            line-height: 1.1;
+        }
         .beta-badge {
             display: inline-flex;
             align-items: center;
             gap: .4rem;
-            margin-top: .55rem;
-            padding: .18rem .55rem;
+            padding: .2rem .6rem;
             font-size: 9px;
             font-weight: 700;
-            letter-spacing: .12em;
+            letter-spacing: .14em;
             text-transform: uppercase;
             color: var(--tp-primary);
             background: rgba(var(--tp-primary-rgb), .08);
-            border: 1px solid rgba(var(--tp-primary-rgb), .25);
+            border: 1px solid rgba(var(--tp-primary-rgb), .3);
             border-radius: 999px;
             font-family: var(--font-heading, inherit);
             white-space: nowrap;
@@ -899,11 +909,9 @@ if ($is_unlocked) {
             text-transform: none;
             letter-spacing: .02em;
             font-size: 10px;
-            margin-top: .2rem;
-            display: block;
+            white-space: nowrap;
         }
         .mobile-header .beta-badge {
-            margin-top: 0;
             margin-left: .6rem;
             font-size: 8px;
             padding: .14rem .45rem;
@@ -2188,9 +2196,11 @@ if ($is_unlocked) {
     <div class="app-container">
         <aside>
             <div class="sidebar-brand">
-                <img src="/logo.svg" alt="Tres Puntos" style="height: 38px; display: block;">
-                <span class="beta-badge" title="Este entorno está en desarrollo activo. Feedback bienvenido.">Beta</span>
-                <span class="beta-badge-sub">by TresPuntos Lab</span>
+                <img src="/logo.svg" alt="Tres Puntos" style="height: 38px;">
+                <div class="beta-stack">
+                    <span class="beta-badge" title="Este entorno está en desarrollo activo. Feedback bienvenido.">Beta</span>
+                    <span class="beta-badge-sub">by TresPuntos Lab</span>
+                </div>
             </div>
             <div class="sidebar-nav-container">
                 <ul id="sidebar-nav"></ul>
