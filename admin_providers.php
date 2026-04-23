@@ -122,6 +122,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         exit;
     }
 
+    if ($action === 'delete_provider') {
+        $id = (int)($_POST['id'] ?? 0);
+        if (!$id) { echo json_encode(['success' => false, 'error' => 'ID inválido']); exit; }
+
+        // Verificar que existe y obtener propuesta_id para el path de archivos
+        $chk = $pdo->prepare("SELECT id, propuesta_id, nombre FROM propuesta_proveedores WHERE id = ?");
+        $chk->execute([$id]);
+        $prov = $chk->fetch(PDO::FETCH_ASSOC);
+        if (!$prov) { echo json_encode(['success' => false, 'error' => 'Proveedor no existe']); exit; }
+
+        try {
+            $pdo->beginTransaction();
+
+            // 1) Borrar archivos PDF físicos de presupuestos del proveedor
+            $pdfs = $pdo->prepare("SELECT archivo_path FROM proveedor_presupuestos WHERE proveedor_id = ?");
+            $pdfs->execute([$id]);
+            $filesDeleted = 0; $filesFailed = 0;
+            while ($row = $pdfs->fetch(PDO::FETCH_ASSOC)) {
+                $path = $row['archivo_path'] ?? '';
+                if (!$path) continue;
+                // Normalizar: puede venir como "uploads/proveedores/X/y.pdf" relativo
+                $abs = __DIR__ . '/' . ltrim($path, '/');
+                if (is_file($abs)) {
+                    if (@unlink($abs)) $filesDeleted++; else $filesFailed++;
+                }
+            }
+
+            // 2) Borrar presupuestos del proveedor
+            $pdo->prepare("DELETE FROM proveedor_presupuestos WHERE proveedor_id = ?")->execute([$id]);
+
+            // 3) Borrar mensajes del proveedor (y replies staff dirigidos a él via parent_id están en la misma tabla, mismo proveedor_id)
+            $pdo->prepare("DELETE FROM proveedor_mensajes WHERE proveedor_id = ?")->execute([$id]);
+
+            // 4) Borrar fila del proveedor
+            $pdo->prepare("DELETE FROM propuesta_proveedores WHERE id = ?")->execute([$id]);
+
+            $pdo->commit();
+
+            echo json_encode([
+                'success' => true,
+                'files_deleted' => $filesDeleted,
+                'files_failed' => $filesFailed,
+                'nombre' => $prov['nombre'],
+            ]);
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            echo json_encode(['success' => false, 'error' => 'Error al eliminar: ' . $e->getMessage()]);
+        }
+        exit;
+    }
+
     if ($action === 'reply_to_provider_msg') {
         $id = (int)($_POST['parent_id'] ?? 0);
         $texto = trim($_POST['texto'] ?? '');
@@ -695,10 +746,11 @@ $adminSidebarPropuestas = $propuestas;
             <td style="text-align:right;">
                 <button type="button" class="btn btn-outline" onclick="copyUrl('<?=$pv['token']?>','<?=$pv['pin']?>')" style="font-size:.72rem;padding:.25rem .55rem;">Copiar</button>
                 <?php if ((int)$pv['activo']===1): ?>
-                    <button type="button" class="btn btn-danger" onclick="revoke(<?=$pv['id']?>)" style="font-size:.72rem;padding:.25rem .55rem;">Revocar</button>
+                    <button type="button" class="btn btn-outline" onclick="revoke(<?=$pv['id']?>)" style="font-size:.72rem;padding:.25rem .55rem;">Revocar</button>
                 <?php else: ?>
                     <button type="button" class="btn btn-outline" onclick="reactivate(<?=$pv['id']?>)" style="font-size:.72rem;padding:.25rem .55rem;">Reactivar</button>
                 <?php endif; ?>
+                <button type="button" class="btn btn-danger" onclick="deleteProvider(<?=$pv['id']?>, '<?=htmlspecialchars(addslashes($pv['nombre']), ENT_QUOTES)?>', <?=(int)$pv['n_mensajes']?>)" style="font-size:.72rem;padding:.25rem .55rem;" title="Eliminar definitivamente">Eliminar</button>
             </td>
         </tr>
     <?php endforeach; ?>
@@ -802,6 +854,21 @@ async function revoke(id) {
 async function reactivate(id) {
     await fetch('admin_providers.php', { method: 'POST', body: new URLSearchParams({action: 'reactivate_provider', id}) });
     location.reload();
+}
+
+async function deleteProvider(id, nombre, nMensajes) {
+    const detalles = nMensajes > 0
+        ? `\n\n⚠️ Se borrarán también ${nMensajes} mensaje(s) + presupuestos PDF subidos.`
+        : '\n\nSe borrarán también los presupuestos PDF que hubiera subido.';
+    if (!confirm(`¿Eliminar DEFINITIVAMENTE al proveedor "${nombre}"?${detalles}\n\nEsta acción es irreversible.`)) return;
+    if (!confirm(`Última confirmación: eliminar "${nombre}" sin posibilidad de recuperar.`)) return;
+    const r = await fetch('admin_providers.php', { method: 'POST', body: new URLSearchParams({action: 'delete_provider', id}) }).then(r => r.json()).catch(() => ({}));
+    if (r.success) {
+        alert(`"${r.nombre || nombre}" eliminado.` + (r.files_deleted ? ` (${r.files_deleted} PDF(s) borrados)` : ''));
+        location.reload();
+    } else {
+        alert(r.error || 'Error al eliminar');
+    }
 }
 
 async function replyProviderMsg(e, parentId) {

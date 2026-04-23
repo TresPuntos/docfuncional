@@ -9,6 +9,9 @@ RewriteRule ^p/([a-zA-Z0-9_-]+)/?$ view.php?id=$1 [L,NC,QSA]
 # Si el request es para /p/(slug) en la raíz
 RewriteRule ^p/([a-zA-Z0-9_-]+)/?$ view.php?id=$1 [L,NC,QSA]
 
+# Portal proveedores: /s/{token} → provider.php?token={token}
+RewriteRule ^s/([a-f0-9]{24,48})/?$ provider.php?token=$1 [L,NC,QSA]
+
 # Prevenir acceso estricto a archivos base de datos (por si se ubican en root)
 <FilesMatch "\.sqlite$">
     Require all denied
