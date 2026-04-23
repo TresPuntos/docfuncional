@@ -796,16 +796,21 @@ window.TP_INITIAL_SIGNER = <?= json_encode($__initialSigner, JSON_UNESCAPED_UNIC
     function refreshIdentityUI() {
         const compact = document.getElementById('tp-identity-compact');
         const fields = document.getElementById('tp-identity-fields');
+        const emailEl = document.getElementById('tp-drawer-email');
         if (state.signer && state.signer.nombre && state.signer.email) {
             document.getElementById('tp-identity-name').textContent = state.signer.nombre + (state.signer.apellidos ? ' ' + state.signer.apellidos : '');
             compact.hidden = false; fields.hidden = true;
             document.getElementById('tp-drawer-nombre').value = state.signer.nombre;
             document.getElementById('tp-drawer-apellidos').value = state.signer.apellidos || '';
-            // Inputs ocultos no deben bloquear el submit con "required"
             document.getElementById('tp-drawer-apellidos').required = false;
-            if (state.signer.email) document.getElementById('tp-drawer-email').value = state.signer.email;
+            // Identidad ya capturada en el login — ocultamos el email pero guardamos su value
+            emailEl.value = state.signer.email;
+            emailEl.hidden = true;
+            emailEl.required = false;
         } else {
             compact.hidden = true; fields.hidden = false;
+            emailEl.hidden = false;
+            emailEl.required = true;
         }
     }
 
@@ -988,15 +993,20 @@ window.TP_INITIAL_SIGNER = <?= json_encode($__initialSigner, JSON_UNESCAPED_UNIC
     function refreshModalIdentityUI() {
         const compact = document.getElementById('tp-modal-identity-compact');
         const fields = document.getElementById('tp-modal-identity-fields');
+        const emailEl = document.getElementById('tp-modal-email');
         if (state.signer && state.signer.nombre && state.signer.email) {
             document.getElementById('tp-modal-identity-name').textContent = state.signer.nombre + (state.signer.apellidos ? ' ' + state.signer.apellidos : '');
             compact.hidden = false; fields.hidden = true;
             document.getElementById('tp-modal-nombre').value = state.signer.nombre;
             document.getElementById('tp-modal-apellidos').value = state.signer.apellidos || '';
             document.getElementById('tp-modal-apellidos').required = false;
-            if (state.signer.email) document.getElementById('tp-modal-email').value = state.signer.email;
+            emailEl.value = state.signer.email;
+            emailEl.hidden = true;
+            emailEl.required = false;
         } else {
             compact.hidden = true; fields.hidden = false;
+            emailEl.hidden = false;
+            emailEl.required = true;
         }
     }
 
