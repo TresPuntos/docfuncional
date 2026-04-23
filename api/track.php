@@ -43,13 +43,12 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-// --- Opt-out navegador interno (cookie tp_internal=1) ---
-// Puesta desde admin.php, persiste 1 año. Hace que track.php ignore los eventos
-// del propio equipo (Jordi/Claudio) sin contaminar las stats del cliente.
-if (($_COOKIE['tp_internal'] ?? '') === '1') {
-    echo json_encode(['success' => true, 'inserted' => 0, 'internal' => true]);
-    exit;
-}
+// --- Opt-out LEGACY por cookie (tp_internal=1) ---
+// Antes de abril 2026 el opt-out era manual por cookie. Ahora se detecta por email
+// (INTERNAL_EMAILS). Mantenemos la cookie como fallback para quien la activase.
+// NB: ya NO descartamos el evento aquí — lo marcamos con is_internal=1 para poder
+// filtrar en las queries, pero sigue guardado por si queremos analizar después.
+$legacyInternalCookie = ($_COOKIE['tp_internal'] ?? '') === '1';
 
 // --- Parse payload ---
 $raw = file_get_contents('php://input');
@@ -104,21 +103,44 @@ if (!$prop) {
 }
 $propuestaId = (int)$prop['id'];
 
-// --- Verificar que la sesión del visitante haya pasado el PIN ---
-// view.php setea una cookie `doc_pin_{slug}` tras el PIN OK.
-// Si no existe, rechazamos (evita ingesta externa).
 session_start();
-$cookieName = 'doc_pin_' . preg_replace('/[^a-zA-Z0-9_]/', '_', $slug);
-$pinOk = isset($_SESSION[$cookieName]) && $_SESSION[$cookieName] === $prop['pin'];
-// Alternativa: comprobar header X-Pin-Unlocked (si preferimos no depender de sesión)
-if (!$pinOk) {
-    // Más tolerante: si no hay sesión, lo registramos igual pero marcamos `unverified`
-    // para no perder datos en casos de múltiples tabs. Sin embargo, rechazamos
-    // claramente en caso de slug no coincidente.
-    // (Relajamos aquí — view.php ya valida PIN antes de que este endpoint sea accesible.)
+
+// --- Resolver identidad del visitante desde la sesión ---
+// view.php setea $_SESSION['visitor_identity_{id}'] tras el login (nombre+email+PIN).
+// provider.php setea $_SESSION['provider_identity_{token}'] para proveedores.
+$visitorIdentity = null;
+
+$clientKey = 'visitor_identity_' . $propuestaId;
+if (isset($_SESSION[$clientKey]) && is_array($_SESSION[$clientKey])) {
+    $visitorIdentity = $_SESSION[$clientKey];
 }
 
-// --- visitor_hash sin identificar personas ---
+// Provider mode: el token viene en el payload (doc-tracking.php lo inyecta si existe)
+$providerToken = '';
+if (!$visitorIdentity && isset($payload['provider_token'])) {
+    $providerToken = preg_replace('/[^a-f0-9]/i', '', (string)$payload['provider_token']);
+    if (strlen($providerToken) >= 24) {
+        $provKey = 'provider_identity_' . $providerToken;
+        if (isset($_SESSION[$provKey]) && is_array($_SESSION[$provKey])) {
+            $visitorIdentity = $_SESSION[$provKey];
+        }
+    }
+}
+
+$visitorName  = $visitorIdentity['nombre'] ?? null;
+$visitorEmail = $visitorIdentity['email'] ?? null;
+$isInternal = 0;
+if ($visitorIdentity && !empty($visitorIdentity['is_internal'])) {
+    $isInternal = 1;
+} elseif ($visitorEmail && isInternalEmail($visitorEmail)) {
+    // Re-check por si la constante INTERNAL_EMAILS cambió después del login
+    $isInternal = 1;
+} elseif ($legacyInternalCookie) {
+    // Fallback legacy
+    $isInternal = 1;
+}
+
+// --- visitor_hash (se mantiene como heurística de agrupación, complementario a email) ---
 $ip = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '';
 $ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
 $salt = defined('API_TOKEN') ? substr(API_TOKEN, 0, 8) : 'tp-default-salt';
@@ -136,8 +158,8 @@ $validTypes = [
 $pdo->beginTransaction();
 try {
     $stmt = $pdo->prepare("INSERT INTO propuesta_eventos
-        (propuesta_id, sesion_id, visitor_hash, tipo, section_anchor, dwell_ms, scroll_depth, meta)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+        (propuesta_id, sesion_id, visitor_hash, visitor_name, visitor_email, is_internal, tipo, section_anchor, dwell_ms, scroll_depth, meta)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
 
     $inserted = 0;
     foreach ($events as $e) {
@@ -151,11 +173,12 @@ try {
         $meta = isset($e['meta']) ? json_encode($e['meta'], JSON_UNESCAPED_UNICODE) : null;
         if ($meta && strlen($meta) > 1000) $meta = substr($meta, 0, 1000);
 
-        $stmt->execute([$propuestaId, $sesionId, $visitorHash, $tipo, $anchor, $dwellMs, $scrollDepth, $meta]);
+        $stmt->execute([$propuestaId, $sesionId, $visitorHash, $visitorName, $visitorEmail, $isInternal, $tipo, $anchor, $dwellMs, $scrollDepth, $meta]);
         $inserted++;
 
         // Hitos clave → notificación Telegram interna (1 vez por tipo+sesion por día para evitar spam)
-        if (in_array($tipo, ['presupuesto_open', 'firma_abandoned'], true)) {
+        // Saltamos si el visitante es interno (estamos probando, no es el cliente real)
+        if (!$isInternal && in_array($tipo, ['presupuesto_open', 'firma_abandoned'], true)) {
             $dup = $pdo->prepare("SELECT COUNT(*) FROM propuesta_eventos
                 WHERE propuesta_id = ? AND sesion_id = ? AND tipo = ?
                   AND created_at >= datetime('now', '-1 hour')");

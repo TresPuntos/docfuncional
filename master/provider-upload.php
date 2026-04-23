@@ -25,11 +25,12 @@ $providerApiUrl = '/s/' . $__provider['token'];
 .pv-form label { display: block; font-size: .72rem; color: var(--text-secondary, #b3b3b3); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; margin-bottom: .3rem; }
 .pv-form input[type=number], .pv-form textarea, .pv-form input[type=file] {
     width: 100%; box-sizing: border-box;
-    background: var(--bg-subtle, #191919); color: var(--text-primary, #f5f5f5);
+    background: var(--bg-surface, #141414); color: var(--text-primary, #f5f5f5);
     border: 1px solid var(--border-base, #1f1f1f);
     padding: .65rem .75rem; border-radius: var(--radius-sm, 6px);
     font-family: inherit; font-size: .92rem;
 }
+.pv-form input::placeholder, .pv-form textarea::placeholder { color: var(--text-muted, #8a8a8a); opacity: .7; }
 .pv-form input[type=file] { padding: .5rem; cursor: pointer; }
 .pv-form textarea { min-height: 70px; resize: vertical; line-height: 1.55; }
 .pv-form input:focus, .pv-form textarea:focus { outline: none; border-color: var(--mint, #5dffbf); }

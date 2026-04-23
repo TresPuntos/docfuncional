@@ -385,7 +385,28 @@ h2:hover > .tp-sec-btn, h3:hover > .tp-sec-btn { opacity: 1; }
     </form>
 </aside>
 
+<?php
+// Identidad ya capturada en el login (view.php o provider.php).
+// La exponemos como TP_INITIAL_SIGNER para que el drawer/modal arranque en modo compacto.
+$__initialSigner = null;
+if (!empty($visitorIdentity['email'])) {
+    $__parts = explode(' ', trim($visitorIdentity['nombre']), 2);
+    $__initialSigner = [
+        'nombre'    => $__parts[0] ?? '',
+        'apellidos' => $__parts[1] ?? '',
+        'email'     => $visitorIdentity['email'],
+    ];
+} elseif (!empty($__provider['email'])) {
+    $__parts = explode(' ', trim($__provider['nombre'] ?? ''), 2);
+    $__initialSigner = [
+        'nombre'    => $__parts[0] ?? '',
+        'apellidos' => $__parts[1] ?? '',
+        'email'     => $__provider['email'],
+    ];
+}
+?>
 <script>
+window.TP_INITIAL_SIGNER = <?= json_encode($__initialSigner, JSON_UNESCAPED_UNICODE) ?>;
 (function () {
     'use strict';
 
@@ -398,6 +419,12 @@ h2:hover > .tp-sec-btn, h3:hover > .tp-sec-btn { opacity: 1; }
     };
 
     function loadSigner() {
+        // Prioridad 1: identidad del login del servidor (authoritative)
+        if (window.TP_INITIAL_SIGNER && window.TP_INITIAL_SIGNER.email) {
+            try { localStorage.setItem('tp_signer', JSON.stringify(window.TP_INITIAL_SIGNER)); } catch (_) {}
+            return window.TP_INITIAL_SIGNER;
+        }
+        // Prioridad 2: localStorage (visitas anteriores o migración)
         try { return JSON.parse(localStorage.getItem('tp_signer') || 'null'); } catch (_) { return null; }
     }
     function saveSigner(s) {

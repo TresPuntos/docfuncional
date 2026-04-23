@@ -20,11 +20,18 @@
 // Recuperar slug desde variables del contexto (view.php define $proposal, $clientName, etc.)
 $trackSlug = isset($proposal['slug']) ? $proposal['slug'] : '';
 if ($trackSlug === '') return;
+
+// Si estamos en modo proveedor, enviamos el token para que track.php lea la identidad del proveedor
+$trackProviderToken = '';
+if (!empty($isProviderMode) && !empty($__provider['token'])) {
+    $trackProviderToken = preg_replace('/[^a-f0-9]/i', '', (string)$__provider['token']);
+}
 ?>
 <script>
 (function () {
     'use strict';
     var SLUG = <?= json_encode($trackSlug, JSON_UNESCAPED_SLASHES) ?>;
+    var PROVIDER_TOKEN = <?= json_encode($trackProviderToken, JSON_UNESCAPED_SLASHES) ?>;
     var TRACK_URL = '/api/track.php';
 
     // --- Session ID (uuid v4) ---
@@ -57,11 +64,13 @@ if ($trackSlug === '') return;
     function flush(useBeacon) {
         if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
         if (!buffer.length) return;
-        var payload = JSON.stringify({
+        var payloadObj = {
             propuesta_slug: SLUG,
             sesion_id: sesionId,
             events: buffer,
-        });
+        };
+        if (PROVIDER_TOKEN) payloadObj.provider_token = PROVIDER_TOKEN;
+        var payload = JSON.stringify(payloadObj);
         buffer = [];
         try {
             if (useBeacon && navigator.sendBeacon) {

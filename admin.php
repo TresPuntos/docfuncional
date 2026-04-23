@@ -616,6 +616,8 @@ if ($is_logged_in) {
     $globalActiveNow = 0;
     $globalOpened24h = 0;
     try {
+        // Excluimos eventos internos (equipo Tres Puntos) del dashboard.
+        // Los eventos crudos siguen guardados — admin_analytics.php tiene un toggle para verlos.
         $actRows = $pdo->query("
             SELECT
                 propuesta_id,
@@ -627,6 +629,7 @@ if ($is_logged_in) {
                 SUM(CASE WHEN tipo = 'firma_abandoned' THEN 1 ELSE 0 END) AS firmas_abandoned,
                 SUM(CASE WHEN tipo = 'firma_approved' THEN 1 ELSE 0 END) AS firmas_ok
             FROM propuesta_eventos
+            WHERE is_internal IS NULL OR is_internal = 0
             GROUP BY propuesta_id
         ")->fetchAll(PDO::FETCH_ASSOC);
         foreach ($actRows as $a) {

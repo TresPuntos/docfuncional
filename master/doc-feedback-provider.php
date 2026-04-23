@@ -265,7 +265,21 @@ h2:hover > .tp-sec-btn, h3:hover > .tp-sec-btn { opacity: 1; }
     </form>
 </aside>
 
+<?php
+// Identidad ya capturada en el login del proveedor. La inyectamos como
+// TP_PV_INITIAL_SIGNER para que el form arranque sin pedir nada.
+$__pvInitialSigner = null;
+if (!empty($__provider['email'])) {
+    $__pvParts = explode(' ', trim($__provider['nombre'] ?? ''), 2);
+    $__pvInitialSigner = [
+        'nombre'    => $__pvParts[0] ?? '',
+        'apellidos' => $__pvParts[1] ?? '',
+        'email'     => $__provider['email'],
+    ];
+}
+?>
 <script>
+window.TP_PV_INITIAL_SIGNER = <?= json_encode($__pvInitialSigner, JSON_UNESCAPED_UNICODE) ?>;
 (function () {
     'use strict';
     const SIGNER_KEY = 'tp_pv_signer';
@@ -275,7 +289,13 @@ h2:hover > .tp-sec-btn, h3:hover > .tp-sec-btn { opacity: 1; }
         currentTitle: 'Todas las secciones',
         signer: loadSigner(),
     };
-    function loadSigner() { try { return JSON.parse(localStorage.getItem(SIGNER_KEY) || 'null'); } catch(_) { return null; } }
+    function loadSigner() {
+        if (window.TP_PV_INITIAL_SIGNER && window.TP_PV_INITIAL_SIGNER.email) {
+            try { localStorage.setItem(SIGNER_KEY, JSON.stringify(window.TP_PV_INITIAL_SIGNER)); } catch(_) {}
+            return window.TP_PV_INITIAL_SIGNER;
+        }
+        try { return JSON.parse(localStorage.getItem(SIGNER_KEY) || 'null'); } catch(_) { return null; }
+    }
     function saveSigner(s) { try { localStorage.setItem(SIGNER_KEY, JSON.stringify(s)); } catch(_) {} state.signer = s; refreshIdentityUI(); }
 
     const API_URL = window.__providerApiUrl || (window.location.pathname + window.location.search);

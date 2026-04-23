@@ -85,9 +85,17 @@ $dwellRows = $pdo->prepare("
 $dwellRows->execute([$propuestaId]);
 $dwellBySection = $dwellRows->fetchAll(PDO::FETCH_ASSOC);
 
+// --- Filtro: por defecto ocultamos eventos internos (equipo Tres Puntos).
+// ?include_internal=1 en la URL los muestra (para auditoría o debug).
+$includeInternal = isset($_GET['include_internal']) && $_GET['include_internal'] === '1';
+$internalFilter = $includeInternal ? '' : ' AND (is_internal IS NULL OR is_internal = 0)';
+
 // --- Sesiones ---
 $sesiones = $pdo->prepare("
     SELECT sesion_id, visitor_hash,
+           MAX(visitor_name)  AS visitor_name,
+           MAX(visitor_email) AS visitor_email,
+           MAX(is_internal)   AS is_internal,
            MIN(created_at) AS started_at,
            MAX(created_at) AS ended_at,
            COUNT(*) AS event_count,
@@ -99,7 +107,7 @@ $sesiones = $pdo->prepare("
            SUM(CASE WHEN tipo = 'firma_abandoned' THEN 1 ELSE 0 END) AS firma_aborted,
            SUM(CASE WHEN tipo = 'firma_approved' THEN 1 ELSE 0 END) AS firma_ok
     FROM propuesta_eventos
-    WHERE propuesta_id = ?
+    WHERE propuesta_id = ? $internalFilter
     GROUP BY sesion_id
     ORDER BY started_at DESC
 ");
@@ -289,16 +297,32 @@ render_layout($prop['client_name'] . ' (' . $prop['slug'] . ')', function() use 
                     <div class="empty">Sin aperturas registradas todavía.</div>
                 <?php else: foreach ($sesiones as $s):
                     $dur = format_session_duration($s['started_at'], $s['ended_at']);
-                    $ident = $identitiesByHash[$s['visitor_hash']] ?? null;
+                    // Prioridad: nombre/email del login → fallback heurístico por IP → fallback hash
+                    $visitorName = trim($s['visitor_name'] ?? '');
+                    $visitorEmail = trim($s['visitor_email'] ?? '');
+                    if ($visitorName !== '' || $visitorEmail !== '') {
+                        $ident = $visitorName !== '' ? $visitorName : $visitorEmail;
+                        $subIdent = $visitorName !== '' && $visitorEmail !== '' ? $visitorEmail : '';
+                    } else {
+                        $ident = $identitiesByHash[$s['visitor_hash']] ?? ('visitante ' . substr($s['visitor_hash'], 0, 6));
+                        $subIdent = '';
+                    }
                     $cls = $drillSesion === $s['sesion_id'] ? 'session active' : 'session';
+                    $isIntRow = (int)($s['is_internal'] ?? 0) === 1;
                 ?>
-                    <a href="?propuesta_id=<?=(int)$propuestaId?>&sesion_id=<?=urlencode($s['sesion_id'])?>" class="<?=$cls?>">
+                    <a href="?propuesta_id=<?=(int)$propuestaId?>&sesion_id=<?=urlencode($s['sesion_id'])?><?=$includeInternal?'&include_internal=1':''?>" class="<?=$cls?>">
                         <div class="session-time">
                             <?=format_relative($s['started_at'])?><br>
                             <span style="color:var(--text-muted); font-size:.65rem;"><?=$dur?></span>
                         </div>
                         <div class="session-body">
-                            <div class="session-title"><?=htmlspecialchars($ident ?: 'visitante ' . substr($s['visitor_hash'], 0, 6))?></div>
+                            <div class="session-title">
+                                <?=htmlspecialchars($ident)?>
+                                <?php if ($isIntRow): ?><span class="pill" style="background:rgba(147,51,234,.12);color:#c084fc;border-color:rgba(147,51,234,.4);">interno</span><?php endif; ?>
+                            </div>
+                            <?php if ($subIdent): ?>
+                                <div style="color:var(--text-muted); font-size:.68rem; margin-top:2px;"><?=htmlspecialchars($subIdent)?></div>
+                            <?php endif; ?>
                             <div class="session-meta">
                                 <?=$s['event_count']?> eventos · scroll <?=$s['max_scroll']?>%
                                 <?php if ((int)$s['vio_presupuesto'] > 0): ?><span class="pill hot">💰 presupuesto</span><?php endif; ?>
@@ -308,6 +332,14 @@ render_layout($prop['client_name'] . ' (' . $prop['slug'] . ')', function() use 
                         </div>
                     </a>
                 <?php endforeach; endif; ?>
+            </div>
+
+            <div style="margin-top:1rem;font-size:.72rem;color:var(--text-muted);">
+                <?php if ($includeInternal): ?>
+                    Mostrando todas las sesiones (incluye equipo Tres Puntos). <a href="?propuesta_id=<?=(int)$propuestaId?>" style="color:var(--tp-primary);">Ocultar internos →</a>
+                <?php else: ?>
+                    Sesiones del equipo Tres Puntos ocultas. <a href="?propuesta_id=<?=(int)$propuestaId?>&include_internal=1" style="color:var(--tp-primary);">Mostrar todas →</a>
+                <?php endif; ?>
             </div>
 
             <?php if ($drillSesion && $drillEvents): ?>

@@ -218,20 +218,53 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_budget'])) {
     exit;
 }
 
-// --- PIN gate ---
+// --- Login gate (nombre + email + PIN) ---
+$loginErrors = [];
+$loginPrefill = [
+    'nombre' => $provider['nombre'] ?? '',
+    'email'  => $provider['email'] ?? '',
+];
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['pin'])) {
-    if (hash_equals($provider['pin'], trim($_POST['pin']))) {
+    $pin    = trim($_POST['pin'] ?? '');
+    $nombre = trim($_POST['visitor_nombre'] ?? '');
+    $email  = trim($_POST['visitor_email'] ?? '');
+    $loginPrefill = ['nombre' => $nombre, 'email' => $email];
+
+    if ($nombre === '' || mb_strlen($nombre) < 2) {
+        $loginErrors['nombre'] = 'Escribe tu nombre para continuar.';
+    }
+    if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        $loginErrors['email'] = 'Introduce un email válido.';
+    } elseif (strcasecmp(trim($email), trim($provider['email'] ?? '')) !== 0) {
+        // El email debe coincidir con el de la invitación (security: el token + PIN + email atado juntos)
+        $loginErrors['email'] = 'Este email no coincide con el de la invitación. Si la invitación se envió a otra dirección, contacta con Tres Puntos.';
+    }
+    if (!hash_equals($provider['pin'], $pin)) {
+        $loginErrors['pin'] = 'PIN incorrecto.';
+    }
+
+    if (!$loginErrors) {
         $_SESSION[$sessKey] = true;
+        // Guardar identidad (aunque el provider ya la tenga en DB, dejamos el nombre elegido ahora por si lo editó)
+        $_SESSION['provider_identity_' . $token] = [
+            'nombre'      => mb_substr($nombre, 0, 120),
+            'email'       => mb_substr(strtolower($email), 0, 180),
+            'is_internal' => isInternalEmail($email) ? 1 : 0,
+            'provider_id' => (int)$provider['id'],
+        ];
+        // Si el proveedor editó su nombre (p.ej. admin le invitó como "Jordi" y él firma como "Jordi Expósito"), lo persistimos
+        if (trim($nombre) !== trim($provider['nombre'])) {
+            $pdo->prepare("UPDATE propuesta_proveedores SET nombre = ? WHERE id = ?")
+                ->execute([mb_substr($nombre, 0, 120), (int)$provider['id']]);
+        }
         // Bump de acceso
         $pdo->prepare("UPDATE propuesta_proveedores SET last_accessed_at = CURRENT_TIMESTAMP, accesos = accesos + 1 WHERE id = ?")
             ->execute([$provider['id']]);
-        // Redirige a view.php con el token como param — así el proveedor ve la MISMA vista que el cliente
+        // Redirige a view.php con el token — el proveedor ve la misma vista que el cliente
         $scheme = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http';
         $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
         header('Location: ' . $scheme . '://' . $host . '/p/' . rawurlencode($provider['slug']) . '?__provider=' . urlencode($token));
         exit;
-    } else {
-        $pinError = true;
     }
 }
 
@@ -248,36 +281,122 @@ if ($unlocked && $_SERVER['REQUEST_METHOD'] === 'GET') {
 // Si NO desbloqueado → pantalla de PIN
 if (!$unlocked):
 ?>
-<!doctype html><html lang="es"><head>
+<?php
+    $storageKey = 'tp_provider_' . preg_replace('/[^a-zA-Z0-9_-]/', '_', $token);
+    $nomPref = htmlspecialchars($loginPrefill['nombre'] ?? '', ENT_QUOTES);
+    $emlPref = htmlspecialchars($loginPrefill['email'] ?? '', ENT_QUOTES);
+?>
+<!doctype html>
+<html lang="es"><head>
 <meta charset="utf-8"><title>Acceso proveedor · Tres Puntos</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-body{margin:0;background:#0e0e0e;color:#f5f5f5;font-family:-apple-system,Inter,sans-serif;display:grid;place-items:center;min-height:100vh;padding:1rem;}
-.box{background:#141414;border:1px solid #1f1f1f;padding:2.2rem 2rem;border-radius:14px;max-width:400px;width:100%;box-shadow:0 24px 60px rgba(0,0,0,.4);}
-h1{margin:0 0 .2rem;font-size:1.15rem;font-weight:700;}
-p.sub{color:#8a8a8a;font-size:.85rem;margin:0 0 1.3rem;line-height:1.55;}
-label{display:block;margin-bottom:.3rem;color:#b3b3b3;font-size:.78rem;text-transform:uppercase;letter-spacing:.05em;font-weight:600;}
-input{width:100%;box-sizing:border-box;background:#191919;border:1px solid #2a2a2a;color:#fff;padding:.75rem;border-radius:8px;font-size:1.1rem;font-family:monospace;letter-spacing:.3em;text-align:center;}
-input:focus{outline:none;border-color:#5dffbf;}
-button{width:100%;margin-top:1rem;background:#5dffbf;color:#000;border:none;padding:.8rem;border-radius:8px;font-weight:700;cursor:pointer;font-family:inherit;font-size:.95rem;}
-button:hover{background:#49e6a8;}
-.err{color:#ff6b6b;font-size:.8rem;margin-top:.75rem;}
-.brand{display:flex;align-items:center;gap:.55rem;margin-bottom:1.2rem;}
-.brand-dot{background:#5dffbf;width:24px;height:24px;border-radius:999px;}
+*{box-sizing:border-box;}
+body{margin:0;background:#0e0e0e;color:#f5f5f5;font-family:-apple-system,Inter,sans-serif;display:grid;place-items:center;min-height:100vh;padding:1.5rem;}
+.box{background:#141414;border:1px solid #1f1f1f;padding:2.2rem 2rem;border-radius:16px;max-width:440px;width:100%;box-shadow:0 24px 60px rgba(0,0,0,.4);}
+.brand{display:flex;align-items:center;gap:.55rem;margin-bottom:1.4rem;justify-content:center;}
+.brand-dot{background:#5dffbf;width:22px;height:22px;border-radius:999px;}
 .brand-text{font-weight:700;font-size:.95rem;}
+.eyebrow{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.35em;color:rgba(255,255,255,.4);text-align:center;margin-bottom:.3rem;}
+h1{margin:0 0 .25rem;font-size:1.3rem;font-weight:800;text-align:center;font-family:'Plus Jakarta Sans',sans-serif;}
+p.sub{color:#8a8a8a;font-size:.85rem;margin:0 0 1.4rem;line-height:1.55;text-align:center;}
+.field{margin-bottom:1rem;}
+.field label{display:block;margin-bottom:.35rem;color:#8a8a8a;font-size:11px;text-transform:uppercase;letter-spacing:.08em;font-weight:600;}
+.field input{width:100%;background:#191919;border:1px solid #2a2a2a;color:#fff;padding:.8rem 1rem;border-radius:10px;font-size:15px;font-family:inherit;transition:border-color .15s,background .15s;}
+.field input:focus{outline:none;border-color:#5dffbf;background:#0f1511;}
+.field.has-error input{border-color:#ef4444;background:rgba(239,68,68,.05);}
+.field .err{color:#ff6b6b;font-size:11px;margin-top:.35rem;}
+.pin-input{text-align:center;font-family:'JetBrains Mono',monospace !important;font-size:1.5rem !important;letter-spacing:.3em;color:#5dffbf !important;}
+button.submit{width:100%;margin-top:.6rem;background:#5dffbf;color:#000;border:none;padding:.95rem;border-radius:10px;font-weight:800;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;text-transform:uppercase;letter-spacing:.08em;}
+button.submit:hover{background:#49e6a8;}
+button.not-me{display:none;width:100%;background:none;border:none;color:#8a8a8a;font-size:11px;text-decoration:underline;text-align:center;margin-top:.8rem;cursor:pointer;font-family:inherit;}
+button.not-me:hover{color:#f5f5f5;}
+.legal{font-size:11px;line-height:1.5;color:#666;text-align:center;margin-top:1.3rem;}
 </style>
 </head><body>
 <div class="box">
   <div class="brand"><span class="brand-dot"></span><span class="brand-text">Tres Puntos</span></div>
-  <h1>Acceso proveedor</h1>
-  <p class="sub">Hola <strong><?=htmlspecialchars($provider['nombre'])?></strong>, introduce el PIN que te enviamos para acceder al documento de <strong><?=htmlspecialchars($provider['client_name'])?></strong>.</p>
-  <form method="post">
-    <label for="pin">PIN</label>
-    <input name="pin" id="pin" type="text" inputmode="numeric" autocomplete="off" autofocus maxlength="10">
-    <?php if (!empty($pinError)): ?><div class="err">PIN incorrecto. Inténtalo de nuevo.</div><?php endif; ?>
-    <button type="submit">Entrar</button>
+  <p class="eyebrow">Acceso proveedor</p>
+  <h1><?=htmlspecialchars($provider['client_name'])?></h1>
+  <p class="sub">Confirma tus datos e introduce el PIN para acceder al documento.</p>
+
+  <form method="post" autocomplete="on" novalidate>
+    <div class="field<?=isset($loginErrors['nombre'])?' has-error':''?>">
+      <label for="pv-nombre">Nombre</label>
+      <input id="pv-nombre" type="text" name="visitor_nombre" value="<?=$nomPref?>"
+             autocomplete="name" maxlength="120" required placeholder="Tu nombre">
+      <?php if (isset($loginErrors['nombre'])): ?>
+        <div class="err"><?=htmlspecialchars($loginErrors['nombre'])?></div>
+      <?php endif; ?>
+    </div>
+
+    <div class="field<?=isset($loginErrors['email'])?' has-error':''?>">
+      <label for="pv-email">Email</label>
+      <input id="pv-email" type="email" name="visitor_email" value="<?=$emlPref?>"
+             autocomplete="email" maxlength="180" required inputmode="email"
+             placeholder="tu@empresa.com">
+      <?php if (isset($loginErrors['email'])): ?>
+        <div class="err"><?=htmlspecialchars($loginErrors['email'])?></div>
+      <?php endif; ?>
+    </div>
+
+    <div class="field<?=isset($loginErrors['pin'])?' has-error':''?>">
+      <label for="pv-pin">PIN</label>
+      <input id="pv-pin" type="password" name="pin" class="pin-input"
+             inputmode="numeric" autocomplete="off" maxlength="10" required
+             placeholder="••••">
+      <?php if (isset($loginErrors['pin'])): ?>
+        <div class="err"><?=htmlspecialchars($loginErrors['pin'])?></div>
+      <?php endif; ?>
+    </div>
+
+    <button type="submit" class="submit">Acceder al proyecto</button>
+    <button type="button" class="not-me" id="pv-not-me" onclick="tpClearProviderIdentity()">¿No eres tú? · Cambiar datos</button>
   </form>
+
+  <p class="legal">🔒 Solo tú puedes ver y subir presupuestos en este enlace. El resto de proveedores no aparecen.</p>
 </div>
+
+<script>
+(function() {
+    const KEY = <?=json_encode($storageKey)?>;
+    const nameEl = document.getElementById('pv-nombre');
+    const emailEl = document.getElementById('pv-email');
+    const pinEl = document.getElementById('pv-pin');
+    const notMe = document.getElementById('pv-not-me');
+
+    // localStorage se usa solo como refuerzo; el server ya pre-rellena desde la invitación
+    if (nameEl.value && emailEl.value) {
+        // Indicar "no soy yo" por si alguien más usa el dispositivo
+        notMe.style.display = 'inline-block';
+        setTimeout(() => pinEl.focus(), 50);
+    } else {
+        try {
+            const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
+            if (saved && saved.nombre) { nameEl.value = saved.nombre; }
+            if (saved && saved.email)  { emailEl.value = saved.email; }
+        } catch (e) {}
+        (nameEl.value ? (emailEl.value ? pinEl : emailEl) : nameEl).focus();
+    }
+
+    document.querySelector('form').addEventListener('submit', function() {
+        try {
+            localStorage.setItem(KEY, JSON.stringify({
+                nombre: nameEl.value.trim(),
+                email: emailEl.value.trim().toLowerCase()
+            }));
+        } catch (e) {}
+    });
+
+    window.tpClearProviderIdentity = function() {
+        try { localStorage.removeItem(KEY); } catch (e) {}
+        nameEl.value = '';
+        emailEl.value = '';
+        notMe.style.display = 'none';
+        nameEl.focus();
+    };
+})();
+</script>
 </body></html>
 <?php exit; endif;
 

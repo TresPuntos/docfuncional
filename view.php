@@ -57,21 +57,47 @@ if ((int)$proposal['status'] === 0) {
 }
 
 $session_key = 'auth_proposal_' . $proposal['id'];
-$error_pin = '';
+$identity_key = 'visitor_identity_' . $proposal['id'];
+$login_errors = [];
+$login_prefill = ['nombre' => '', 'email' => ''];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['pin'])) {
-    if ($_POST['pin'] === $proposal['pin']) {
+    $pin    = trim($_POST['pin'] ?? '');
+    $nombre = trim($_POST['visitor_nombre'] ?? '');
+    $email  = trim($_POST['visitor_email'] ?? '');
+    $login_prefill = ['nombre' => $nombre, 'email' => $email];
+
+    if ($nombre === '' || mb_strlen($nombre) < 2) {
+        $login_errors['nombre'] = 'Escribe tu nombre para continuar.';
+    }
+    if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        $login_errors['email'] = 'Introduce un email válido.';
+    }
+    if ($pin !== $proposal['pin']) {
+        $login_errors['pin'] = 'PIN incorrecto.';
+    }
+
+    if (!$login_errors) {
         $_SESSION[$session_key] = true;
+        $_SESSION[$identity_key] = [
+            'nombre'      => mb_substr($nombre, 0, 120),
+            'email'       => mb_substr($email, 0, 180),
+            'is_internal' => isInternalEmail($email) ? 1 : 0,
+            'identified_at' => date('Y-m-d H:i:s'),
+        ];
         $protocol = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http';
         header("Location: $protocol://" . $_SERVER['HTTP_HOST'] . $base_path . "/p/" . $slug);
         exit;
     }
-    else {
-        $error_pin = "PIN incorrecto.";
-    }
 }
 
-$is_unlocked = isset($_SESSION[$session_key]) && $_SESSION[$session_key] === true;
+// Desbloqueo requiere AMBOS: PIN validado + identidad registrada en sesión.
+// Si un usuario tiene sesión PIN antigua (pre-abril 2026) sin identidad, forzamos re-login.
+$is_unlocked = isset($_SESSION[$session_key]) && $_SESSION[$session_key] === true
+            && isset($_SESSION[$identity_key]) && is_array($_SESSION[$identity_key]);
+
+// Identidad disponible para el resto del render (comentarios pre-rellenados, firma, tracking)
+$visitorIdentity = $_SESSION[$identity_key] ?? null;
 
 // ─── PROVIDER MODE ───────────────────────────────────────────
 // Si viene de provider.php autenticado, usa la sesión del proveedor para bypass del PIN gate.
@@ -442,7 +468,7 @@ if ($is_unlocked) {
             $stmtTeam -> execute($equipo_ids);
             $team = $stmtTeam -> fetchAll(PDO:: FETCH_ASSOC);
         }
-        renderWrappedContent($proposal, $slug, $isDocApproved, $isPdfApproved, $hasPdf, $team, $base_path, $hasHolded, $holdedDoc, $firmas, $isProviderMode, $__provider, $isAdminMode);
+        renderWrappedContent($proposal, $slug, $isDocApproved, $isPdfApproved, $hasPdf, $team, $base_path, $hasHolded, $holdedDoc, $firmas, $isProviderMode, $__provider, $isAdminMode, $visitorIdentity);
         exit;
 }
 
@@ -489,126 +515,236 @@ if ($is_unlocked) {
     exit;
 }
 
-        renderPinGate($proposal, $error_pin, $base_path);
+        renderPinGate($proposal, $login_errors, $login_prefill, $base_path, $slug);
         exit;
 
-        function renderPinGate($proposal, $error_pin, $base_path) {
+        function renderPinGate($proposal, $login_errors, $login_prefill, $base_path, $slug) {
+    $storageKey = 'tp_visitor_' . preg_replace('/[^a-zA-Z0-9_-]/', '_', $slug);
+    $nomPref = htmlspecialchars($login_prefill['nombre'] ?? '', ENT_QUOTES);
+    $emlPref = htmlspecialchars($login_prefill['email'] ?? '', ENT_QUOTES);
+    $clientNameSafe = htmlspecialchars($proposal['client_name']);
 ?>
 <!DOCTYPE html>
-                <html lang="es" class="dark">
-
-                    <head>
-                        <meta charset="UTF-8">
-                            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                                <title>
-                                    <?php echo htmlspecialchars($proposal['client_name']); ?> | PIN
-                                </title>
-                                <link
-                                    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@700;800&display=swap"
-                                    rel="stylesheet">
-                                    <style>
-                                        * {
-                                            margin: 0;
-                                        padding: 0;
-                                        box-sizing: border-box;
+<html lang="es" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><?= $clientNameSafe ?> | Acceso</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@700;800&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #050505;
+            color: #E0E0E0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1.5rem;
         }
-
-                                        body {
-                                            font - family: 'Inter', sans-serif;
-                                        background-color: #050505;
-                                        color: #E0E0E0;
-                                        min-height: 100vh;
-                                        display: flex;
-                                        align-items: center;
-                                        justify-content: center;
+        .gate-container {
+            width: 100%;
+            max-width: 440px;
+            padding: 2.4rem 2.5rem 2rem;
+            background: #0A0A0A;
+            border-radius: 24px;
+            border: 1px solid #1A1A1A;
         }
-
-                                        .gate-container {
-                                            width: 100%;
-                                        max-width: 400px;
-                                        padding: 2.5rem;
-                                        text-align: center;
-                                        background: #0A0A0A;
-                                        border-radius: 24px;
-                                        border: 1px solid #1A1A1A;
+        .gate-logo { text-align: center; margin-bottom: 1.6rem; }
+        .gate-logo img { height: 32px; }
+        .gate-label {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-size: 10px; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 0.35em;
+            color: rgba(255,255,255,0.4);
+            text-align: center;
+            margin-bottom: .35rem;
         }
-
-                                        .gate-label {
-                                            font - family: 'Plus Jakarta Sans', sans-serif;
-                                        font-size: 10px;
-                                        font-weight: 700;
-                                        text-transform: uppercase;
-                                        letter-spacing: 0.4em;
-                                        color: rgba(255, 255, 255, 0.4);
-                                        margin-bottom: 2rem;
+        .gate-client {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-size: 1.25rem; font-weight: 800;
+            color: #f5f5f5;
+            text-align: center;
+            margin-bottom: 1.9rem;
         }
-
-                                        .pin-input {
-                                            width: 100%;
-                                        background: transparent;
-                                        border: none;
-                                        border-bottom: 2px solid rgba(255, 255, 255, 0.1);
-                                        text-align: center;
-                                        font-size: 2.5rem;
-                                        padding: 1rem 0;
-                                        outline: none;
-                                        color: #5DFFBF;
-                                        font-family: monospace;
-                                        letter-spacing: 0.3em;
-                                        transition: all 0.3s ease;
+        .gate-field { margin-bottom: 1rem; text-align: left; }
+        .gate-field label {
+            display: block;
+            font-size: 11px; font-weight: 600;
+            color: #8a8a8a;
+            text-transform: uppercase; letter-spacing: .08em;
+            margin-bottom: .35rem;
         }
-
-                                        .pin-input:focus {
-                                            border - color: #5DFFBF;
+        .gate-field input {
+            width: 100%;
+            background: #141414;
+            border: 1px solid #1f1f1f;
+            border-radius: 10px;
+            color: #f5f5f5;
+            font: inherit;
+            font-size: 15px;
+            padding: .8rem 1rem;
+            outline: none;
+            transition: border-color .15s, background .15s;
         }
-
-                                        .btn-unlock {
-                                            width: 100%;
-                                        background: #5DFFBF;
-                                        color: #050505;
-                                        font-family: 'Plus Jakarta Sans', sans-serif;
-                                        font-weight: 800;
-                                        padding: 1.1rem;
-                                        border: none;
-                                        border-radius: 12px;
-                                        font-size: 13px;
-                                        text-transform: uppercase;
-                                        letter-spacing: 0.1em;
-                                        cursor: pointer;
-                                        margin-top: 2rem;
-                                        transition: all 0.3s;
+        .gate-field input:focus {
+            border-color: #5DFFBF;
+            background: #0f1511;
         }
-
-                                        .pin-error {
-                                            font - size: 11px;
-                                        color: #ef4444;
-                                        margin-top: 1rem;
+        .gate-field.has-error input { border-color: #ef4444; background: rgba(239,68,68,.05); }
+        .gate-field .err {
+            font-size: 11px; color: #ef4444; margin-top: .35rem;
         }
-                                    </style>
-                                </head>
+        .pin-input {
+            letter-spacing: .3em;
+            text-align: center;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.6rem !important;
+            color: #5DFFBF !important;
+        }
+        .btn-unlock {
+            width: 100%;
+            background: #5DFFBF;
+            color: #050505;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-weight: 800;
+            padding: 1.05rem;
+            border: none; border-radius: 12px;
+            font-size: 13px;
+            text-transform: uppercase; letter-spacing: 0.08em;
+            cursor: pointer;
+            margin-top: .6rem;
+            transition: background .2s, transform .1s;
+        }
+        .btn-unlock:hover { background: #49e6a8; }
+        .btn-unlock:active { transform: translateY(1px); }
+        .gate-legal {
+            font-size: 11px;
+            line-height: 1.5;
+            color: #666;
+            text-align: center;
+            margin-top: 1.3rem;
+        }
+        .gate-legal svg { display: inline; vertical-align: -2px; margin-right: 3px; }
+        .not-me {
+            display: block;
+            font-size: 11px;
+            color: #8a8a8a;
+            text-decoration: underline;
+            text-align: center;
+            margin-top: .9rem;
+            cursor: pointer;
+            background: none;
+            border: none;
+            width: 100%;
+        }
+        .not-me:hover { color: #f5f5f5; }
+    </style>
+</head>
+<body>
+    <div class="gate-container">
+        <div class="gate-logo"><img src="/logo.svg" alt="Tres Puntos"></div>
+        <p class="gate-label">Acceso a propuesta</p>
+        <p class="gate-client"><?= $clientNameSafe ?></p>
 
-                                <body>
-                                    <div class="gate-container">
-                                        <img src="/logo.svg" alt="Tres Puntos" style="height: 32px; margin-bottom: 2rem;">
-                                            <h2 class="gate-label">Propuesta Confidencial</h2>
-                                            <form method="POST">
-                                                <input type="password" name="pin" maxlength="10" placeholder="••••" required autofocus class="pin-input">
-                                                    <?php if ($error_pin): ?>
-                                                    <p class="pin-error">
-                                                        <?php echo $error_pin; ?>
-                                                    </p>
-                                                    <?php
-    endif; ?>
-                                                    <button type="submit" class="btn-unlock">Continuar</button>
-                                            </form>
-                                    </div>
-                                </body>
+        <form method="POST" autocomplete="on" novalidate>
+            <div class="gate-field<?= isset($login_errors['nombre']) ? ' has-error' : '' ?>">
+                <label for="v-nombre">Nombre</label>
+                <input id="v-nombre" type="text" name="visitor_nombre" value="<?= $nomPref ?>"
+                       autocomplete="name" maxlength="120" required
+                       placeholder="Tu nombre completo">
+                <?php if (isset($login_errors['nombre'])): ?>
+                    <div class="err"><?= htmlspecialchars($login_errors['nombre']) ?></div>
+                <?php endif; ?>
+            </div>
 
-                            </html>
-                            <?php
+            <div class="gate-field<?= isset($login_errors['email']) ? ' has-error' : '' ?>">
+                <label for="v-email">Email</label>
+                <input id="v-email" type="email" name="visitor_email" value="<?= $emlPref ?>"
+                       autocomplete="email" maxlength="180" required inputmode="email"
+                       placeholder="tu@empresa.com">
+                <?php if (isset($login_errors['email'])): ?>
+                    <div class="err"><?= htmlspecialchars($login_errors['email']) ?></div>
+                <?php endif; ?>
+            </div>
+
+            <div class="gate-field<?= isset($login_errors['pin']) ? ' has-error' : '' ?>">
+                <label for="v-pin">PIN de acceso</label>
+                <input id="v-pin" type="password" name="pin" maxlength="10" required
+                       class="pin-input" autocomplete="off" placeholder="••••">
+                <?php if (isset($login_errors['pin'])): ?>
+                    <div class="err"><?= htmlspecialchars($login_errors['pin']) ?></div>
+                <?php endif; ?>
+            </div>
+
+            <button type="submit" class="btn-unlock">Acceder al proyecto</button>
+
+            <button type="button" class="not-me" id="not-me" style="display:none;" onclick="tpClearIdentity()">
+                ¿No eres tú? · Cambiar datos
+            </button>
+        </form>
+
+        <p class="gate-legal">
+            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            Tu email solo identifica quién comenta o firma. No enviamos marketing.
+        </p>
+    </div>
+
+    <script>
+    (function() {
+        const KEY = <?= json_encode($storageKey) ?>;
+        const nameEl = document.getElementById('v-nombre');
+        const emailEl = document.getElementById('v-email');
+        const pinEl = document.getElementById('v-pin');
+        const notMeBtn = document.getElementById('not-me');
+
+        // Auto-fill desde localStorage solo si los inputs vienen vacíos (ie, no son valores del POST fallido)
+        if (!nameEl.value && !emailEl.value) {
+            try {
+                const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
+                if (saved && saved.nombre && saved.email) {
+                    nameEl.value = saved.nombre;
+                    emailEl.value = saved.email;
+                    notMeBtn.style.display = 'inline-block';
+                    // Cursor directo al PIN — lo demás ya está puesto
+                    setTimeout(() => pinEl.focus(), 60);
+                    return;
+                }
+            } catch (e) {}
+        }
+        // No había localStorage → cursor al primer campo vacío
+        if (!nameEl.value) nameEl.focus();
+        else if (!emailEl.value) emailEl.focus();
+        else pinEl.focus();
+
+        // Guardar al enviar formulario (si todo OK, se re-aplicará; si falla, quedan almacenados para re-prefill)
+        document.querySelector('form').addEventListener('submit', function() {
+            if (nameEl.value && emailEl.value) {
+                try {
+                    localStorage.setItem(KEY, JSON.stringify({
+                        nombre: nameEl.value.trim(),
+                        email: emailEl.value.trim().toLowerCase()
+                    }));
+                } catch (e) {}
+            }
+        });
+
+        window.tpClearIdentity = function() {
+            try { localStorage.removeItem(KEY); } catch (e) {}
+            nameEl.value = '';
+            emailEl.value = '';
+            notMeBtn.style.display = 'none';
+            nameEl.focus();
+        };
+    })();
+    </script>
+</body>
+</html>
+<?php
 }
 
-                            function renderWrappedContent($proposal, $slug, $isDocApproved = false, $isPdfApproved = false, $hasPdf = false, $team = [], $base_path = '', $hasHolded = false, $holdedDoc = null, $firmas = [], $isProviderMode = false, $__provider = null, $isAdminMode = false)
+                            function renderWrappedContent($proposal, $slug, $isDocApproved = false, $isPdfApproved = false, $hasPdf = false, $team = [], $base_path = '', $hasHolded = false, $holdedDoc = null, $firmas = [], $isProviderMode = false, $__provider = null, $isAdminMode = false, $visitorIdentity = null)
                             {
 ?>
 <!DOCTYPE html>
@@ -642,30 +778,45 @@ if ($is_unlocked) {
         :root {
             --tp-primary: #5DFFBF;
             --tp-primary-rgb: 93, 255, 191;
+            --mint: #5DFFBF;
+            --mint-hover: #49E6A8;
+            --mint-rgb: 93, 255, 191;
             --bg-base: #0E0E0E;
             --bg-surface: #141414;
+            --bg-subtle: #191919;
+            --bg-muted: #1F1F1F;
             --bg-nav-hover: #1A1A1A;
             --bg-nav-active: #2A2A2A;
             --text-primary: #F5F5F5;
             --text-secondary: #B3B3B3;
             --text-muted: #8A8A8A;
             --border-base: #1F1F1F;
+            --border-subtle: #1A1A1A;
             --border-strong: #2A2A2A;
             --font-heading: 'Plus Jakarta Sans', sans-serif;
+            --radius-sm: 6px;
+            --radius-md: 10px;
+            --radius-lg: 14px;
             --overlay-scrim: rgba(0, 0, 0, 0.75);
         }
 
         [data-theme="light"] {
             --tp-primary: #0FA36C;
             --tp-primary-rgb: 15, 163, 108;
+            --mint: #0FA36C;
+            --mint-hover: #0D8F5E;
+            --mint-rgb: 15, 163, 108;
             --bg-base: #F7F6F3;
             --bg-surface: #FFFFFF;
+            --bg-subtle: #F0EFEB;
+            --bg-muted: #E8E6E0;
             --bg-nav-hover: #F0EFEB;
             --bg-nav-active: #E8E6E0;
             --text-primary: #141414;
             --text-secondary: #4A4A4A;
             --text-muted: #6E6E6E;
             --border-base: #E4E2DC;
+            --border-subtle: #ECEAE4;
             --border-strong: #D0CEC6;
             --overlay-scrim: rgba(20, 20, 20, 0.4);
         }

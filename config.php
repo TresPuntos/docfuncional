@@ -34,6 +34,23 @@ if (!defined('ANTHROPIC_API_KEY')) define('ANTHROPIC_API_KEY', '');
 if (!defined('ANTHROPIC_MODEL')) define('ANTHROPIC_MODEL', 'claude-haiku-4-5');
 if (!defined('JORDAN_DOC_ENABLED')) define('JORDAN_DOC_ENABLED', false);
 
+// === EMAILS INTERNOS (equipo Tres Puntos) ===
+// Coma-separada: cuando alguien entra a /p/ o /s/ con un email de esta lista,
+// los eventos se marcan is_internal=1 y NO cuentan en analytics del cliente
+// (ni EN VIVO, ni sesiones, ni firmas detectadas, etc.). Definir en config.local.php:
+//   define('INTERNAL_EMAILS', 'jordi@trespuntoscomunicacion.es,jordiexp@gmail.com');
+if (!defined('INTERNAL_EMAILS')) define('INTERNAL_EMAILS', '');
+
+/**
+ * ¿Es este email parte del equipo interno? (case-insensitive, trim)
+ */
+function isInternalEmail(string $email): bool
+{
+    if (!defined('INTERNAL_EMAILS') || !INTERNAL_EMAILS) return false;
+    $list = array_filter(array_map('strtolower', array_map('trim', explode(',', INTERNAL_EMAILS))));
+    return in_array(strtolower(trim($email)), $list, true);
+}
+
 // === HELPER CONEXIÓN PDO ===
 function getDBConnection()
 {
