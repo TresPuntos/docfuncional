@@ -34,11 +34,20 @@ $datosMeta = json_decode($contrato['datos_json'] ?: '{}', true) ?: [];
 $isPdfDirect = empty($contrato['plantilla_id']);
 $contrato['require_otp'] = $isPdfDirect ? (int)($datosMeta['require_otp'] ?? 0) : (int)($contrato['plant_require_otp'] ?? 0);
 
-// Slot de firma destinatario (el primer rol pendiente distinto de 'tp')
-$rolDestinatario = $contrato['destinatario_tipo']; // 'cliente' | 'proveedor'
+// Slot de firma destinatario: primero intentamos matchear por rol exacto, y si no,
+// cogemos el primer slot pendiente distinto de 'tp' (tolerante a inconsistencias
+// entre destinatario_tipo del contrato y firmantes_json de la plantilla).
+$rolDestinatarioPreferido = $contrato['destinatario_tipo']; // 'cliente' | 'proveedor'
 $slotStmt = $pdo->prepare("SELECT * FROM contratos_firmas WHERE contrato_id = ? AND rol = ? LIMIT 1");
-$slotStmt->execute([$contrato['id'], $rolDestinatario]);
+$slotStmt->execute([$contrato['id'], $rolDestinatarioPreferido]);
 $firmaSlot = $slotStmt->fetch(PDO::FETCH_ASSOC);
+if (!$firmaSlot) {
+    // Fallback: primer slot no-TP que esté pendiente (evita "No slot" por mismatch plantilla/destinatario)
+    $fallback = $pdo->prepare("SELECT * FROM contratos_firmas WHERE contrato_id = ? AND rol != 'tp' ORDER BY orden ASC LIMIT 1");
+    $fallback->execute([$contrato['id']]);
+    $firmaSlot = $fallback->fetch(PDO::FETCH_ASSOC);
+}
+$rolDestinatario = $firmaSlot['rol'] ?? $rolDestinatarioPreferido;
 
 $alreadySigned = $firmaSlot && !empty($firmaSlot['firmado_at']);
 $wasFullySigned = $contrato['estado'] === 'firmado';
@@ -109,6 +118,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         if (!$nombreFirma || !$emailFirma || !filter_var($emailFirma, FILTER_VALIDATE_EMAIL)) {
             echo json_encode(['success' => false, 'error' => 'Nombre y email válidos obligatorios']); exit;
         }
+        // Validación oficial DNI / NIE / CIF
+        if (!$documentoFirma) { echo json_encode(['success' => false, 'error' => 'Documento de identidad obligatorio']); exit; }
+        $docCheck = tp_validar_dni_nie_cif($documentoFirma);
+        if (!$docCheck['valid']) {
+            echo json_encode(['success' => false, 'error' => 'Documento no válido: ' . $docCheck['reason']]);
+            exit;
+        }
+        // Normalizamos en mayúsculas y sin separadores
+        $documentoFirma = strtoupper(str_replace([' ', '-', '.'], '', $documentoFirma));
 
         if ($contrato['require_otp']) {
             if (!contrato_verify_otp($pdo, $firmaSlot['id'], $otpInput)) {
@@ -317,8 +335,9 @@ canvas#sigPad { display:block; width:100%; height:220px; touch-action:none; curs
     </div>
     <div class="row2">
         <div class="field">
-            <label>DNI / NIE / Documento de identidad</label>
-            <input type="text" id="fDocumento" placeholder="Ej. 12345678A" required>
+            <label>DNI / NIE / CIF</label>
+            <input type="text" id="fDocumento" placeholder="12345678A · X1234567A · A12345674" required autocomplete="off" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase(); validateDoc()">
+            <div id="docHint" style="margin-top:.3rem;font-size:.72rem;color:var(--text-muted);line-height:1.4">Validamos que sea un documento real (DNI con letra calculada, NIE con prefijo X/Y/Z, CIF con dígito de control).</div>
         </div>
         <div class="field">
             <label>Cargo / posición</label>
@@ -425,10 +444,75 @@ function checkReady(){
     const nombre = document.getElementById('fNombre')?.value.trim() ?? '';
     const email = document.getElementById('fEmail')?.value.trim() ?? '';
     const documento = document.getElementById('fDocumento')?.value.trim() ?? '';
+    const docValid = validateDoc(false);
     let otpOk = true;
     if (REQUIRE_OTP) { const otp = document.getElementById('otpInput')?.value.trim() ?? ''; otpOk = otp.length === 6; }
     const btn = document.getElementById('signBtn');
-    if (btn) btn.disabled = !(SCROLL_OK && consent && !empty && nombre && email && documento && otpOk);
+    if (btn) btn.disabled = !(SCROLL_OK && consent && !empty && nombre && email && docValid && otpOk);
+}
+
+/**
+ * Validación DNI/NIE/CIF en cliente (misma lógica que el backend).
+ * Pinta el hint en verde/rojo. Devuelve true si válido.
+ */
+function validateDoc(updateUI = true){
+    const input = document.getElementById('fDocumento');
+    const hint = document.getElementById('docHint');
+    if (!input) return true;
+    const raw = (input.value || '').replace(/[\s\-.]/g, '').toUpperCase();
+    const letras = 'TRWAGMYFPDXBNJZSQVHLCKE';
+    let result = { valid:false, type:null, reason:'Escribe tu documento' };
+    if (raw.length === 0) result = { valid:false, type:null, reason:'Escribe tu documento' };
+    else if (/^\d{8}[A-Z]$/.test(raw)) {
+        const num = parseInt(raw.slice(0,8), 10);
+        const expected = letras[num % 23];
+        result = raw[8] === expected
+            ? { valid:true, type:'DNI', reason:'DNI válido' }
+            : { valid:false, type:'DNI', reason:`Letra DNI incorrecta (debería ser ${expected})` };
+    } else if (/^[XYZ]\d{7}[A-Z]$/.test(raw)) {
+        const prefix = { X:'0', Y:'1', Z:'2' }[raw[0]];
+        const num = parseInt(prefix + raw.slice(1,8), 10);
+        const expected = letras[num % 23];
+        result = raw[8] === expected
+            ? { valid:true, type:'NIE', reason:'NIE válido' }
+            : { valid:false, type:'NIE', reason:`Letra NIE incorrecta (debería ser ${expected})` };
+    } else if (/^[ABCDEFGHJNPQRSUVW]\d{7}[0-9A-J]$/.test(raw)) {
+        const digits = raw.slice(1, 8);
+        let pares = 0, impares = 0;
+        for (let i = 0; i < 7; i++) {
+            const d = parseInt(digits[i], 10);
+            if (i % 2 === 0) { const p = d*2; impares += (p > 9 ? p - 9 : p); }
+            else pares += d;
+        }
+        const total = pares + impares;
+        const last = total % 10;
+        const ctrlNum = last === 0 ? 0 : 10 - last;
+        const ctrlLet = 'JABCDEFGHI'[ctrlNum];
+        const tipo = raw[0];
+        const ctrl = raw[8];
+        let ok = false;
+        if ('PQRSNW'.includes(tipo)) ok = ctrl === ctrlLet;
+        else if ('ABEH'.includes(tipo)) ok = ctrl === String(ctrlNum);
+        else ok = ctrl === ctrlLet || ctrl === String(ctrlNum);
+        result = ok
+            ? { valid:true, type:'CIF', reason:'CIF válido' }
+            : { valid:false, type:'CIF', reason:`Dígito de control CIF incorrecto (${ctrlLet} o ${ctrlNum})` };
+    } else if (raw.length > 0) {
+        result = { valid:false, type:null, reason:'Formato no reconocido · esperado 12345678A, X1234567A o A12345674' };
+    }
+    if (updateUI && hint) {
+        if (result.valid) {
+            hint.style.color = '#0FA36C';
+            hint.textContent = '✓ ' + result.type + ' válido';
+        } else if (raw.length === 0) {
+            hint.style.color = 'var(--text-muted)';
+            hint.textContent = 'Validamos que sea un documento real (DNI, NIE o CIF).';
+        } else {
+            hint.style.color = '#ff8a8a';
+            hint.textContent = '✗ ' + result.reason;
+        }
+    }
+    return result.valid;
 }
 
 async function requestOtp(){

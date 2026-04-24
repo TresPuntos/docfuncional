@@ -87,6 +87,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $plant = $pStmt->fetch(PDO::FETCH_ASSOC);
         if (!$plant) { echo json_encode(['success' => false, 'error' => 'Plantilla no existe']); exit; }
 
+        // Validación: el destinatario tiene que ser uno de los firmantes declarados en la plantilla
+        $firmantesPlant = json_decode($plant['firmantes_json'] ?: '[]', true) ?: [];
+        if (!in_array($destTipo, $firmantesPlant, true)) {
+            $avail = implode(' o ', array_filter($firmantesPlant, fn($f) => $f !== 'tp'));
+            echo json_encode([
+                'success' => false,
+                'error' => "Esta plantilla está declarada para firmantes: " . implode(', ', $firmantesPlant) . ". No puedes asignarla a un '$destTipo'. Usa otra plantilla o edita los firmantes de '" . $plant['slug'] . "' (admin_plantillas.php).",
+            ]);
+            exit;
+        }
+
         // Render HTML para hashearlo (lo guardamos como source de verdad)
         $html = contrato_render_template($plant['html_content'], $datos);
         $hash = contrato_hash_data($html);

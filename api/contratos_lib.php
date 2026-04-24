@@ -129,6 +129,101 @@ function contrato_send_otp_email(string $email, string $nombre, string $codigo, 
 }
 
 /**
+ * Devuelve la etiqueta <img> con el logo Tres Puntos embedido en base64.
+ * Funciona en Gmail, Apple Mail, iOS Mail, Yahoo. Outlook desktop → fallback al alt text.
+ *
+ * @param int $width Ancho en px (alto se calcula proporcional: logo original 280×107).
+ */
+function tp_email_logo_img(int $width = 124): string
+{
+    static $cached = null;
+    if ($cached === null) {
+        $pngPath = __DIR__ . '/../master/brand/logo-print.png';
+        $cached = file_exists($pngPath) ? base64_encode(file_get_contents($pngPath)) : '';
+    }
+    if (!$cached) {
+        // Fallback si no hay PNG: wordmark text styled
+        return '<span style="font-family:\'Plus Jakarta Sans\',Helvetica,Arial,sans-serif;font-size:13px;letter-spacing:.25em;font-weight:800;color:#0FA36C">TRES&nbsp;PUNTOS</span>';
+    }
+    $height = (int)round($width * 107 / 280);
+    return '<img src="data:image/png;base64,' . $cached . '" width="' . $width . '" height="' . $height . '" alt="Tres Puntos" style="display:block;width:' . $width . 'px;height:' . $height . 'px;border:0;outline:none">';
+}
+
+/**
+ * Valida DNI, NIE o CIF español. Devuelve ['valid'=>bool, 'type'=>'dni|nie|cif|null', 'reason'=>string]
+ *
+ * DNI: 8 dígitos + letra. Letra = TRWAGMYFPDXBNJZSQVHLCKE[num mod 23]
+ * NIE: X/Y/Z + 7 dígitos + letra. Se sustituye X=0, Y=1, Z=2, misma tabla de letras.
+ * CIF: letra tipo + 7 dígitos + carácter control.
+ *      Tipo válido: ABCDEFGHJNPQRSUVW. Control = letra si tipo ∈ {P,Q,R,S,N,W} o si tipo ∈ {A,B,E,H} (para organismos).
+ *      Algoritmo: suma pares + suma dígitos_impares*2 (sumando cifras del producto) → (10 - último dígito) mod 10
+ *      → letra si aplica: JABCDEFGHI
+ */
+function tp_validar_dni_nie_cif(string $input): array
+{
+    $s = strtoupper(trim(str_replace([' ', '-', '.'], '', $input)));
+    if ($s === '') return ['valid' => false, 'type' => null, 'reason' => 'Vacío'];
+
+    $letras = 'TRWAGMYFPDXBNJZSQVHLCKE';
+
+    // DNI: 8 dígitos + letra
+    if (preg_match('/^([0-9]{8})([A-Z])$/', $s, $m)) {
+        $num = (int)$m[1];
+        $letraEsperada = $letras[$num % 23];
+        if ($m[2] === $letraEsperada) return ['valid' => true, 'type' => 'dni', 'reason' => 'OK'];
+        return ['valid' => false, 'type' => 'dni', 'reason' => "Letra de DNI incorrecta (debería ser $letraEsperada)"];
+    }
+
+    // NIE: X/Y/Z + 7 dígitos + letra
+    if (preg_match('/^([XYZ])([0-9]{7})([A-Z])$/', $s, $m)) {
+        $prefijo = ['X' => '0', 'Y' => '1', 'Z' => '2'][$m[1]];
+        $num = (int)($prefijo . $m[2]);
+        $letraEsperada = $letras[$num % 23];
+        if ($m[3] === $letraEsperada) return ['valid' => true, 'type' => 'nie', 'reason' => 'OK'];
+        return ['valid' => false, 'type' => 'nie', 'reason' => "Letra de NIE incorrecta (debería ser $letraEsperada)"];
+    }
+
+    // CIF: letra + 7 dígitos + letra/dígito
+    if (preg_match('/^([ABCDEFGHJNPQRSUVW])([0-9]{7})([0-9A-J])$/', $s, $m)) {
+        $digits = $m[2];
+        $sumPares = 0; $sumImpares = 0;
+        for ($i = 0; $i < 7; $i++) {
+            $d = (int)$digits[$i];
+            if ($i % 2 === 0) {
+                $producto = $d * 2;
+                $sumImpares += ($producto > 9) ? ($producto - 9) : $producto;
+            } else {
+                $sumPares += $d;
+            }
+        }
+        $total = $sumPares + $sumImpares;
+        $lastDigit = $total % 10;
+        $controlNum = ($lastDigit === 0) ? 0 : (10 - $lastDigit);
+        $controlLetra = 'JABCDEFGHI'[$controlNum];
+
+        $tipo = $m[1];
+        $control = $m[3];
+        $ok = false;
+        // Organizaciones que exigen LETRA: P, Q, R, S, N, W
+        if (strpos('PQRSNW', $tipo) !== false) {
+            $ok = ($control === $controlLetra);
+        }
+        // Organizaciones que exigen DÍGITO: A, B, E, H
+        elseif (strpos('ABEH', $tipo) !== false) {
+            $ok = ($control === (string)$controlNum);
+        }
+        // Resto: acepta cualquiera de las dos
+        else {
+            $ok = ($control === $controlLetra) || ($control === (string)$controlNum);
+        }
+        if ($ok) return ['valid' => true, 'type' => 'cif', 'reason' => 'OK'];
+        return ['valid' => false, 'type' => 'cif', 'reason' => "Carácter de control CIF incorrecto (debería ser $controlLetra o $controlNum)"];
+    }
+
+    return ['valid' => false, 'type' => null, 'reason' => 'Formato no reconocido · esperado 12345678A (DNI), X1234567A (NIE) o A12345678 (CIF)'];
+}
+
+/**
  * Render del layout estándar Tres Puntos para TODOS los emails transaccionales.
  *
  * Cumplimiento email-safe:
@@ -216,10 +311,10 @@ function tp_render_email_layout(array $opts): string
     <tr><td align="center" style="padding:32px 16px 48px 16px">
         <table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:600px">
 
-            <!-- Header brand bar -->
+            <!-- Header brand bar con logo base64 (email-safe, Gmail/Apple/iOS; Outlook fallback alt) -->
             <tr><td style="padding:0 0 20px 0" align="left">
                 <table role="presentation" cellspacing="0" cellpadding="0" border="0"><tr>
-                    <td style="font-family:\'Plus Jakarta Sans\',Helvetica,Arial,sans-serif;font-size:11px;letter-spacing:.25em;font-weight:800;color:#0FA36C">TRES&nbsp;PUNTOS</td>
+                    <td>' . tp_email_logo_img(124) . '</td>
                 </tr></table>
             </td></tr>
 
