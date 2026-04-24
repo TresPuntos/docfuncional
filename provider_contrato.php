@@ -21,7 +21,8 @@ session_start();
 $token = trim($_GET['token'] ?? '');
 $contratoId = (int)($_GET['contrato_id'] ?? 0);
 
-if (!$token || !preg_match('/^[a-f0-9]{32}$/', $token) || !$contratoId) {
+// Mismo rango que provider.php para que cualquier token que pase el gate pase aquí.
+if (!$token || !preg_match('/^[a-f0-9]{24,48}$/i', $token) || !$contratoId) {
     http_response_code(400); echo 'Datos inválidos'; exit;
 }
 
@@ -56,14 +57,12 @@ $datosMeta = json_decode($contrato['datos_json'] ?: '{}', true) ?: [];
 $isPdfDirect = empty($contrato['plantilla_id']);
 $contrato['require_otp'] = $isPdfDirect ? (int)($datosMeta['require_otp'] ?? 0) : (int)($contrato['plant_require_otp'] ?? 0);
 
-if (!in_array($contrato['estado'], ['enviado','visto','firmado_parcial'], true) && $contrato['estado'] !== 'borrador') {
-    // Ya está firmado o expirado o rechazado
-    if ($contrato['estado'] === 'firmado') {
-        // Mostrar mensaje y descarga
-        $alreadySigned = true;
-    } else {
-        http_response_code(400); echo 'Este contrato no está pendiente de firma'; exit;
-    }
+if (!in_array($contrato['estado'], ['enviado','visto','firmado_parcial','firmado','borrador'], true)) {
+    // rechazado / expirado: caer al portal del proveedor sin hard-fail
+    $scheme = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http';
+    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    header('Location: ' . $scheme . '://' . $host . '/s/' . urlencode($token));
+    exit;
 }
 
 // Datos identidad de la sesión
@@ -91,10 +90,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     header('Content-Type: application/json; charset=utf-8');
     $action = $_POST['action'];
 
+    // Validar token no expirado
+    if (contrato_token_expired($contrato)) {
+        echo json_encode(['success' => false, 'error' => 'Este enlace de firma ha caducado. Contacta con Tres Puntos.']); exit;
+    }
+
     if ($action === 'request_otp') {
         if (!$firmaProveedor) { echo json_encode(['success' => false, 'error' => 'No slot']); exit; }
         $code = contrato_generate_otp();
-        contrato_store_otp($pdo, $firmaProveedor['id'], $code);
+        if (!contrato_store_otp($pdo, $firmaProveedor['id'], $code)) {
+            echo json_encode(['success' => false, 'error' => 'Espera unos segundos antes de solicitar otro código.']); exit;
+        }
         $sent = contrato_send_otp_email($identity['email'], $identity['nombre'], $code, $contrato['titulo']);
         contrato_log_evento($pdo, $contratoId, 'otp_enviado', $identity['email'], ['email' => $identity['email']]);
         echo json_encode(['success' => $sent]);
@@ -114,9 +120,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $otpInput   = trim($_POST['otp_code'] ?? '');
 
         if (!$trazo || !$consent) { echo json_encode(['success' => false, 'error' => 'Faltan datos']); exit; }
-        if (!$nombreFirma || !$emailFirma) { echo json_encode(['success' => false, 'error' => 'Faltan datos del firmante']); exit; }
+        if (!$nombreFirma || !$emailFirma || !filter_var($emailFirma, FILTER_VALIDATE_EMAIL)) {
+            echo json_encode(['success' => false, 'error' => 'Nombre y email válidos obligatorios']); exit;
+        }
 
-        // Si la plantilla requiere OTP, validar
+        // Trazo: validación formato/tamaño server-side
+        $trazoCheck = tp_validate_signature_trazo($trazo);
+        if (!$trazoCheck['ok']) { echo json_encode(['success' => false, 'error' => 'Firma no válida: ' . $trazoCheck['reason']]); exit; }
+
+        // DNI / NIE / CIF si se provee
+        if ($documentoFirma) {
+            $docCheck = tp_validar_dni_nie_cif($documentoFirma);
+            if (!$docCheck['valid']) {
+                echo json_encode(['success' => false, 'error' => 'Documento no válido: ' . $docCheck['reason']]); exit;
+            }
+            $documentoFirma = strtoupper(str_replace([' ', '-', '.'], '', $documentoFirma));
+        }
+
+        // Duración mínima + scroll mínimo (defensa server-side eIDAS contra bots/click instant)
+        $signingDuration = (int)($_POST['signing_duration_ms'] ?? 0);
+        $scrollDepth = (int)($_POST['scroll_depth_pct'] ?? 100);
+        if ($signingDuration < 3000) {
+            echo json_encode(['success' => false, 'error' => 'Por favor, tómate unos segundos para revisar el documento antes de firmar.']); exit;
+        }
+        if ($scrollDepth < 70) {
+            echo json_encode(['success' => false, 'error' => 'Debes leer el documento hasta el final antes de firmar.']); exit;
+        }
+
         if ($contrato['require_otp']) {
             if (!contrato_verify_otp($pdo, $firmaProveedor['id'], $otpInput)) {
                 echo json_encode(['success' => false, 'error' => 'Código OTP incorrecto o expirado']);
@@ -130,34 +160,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $now = gmdate('Y-m-d H:i:s');
         $hashFirma = hash('sha256', $contrato['hash_documento'] . $emailFirma . $now . $ip . random_bytes(16));
 
-        $pdo->prepare("UPDATE contratos_firmas SET
-            firmante_nombre = ?, firmante_email = ?, firmante_documento = ?, firmante_cargo = ?,
-            firma_trazo_base64 = ?, firma_hash = ?, ip = ?, geoip_country = ?, user_agent = ?,
-            consent_texto = ?, consent_aceptado = 1, signing_method = ?,
-            signing_duration_ms = ?, scroll_depth_pct = ?,
-            server_timestamp_utc = ?, client_timestamp = ?,
-            firmado_at = datetime('now')
-            WHERE id = ?")
-            ->execute([
+        // TRANSACCIÓN atómica
+        try {
+            $pdo->beginTransaction();
+            $upd = $pdo->prepare("UPDATE contratos_firmas SET
+                firmante_nombre = ?, firmante_email = ?, firmante_documento = ?, firmante_cargo = ?,
+                firma_trazo_base64 = ?, firma_hash = ?, ip = ?, geoip_country = ?, user_agent = ?,
+                consent_texto = ?, consent_aceptado = 1, signing_method = ?,
+                signing_duration_ms = ?, scroll_depth_pct = ?,
+                server_timestamp_utc = ?, client_timestamp = ?,
+                firmado_at = datetime('now')
+                WHERE id = ? AND firmado_at IS NULL");
+            $upd->execute([
                 $nombreFirma, $emailFirma, $documentoFirma ?: null, $cargoFirma ?: null,
                 $trazo, $hashFirma, $ip, contrato_resolve_country($ip), $ua,
                 $consentText,
                 $contrato['require_otp'] ? 'trazo+otp' : 'trazo',
-                (int)($_POST['signing_duration_ms'] ?? 0),
-                (int)($_POST['scroll_depth_pct'] ?? 100),
+                $signingDuration, $scrollDepth,
                 $now, $_POST['client_timestamp'] ?? null,
                 $firmaProveedor['id'],
             ]);
-        contrato_log_evento($pdo, $contratoId, 'firmado_proveedor', $emailFirma);
+            if ($upd->rowCount() === 0) { $pdo->rollBack(); echo json_encode(['success' => false, 'error' => 'La firma ya se registró por otra vía']); exit; }
 
-        // Si todas las firmas completas → genera PDF final inline (NO incluir admin_contratos.php porque re-ejecuta config)
-        $pendientes = $pdo->prepare("SELECT COUNT(*) FROM contratos_firmas WHERE contrato_id = ? AND firmado_at IS NULL");
-        $pendientes->execute([$contratoId]);
-        $completed = (int)$pendientes->fetchColumn() === 0;
+            $pendientes = $pdo->prepare("SELECT COUNT(*) FROM contratos_firmas WHERE contrato_id = ? AND firmado_at IS NULL");
+            $pendientes->execute([$contratoId]);
+            $completed = (int)$pendientes->fetchColumn() === 0;
+            if (!$completed) {
+                $pdo->prepare("UPDATE contratos SET estado = 'firmado_parcial' WHERE id = ?")->execute([$contratoId]);
+            }
+            $pdo->commit();
+        } catch (\Throwable $ex) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            error_log('provider_contrato firma fallida: ' . $ex->getMessage());
+            echo json_encode(['success' => false, 'error' => 'Error interno al registrar firma']); exit;
+        }
+
+        contrato_log_evento($pdo, $contratoId, 'firmado_proveedor', $emailFirma);
         if ($completed) {
             _provider_generar_pdf_final_inline($pdo, $contratoId);
-        } else {
-            $pdo->prepare("UPDATE contratos SET estado = 'firmado_parcial' WHERE id = ?")->execute([$contratoId]);
         }
 
         echo json_encode(['success' => true, 'completed' => $completed, 'redirect' => '/s/' . $token]);
@@ -345,14 +385,9 @@ canvas#sigPad { display:block; width:100%; height:220px; touch-action:none; curs
         Firmado el <?= date('d/m/Y H:i', strtotime($firmaProveedor['firmado_at'])) ?> · IP <?= htmlspecialchars($firmaProveedor['ip'] ?? '', ENT_QUOTES, 'UTF-8') ?></div>
         <div style="margin-top:.5rem;color:var(--text-muted)">
             <?php
-            $tpPend = null;
-            foreach ($firmasView ?? [] as $fv) { if ($fv['rol']==='tp') { $tpPend = $fv; break; } }
-            // También consultamos directamente por si firmasView no está
-            if (!$tpPend) {
-                $tpQ = $pdo->prepare("SELECT firmante_nombre, firmado_at FROM contratos_firmas WHERE contrato_id = ? AND rol = 'tp'");
-                $tpQ->execute([$contratoId]);
-                $tpPend = $tpQ->fetch(PDO::FETCH_ASSOC);
-            }
+            $tpQ = $pdo->prepare("SELECT firmante_nombre, firmado_at FROM contratos_firmas WHERE contrato_id = ? AND rol = 'tp'");
+            $tpQ->execute([$contratoId]);
+            $tpPend = $tpQ->fetch(PDO::FETCH_ASSOC);
             ?>
             <b>Falta por firmar</b> · <?= htmlspecialchars($tpPend['firmante_nombre'] ?? 'Tres Puntos', ENT_QUOTES, 'UTF-8') ?>
             <?= empty($tpPend['firmado_at']) ? ' · ⏳ pendiente' : '' ?>

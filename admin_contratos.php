@@ -69,6 +69,12 @@ if (isset($_GET['download_pdf'])) {
 // ====================================================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     header('Content-Type: application/json; charset=utf-8');
+
+    // CSRF: todas las acciones mutadoras requieren token válido
+    if (!tp_csrf_check('admin_contratos', $_POST['csrf_token'] ?? null)) {
+        echo json_encode(['success' => false, 'error' => 'CSRF token inválido. Recarga la página.']); exit;
+    }
+
     $action = $_POST['action'];
 
     if ($action === 'create_from_plantilla') {
@@ -101,13 +107,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         // Render HTML para hashearlo (lo guardamos como source de verdad)
         $html = contrato_render_template($plant['html_content'], $datos);
         $hash = contrato_hash_data($html);
+        $signingToken = bin2hex(random_bytes(16));
 
         $pdo->prepare("INSERT INTO contratos
-            (plantilla_id, propuesta_id, destinatario_tipo, destinatario_id, titulo, datos_json, estado, hash_documento, expira_at)
-            VALUES (?, ?, ?, ?, ?, ?, 'borrador', ?, datetime('now', '+' || ? || ' days'))")
+            (plantilla_id, propuesta_id, destinatario_tipo, destinatario_id, titulo, datos_json, estado, hash_documento, expira_at, signing_token, signing_token_expires_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'borrador', ?, datetime('now', '+' || ? || ' days'), ?, datetime('now', '+' || ? || ' days'))")
             ->execute([
                 $plantillaId, $propuestaId, $destTipo, $destId, $titulo,
                 json_encode($datos, JSON_UNESCAPED_UNICODE), $hash, SIGN_CONTRACT_EXPIRES_DAYS,
+                $signingToken, SIGN_CONTRACT_EXPIRES_DAYS,
             ]);
         $contratoId = (int)$pdo->lastInsertId();
         contrato_log_evento($pdo, $contratoId, 'creado', 'admin', ['plantilla' => $plant['slug']]);
@@ -177,18 +185,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         if (empty($_FILES['pdf']) || $_FILES['pdf']['error'] !== UPLOAD_ERR_OK) {
             echo json_encode(['success' => false, 'error' => 'Sube un archivo PDF válido']); exit;
         }
-        if ($_FILES['pdf']['type'] !== 'application/pdf' && !str_ends_with(strtolower($_FILES['pdf']['name']), '.pdf')) {
-            echo json_encode(['success' => false, 'error' => 'El archivo debe ser PDF']); exit;
-        }
         if ($_FILES['pdf']['size'] > 20 * 1024 * 1024) {
             echo json_encode(['success' => false, 'error' => 'El PDF no puede superar 20 MB']); exit;
         }
+        // Validación de tipo REAL con finfo + magic bytes (no confiar en $_FILES[..]['type'] ni extensión)
+        $realMime = function_exists('finfo_file')
+            ? finfo_file(finfo_open(FILEINFO_MIME_TYPE), $_FILES['pdf']['tmp_name'])
+            : mime_content_type($_FILES['pdf']['tmp_name']);
+        if ($realMime !== 'application/pdf') {
+            echo json_encode(['success' => false, 'error' => 'El archivo no es un PDF válido (detectado: ' . e($realMime ?: 'desconocido') . ')']); exit;
+        }
+        $head = file_get_contents($_FILES['pdf']['tmp_name'], false, null, 0, 5);
+        if ($head !== '%PDF-') {
+            echo json_encode(['success' => false, 'error' => 'El archivo no parece un PDF (magic bytes incorrectos)']); exit;
+        }
 
-        // Insertar registro sin plantilla_id
+        // Insertar registro sin plantilla_id (con signing_token)
+        $signingToken = bin2hex(random_bytes(16));
         $pdo->prepare("INSERT INTO contratos
-            (plantilla_id, propuesta_id, destinatario_tipo, destinatario_id, titulo, datos_json, estado, hash_documento, expira_at)
-            VALUES (NULL, ?, ?, ?, ?, NULL, 'borrador', '', datetime('now', '+' || ? || ' days'))")
-            ->execute([$propuestaId, $destTipo, $destId, $titulo, SIGN_CONTRACT_EXPIRES_DAYS]);
+            (plantilla_id, propuesta_id, destinatario_tipo, destinatario_id, titulo, datos_json, estado, hash_documento, expira_at, signing_token, signing_token_expires_at)
+            VALUES (NULL, ?, ?, ?, ?, NULL, 'borrador', '', datetime('now', '+' || ? || ' days'), ?, datetime('now', '+' || ? || ' days'))")
+            ->execute([$propuestaId, $destTipo, $destId, $titulo, SIGN_CONTRACT_EXPIRES_DAYS, $signingToken, SIGN_CONTRACT_EXPIRES_DAYS]);
         $contratoId = (int)$pdo->lastInsertId();
 
         // Guardar el PDF subido
@@ -261,16 +278,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $ctr = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$ctr) { echo json_encode(['success' => false, 'error' => 'No existe']); exit; }
 
+        // Máquina de estados: solo permitimos enviar desde borrador o re-enviar desde enviado/visto.
+        // NUNCA desde firmado / firmado_parcial / rechazado / expirado.
+        if (!in_array($ctr['estado'], ['borrador','enviado','visto'], true)) {
+            echo json_encode(['success' => false, 'error' => 'No se puede enviar desde el estado actual (' . $ctr['estado'] . ')']); exit;
+        }
+
         // Asegurar signing_token (por si el contrato se creó antes de la migración)
         if (empty($ctr['signing_token'])) {
             $tok = bin2hex(random_bytes(16));
-            $pdo->prepare("UPDATE contratos SET signing_token = ? WHERE id = ?")->execute([$tok, $id]);
+            $pdo->prepare("UPDATE contratos SET signing_token = ?, signing_token_expires_at = datetime('now', '+' || ? || ' days') WHERE id = ?")
+                ->execute([$tok, SIGN_CONTRACT_EXPIRES_DAYS, $id]);
             $ctr['signing_token'] = $tok;
         }
 
-        // CASO A · PDF directo: no regenera v0
+        // CASO A · PDF directo: no regenera v0 (solo bumpea a 'enviado' si estaba en borrador)
         if (empty($ctr['plantilla_id'])) {
-            $pdo->prepare("UPDATE contratos SET estado = 'enviado', enviado_at = datetime('now') WHERE id = ?")->execute([$id]);
+            if ($ctr['estado'] === 'borrador') {
+                $pdo->prepare("UPDATE contratos SET estado = 'enviado', enviado_at = datetime('now') WHERE id = ?")->execute([$id]);
+            }
             contrato_log_evento($pdo, $id, 'enviado', 'admin', ['modo' => 'pdf_direct']);
         } else {
             // CASO B · Plantilla HTML: generamos v0 sin firmas
@@ -284,8 +310,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $pdfPath = $dir . '/v0_sin_firmar.pdf';
             contrato_generate_pdf($html, [], ['titulo' => $ctr['titulo'], 'tipo' => $plant['tipo'], 'hash_documento' => $ctr['hash_documento']], $pdfPath);
             $relPath = 'uploads/contratos/' . $id . '/v0_sin_firmar.pdf';
-            $pdo->prepare("UPDATE contratos SET pdf_sin_firmar_path = ?, estado = 'enviado', enviado_at = datetime('now') WHERE id = ?")
-                ->execute([$relPath, $id]);
+            if ($ctr['estado'] === 'borrador') {
+                $pdo->prepare("UPDATE contratos SET pdf_sin_firmar_path = ?, estado = 'enviado', enviado_at = datetime('now') WHERE id = ?")
+                    ->execute([$relPath, $id]);
+            } else {
+                $pdo->prepare("UPDATE contratos SET pdf_sin_firmar_path = ? WHERE id = ?")
+                    ->execute([$relPath, $id]);
+            }
             contrato_log_evento($pdo, $id, 'enviado', 'admin');
         }
 
@@ -373,31 +404,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $consent = !empty($_POST['consent']);
         if (!$id || !$trazo || !$consent) { echo json_encode(['success' => false, 'error' => 'Faltan datos']); exit; }
 
+        // Validar trazo (tamaño + formato PNG real)
+        $trazoCheck = tp_validate_signature_trazo($trazo);
+        if (!$trazoCheck['ok']) { echo json_encode(['success' => false, 'error' => 'Firma no válida: ' . $trazoCheck['reason']]); exit; }
+
         $ctr = $pdo->prepare("SELECT * FROM contratos WHERE id = ?");
         $ctr->execute([$id]);
         $ctr = $ctr->fetch(PDO::FETCH_ASSOC);
         if (!$ctr) { echo json_encode(['success' => false, 'error' => 'No existe']); exit; }
 
-        // Buscar slot 'tp' sin firmar
-        $tpFirma = $pdo->prepare("SELECT * FROM contratos_firmas WHERE contrato_id = ? AND rol = 'tp' AND firmado_at IS NULL");
-        $tpFirma->execute([$id]);
-        $f = $tpFirma->fetch(PDO::FETCH_ASSOC);
-        if (!$f) { echo json_encode(['success' => false, 'error' => 'No hay slot de firma TP pendiente']); exit; }
+        // Solo firmable si está en estado que permita firma
+        if (!in_array($ctr['estado'], ['enviado','visto','firmado_parcial'], true)) {
+            echo json_encode(['success' => false, 'error' => 'No se puede firmar en el estado actual (' . $ctr['estado'] . ')']); exit;
+        }
 
-        $consentText = contrato_consent_text($ctr['titulo']);
-        $ip = contrato_client_ip();
-        $ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
-        $now = gmdate('Y-m-d H:i:s');
-        $hashFirma = hash('sha256', $ctr['hash_documento'] . ($f['firmante_email'] ?: TP_FIRMANTE_EMAIL) . $now . $ip . random_bytes(16));
+        // TRANSACCIÓN: todo el bloque de firma + check pendientes + generación PDF
+        // debe ser atómico para evitar race conditions (2 firmas concurrentes → doble PDF).
+        try {
+            $pdo->beginTransaction();
+            // Buscar slot 'tp' sin firmar
+            $tpFirma = $pdo->prepare("SELECT * FROM contratos_firmas WHERE contrato_id = ? AND rol = 'tp' AND firmado_at IS NULL");
+            $tpFirma->execute([$id]);
+            $f = $tpFirma->fetch(PDO::FETCH_ASSOC);
+            if (!$f) { $pdo->rollBack(); echo json_encode(['success' => false, 'error' => 'No hay slot de firma TP pendiente']); exit; }
 
-        $pdo->prepare("UPDATE contratos_firmas SET
-            firma_trazo_base64 = ?, firma_hash = ?, ip = ?, geoip_country = ?, user_agent = ?,
-            consent_texto = ?, consent_aceptado = 1, signing_method = 'trazo',
-            signing_duration_ms = ?, scroll_depth_pct = ?,
-            server_timestamp_utc = ?, client_timestamp = ?,
-            firmado_at = datetime('now')
-            WHERE id = ?")
-            ->execute([
+            $consentText = contrato_consent_text($ctr['titulo']);
+            $ip = contrato_client_ip();
+            $ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
+            $now = gmdate('Y-m-d H:i:s');
+            $hashFirma = hash('sha256', $ctr['hash_documento'] . ($f['firmante_email'] ?: TP_FIRMANTE_EMAIL) . $now . $ip . random_bytes(16));
+
+            $upd = $pdo->prepare("UPDATE contratos_firmas SET
+                firma_trazo_base64 = ?, firma_hash = ?, ip = ?, geoip_country = ?, user_agent = ?,
+                consent_texto = ?, consent_aceptado = 1, signing_method = 'trazo',
+                signing_duration_ms = ?, scroll_depth_pct = ?,
+                server_timestamp_utc = ?, client_timestamp = ?,
+                firmado_at = datetime('now')
+                WHERE id = ? AND firmado_at IS NULL");
+            $upd->execute([
                 $trazo, $hashFirma, $ip, contrato_resolve_country($ip), $ua,
                 $consentText,
                 (int)($_POST['signing_duration_ms'] ?? 0),
@@ -405,17 +449,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $now, $_POST['client_timestamp'] ?? null,
                 $f['id'],
             ]);
+            if ($upd->rowCount() === 0) { $pdo->rollBack(); echo json_encode(['success' => false, 'error' => 'La firma ya se registró por otra vía']); exit; }
+
+            $pendientes = $pdo->prepare("SELECT COUNT(*) FROM contratos_firmas WHERE contrato_id = ? AND firmado_at IS NULL");
+            $pendientes->execute([$id]);
+            $completed = (int)$pendientes->fetchColumn() === 0;
+            if (!$completed) {
+                $pdo->prepare("UPDATE contratos SET estado = 'firmado_parcial' WHERE id = ?")->execute([$id]);
+            }
+            $pdo->commit();
+        } catch (\Throwable $ex) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            echo json_encode(['success' => false, 'error' => 'Error interno al registrar firma']); exit;
+        }
 
         contrato_log_evento($pdo, $id, 'firmado_tp', TP_FIRMANTE_EMAIL);
 
-        // Verificar si todas las firmas están completas → genera PDF final
-        $pendientes = $pdo->prepare("SELECT COUNT(*) FROM contratos_firmas WHERE contrato_id = ? AND firmado_at IS NULL");
-        $pendientes->execute([$id]);
-        if ((int)$pendientes->fetchColumn() === 0) {
+        if ($completed) {
+            // Generación PDF fuera de la transacción (TSA puede tardar 8s)
             $finalPath = generar_pdf_final($pdo, $id);
             echo json_encode(['success' => true, 'completed' => true, 'final_pdf' => $finalPath]);
         } else {
-            $pdo->prepare("UPDATE contratos SET estado = 'firmado_parcial' WHERE id = ?")->execute([$id]);
             echo json_encode(['success' => true, 'completed' => false]);
         }
         exit;
@@ -423,7 +477,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
     if ($action === 'delete_contrato') {
         $id = (int)($_POST['contrato_id'] ?? 0);
+        // No permitimos borrar contratos firmados (retención legal 6 años)
+        $estado = $pdo->prepare("SELECT estado FROM contratos WHERE id = ?");
+        $estado->execute([$id]);
+        $st = $estado->fetchColumn();
+        if (!$st) { echo json_encode(['success' => false, 'error' => 'No existe']); exit; }
+        if ($st === 'firmado') {
+            echo json_encode(['success' => false, 'error' => 'No se puede borrar un contrato firmado. Arquívalo en su lugar.']); exit;
+        }
         $pdo->prepare("DELETE FROM contratos WHERE id = ?")->execute([$id]);
+        // Limpieza archivos asociados
+        $dir = __DIR__ . '/uploads/contratos/' . $id;
+        if (is_dir($dir)) {
+            foreach (glob($dir . '/*') as $f) @unlink($f);
+            @rmdir($dir);
+        }
+        contrato_log_evento($pdo, $id, 'borrado', 'admin', ['estado_previo' => $st]);
         echo json_encode(['success' => true]);
         exit;
     }
@@ -546,6 +615,8 @@ if ($contratoIdView) {
         $eventosView = $ev->fetchAll(PDO::FETCH_ASSOC);
     }
 }
+
+$csrfToken = tp_csrf_token('admin_contratos');
 
 // KPIs
 $kpis = [
@@ -861,11 +932,9 @@ if ($contratoIdView && $contratoView) {
             // Link público de firma (válido para cualquier destinatario)
             $signUrl = '/sign.php?token=' . urlencode($contratoView['signing_token'] ?? '');
             $destSlotEmail = '';
-            $destSlotName = '';
             foreach ($firmasView as $fv) {
                 if ($fv['rol'] === $contratoView['destinatario_tipo']) {
                     $destSlotEmail = $fv['firmante_email'] ?? '';
-                    $destSlotName = $fv['firmante_nombre'] ?? '';
                     break;
                 }
             }
@@ -1128,6 +1197,7 @@ if ($contratoIdView && $contratoView) {
 <script src="https://unpkg.com/lucide@latest"></script>
 <script>
 lucide.createIcons();
+const CSRF_TOKEN = <?= json_encode($csrfToken) ?>;
 
 // Modal create
 function openCreateModal(){ document.getElementById('createModal').classList.add('open'); }
@@ -1151,6 +1221,7 @@ async function submitCreatePdf(ev){
     const form = document.getElementById('createPdfForm');
     const fd = new FormData(form);
     fd.append('action', 'create_from_pdf');
+    fd.append('csrf_token', CSRF_TOKEN);
     const dest = fd.get('destinatario_id');
     if (dest && dest.startsWith('prov:')) {
         fd.set('destinatario_tipo', 'proveedor');
@@ -1205,6 +1276,7 @@ async function submitCreate(ev){
     const fd = new FormData(form);
     const body = new FormData();
     body.append('action', 'create_from_plantilla');
+    body.append('csrf_token', CSRF_TOKEN);
     body.append('plantilla_id', fd.get('plantilla_id'));
     body.append('titulo', fd.get('titulo'));
     if (fd.get('propuesta_id')) body.append('propuesta_id', fd.get('propuesta_id'));
@@ -1236,6 +1308,7 @@ async function sendToSigner(id){
     }
     const fd = new FormData();
     fd.append('action', 'send_to_signer');
+    fd.append('csrf_token', CSRF_TOKEN);
     fd.append('contrato_id', id);
     if (email) fd.append('force_email', email);
     const res = await fetch('admin_contratos.php', { method:'POST', body:fd });
@@ -1268,6 +1341,7 @@ async function resendEmail(id){
     if (!email) { alert('Escribe el email primero'); return; }
     const fd = new FormData();
     fd.append('action', 'resend_email');
+    fd.append('csrf_token', CSRF_TOKEN);
     fd.append('contrato_id', id);
     fd.append('email', email);
     const res = await fetch('admin_contratos.php', { method:'POST', body:fd });
@@ -1320,6 +1394,7 @@ async function submitSignAsTp(){
     const trazo = sigCanvas.toDataURL('image/png');
     const fd = new FormData();
     fd.append('action', 'sign_as_tp');
+    fd.append('csrf_token', CSRF_TOKEN);
     fd.append('contrato_id', sigContratoId);
     fd.append('trazo_base64', trazo);
     fd.append('consent', '1');

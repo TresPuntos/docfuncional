@@ -7,6 +7,13 @@
 require __DIR__ . '/../config.php';
 $pdo = getDBConnection();
 
+// Guard: si la tabla 'contratos' no existe, avisar y abortar (orden de migración)
+$exists = $pdo->query("SELECT name FROM sqlite_master WHERE type='table' AND name='contratos'")->fetchColumn();
+if (!$exists) {
+    echo "⚠ La tabla 'contratos' no existe. Ejecuta primero database/migrate_contratos.php\n";
+    exit(1);
+}
+
 // Añadir columna si no existe
 $cols = $pdo->query("PRAGMA table_info(contratos)")->fetchAll(PDO::FETCH_ASSOC);
 $has = false;

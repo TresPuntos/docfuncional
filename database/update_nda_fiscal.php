@@ -279,19 +279,38 @@ $newVars = [
     ['name' => 'fecha_contrato', 'label' => 'Fecha del contrato', 'type' => 'date'],
 ];
 
-// Update plantilla
-$pdo->prepare("UPDATE contratos_plantillas SET
-    html_content = ?, variables_json = ?, version = version + 1, updated_at = CURRENT_TIMESTAMP
-    WHERE slug = 'nda-subcontratacion-tp'")
-    ->execute([$newHtml, json_encode($newVars, JSON_UNESCAPED_UNICODE)]);
-echo "✓ Plantilla nda-subcontratacion-tp actualizada con bloque Identificación de las partes\n";
+// Update plantilla — solo bumpea versión si el HTML ha cambiado (idempotente)
+$prev = $pdo->prepare("SELECT html_content FROM contratos_plantillas WHERE slug = 'nda-subcontratacion-tp'");
+$prev->execute();
+$prevHtml = $prev->fetchColumn();
+if ($prevHtml === $newHtml) {
+    echo "= Plantilla nda-subcontratacion-tp ya está al día (no bump)\n";
+} elseif ($prevHtml === false) {
+    echo "⚠ Plantilla nda-subcontratacion-tp no existe. Ejecuta antes seed_contratos.php\n";
+} else {
+    $pdo->prepare("UPDATE contratos_plantillas SET
+        html_content = ?, variables_json = ?, version = version + 1, updated_at = CURRENT_TIMESTAMP
+        WHERE slug = 'nda-subcontratacion-tp'")
+        ->execute([$newHtml, json_encode($newVars, JSON_UNESCAPED_UNICODE)]);
+    echo "✓ Plantilla nda-subcontratacion-tp actualizada con bloque Identificación de las partes\n";
+}
 
 // ====================================================================
-//   Actualizar contrato id=1 (TEST AcmeDev) con los datos REALES de Truman
+//   Actualizar contrato id=1 (TEST Truman) — solo si matchea Truman por datos fiscales
 // ====================================================================
-$stmt = $pdo->prepare("SELECT id, titulo FROM contratos WHERE id = 1");
+$stmt = $pdo->prepare("SELECT id, titulo, datos_json FROM contratos WHERE id = 1");
 $stmt->execute();
 $c = $stmt->fetch(PDO::FETCH_ASSOC);
+$currentDatos = $c ? (json_decode($c['datos_json'] ?: '{}', true) ?: []) : [];
+$looksLikeTruman = $c && (
+    (isset($currentDatos['proveedor_cif']) && $currentDatos['proveedor_cif'] === 'B13750906') ||
+    stripos($c['titulo'] ?? '', 'truman') !== false ||
+    stripos($c['titulo'] ?? '', 'acme') !== false  // contrato test original
+);
+if ($c && !$looksLikeTruman) {
+    echo "⚠ Contrato id=1 NO parece ser Truman (titulo: " . ($c['titulo'] ?? '?') . "). NO se modifica para evitar corrupción.\n";
+    $c = null; // aborta bloque siguiente
+}
 if ($c) {
     $datosTruman = [
         'titulo_contrato' => 'Contrato de subcontratación',

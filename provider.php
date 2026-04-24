@@ -244,6 +244,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['pin'])) {
     }
 
     if (!$loginErrors) {
+        // Regenerar ID de sesión tras elevar privilegios (prevención de session fixation)
+        session_regenerate_id(true);
         $_SESSION[$sessKey] = true;
         // Guardar identidad (aunque el provider ya la tenga en DB, dejamos el nombre elegido ahora por si lo editó)
         $_SESSION['provider_identity_' . $token] = [

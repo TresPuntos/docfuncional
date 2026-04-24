@@ -31,19 +31,26 @@ function contrato_render_template(string $html, array $data): string
         if ($val === '' || $val === null) return '';
         switch ($mod) {
             case 'money':
-                return number_format((float)$val, 2, ',', '.') . ' €';
+                $out = number_format((float)$val, 2, ',', '.') . ' €';
+                break;
             case 'date':
                 $ts = strtotime((string)$val);
-                if ($ts === false) return (string)$val;
+                if ($ts === false) { $out = (string)$val; break; }
                 $meses = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
-                return date('j', $ts) . ' de ' . $meses[(int)date('n', $ts) - 1] . ' de ' . date('Y', $ts);
+                $out = date('j', $ts) . ' de ' . $meses[(int)date('n', $ts) - 1] . ' de ' . date('Y', $ts);
+                break;
             case 'upper':
-                return mb_strtoupper((string)$val, 'UTF-8');
+                $out = mb_strtoupper((string)$val, 'UTF-8');
+                break;
             case 'lower':
-                return mb_strtolower((string)$val, 'UTF-8');
+                $out = mb_strtolower((string)$val, 'UTF-8');
+                break;
             default:
-                return htmlspecialchars((string)$val, ENT_QUOTES, 'UTF-8');
+                $out = (string)$val;
         }
+        // Escape uniforme para TODOS los modificadores (las plantillas nunca deben
+        // renderizar HTML desde variables — solo texto literal).
+        return htmlspecialchars($out, ENT_QUOTES, 'UTF-8');
     }, $html);
 }
 
@@ -139,7 +146,12 @@ function tp_email_logo_img(int $width = 124): string
     static $cached = null;
     if ($cached === null) {
         $pngPath = __DIR__ . '/../master/brand/logo-print.png';
-        $cached = file_exists($pngPath) ? base64_encode(file_get_contents($pngPath)) : '';
+        if (file_exists($pngPath) && is_readable($pngPath)) {
+            $raw = @file_get_contents($pngPath);
+            $cached = $raw !== false ? base64_encode($raw) : '';
+        } else {
+            $cached = '';
+        }
     }
     if (!$cached) {
         // Fallback si no hay PNG: wordmark text styled
@@ -184,7 +196,8 @@ function tp_validar_dni_nie_cif(string $input): array
     }
 
     // CIF: letra + 7 dígitos + letra/dígito
-    if (preg_match('/^([ABCDEFGHJNPQRSUVW])([0-9]{7})([0-9A-J])$/', $s, $m)) {
+    // K (menores de edad) y L (residentes no-E) admitidos como válidos aunque raros.
+    if (preg_match('/^([ABCDEFGHJKLNPQRSUVW])([0-9]{7})([0-9A-J])$/', $s, $m)) {
         $digits = $m[2];
         $sumPares = 0; $sumImpares = 0;
         for ($i = 0; $i < 7; $i++) {
@@ -204,8 +217,8 @@ function tp_validar_dni_nie_cif(string $input): array
         $tipo = $m[1];
         $control = $m[3];
         $ok = false;
-        // Organizaciones que exigen LETRA: P, Q, R, S, N, W
-        if (strpos('PQRSNW', $tipo) !== false) {
+        // Organizaciones que exigen LETRA: P, Q, R, S, N, W, K (menores), L (residentes)
+        if (strpos('PQRSNWKL', $tipo) !== false) {
             $ok = ($control === $controlLetra);
         }
         // Organizaciones que exigen DÍGITO: A, B, E, H
@@ -376,13 +389,17 @@ function tp_parse_email_list(string $raw): array
 {
     $parts = preg_split('/[\s,;]+/', trim($raw), -1, PREG_SPLIT_NO_EMPTY) ?: [];
     $valid = []; $invalid = [];
+    $seen = [];
     foreach ($parts as $p) {
         $p = trim($p);
         if ($p === '') continue;
-        if (filter_var($p, FILTER_VALIDATE_EMAIL)) $valid[] = $p;
-        else $invalid[] = $p;
+        if (filter_var($p, FILTER_VALIDATE_EMAIL)) {
+            $key = strtolower($p);
+            if (!isset($seen[$key])) { $valid[] = $p; $seen[$key] = true; }
+        } else {
+            $invalid[] = $p;
+        }
     }
-    $valid = array_values(array_unique($valid));
     return ['valid' => $valid, 'invalid' => $invalid];
 }
 
@@ -439,31 +456,65 @@ function contrato_send_invite_email($emails, string $nombre, string $titulo, str
     ]);
 }
 
-function contrato_store_otp(PDO $pdo, int $firmaId, string $codigo): void
+/**
+ * Guarda un OTP en BD como HASH SHA256 (nunca plaintext).
+ * Devuelve false si ha habido una petición reciente (<30s) — rate-limit básico
+ * contra flooding del inbox del firmante.
+ */
+function contrato_store_otp(PDO $pdo, int $firmaId, string $codigo): bool
 {
     $ttlMin = SIGN_OTP_TTL_MINUTES;
+    // Rate-limit: bloquea generación si la última fue hace <30s
+    $prev = $pdo->prepare("SELECT otp_last_attempt_at FROM contratos_firmas WHERE id = ?");
+    $prev->execute([$firmaId]);
+    $last = $prev->fetchColumn();
+    if ($last && (time() - strtotime($last)) < 30) {
+        return false;
+    }
+    $hash = hash('sha256', $codigo);
     $stmt = $pdo->prepare("
         UPDATE contratos_firmas
-        SET otp_code = ?,
-            otp_expires_at = datetime('now', '+' || ? || ' minutes')
+        SET otp_hash = ?,
+            otp_code = NULL,
+            otp_expires_at = datetime('now', '+' || ? || ' minutes'),
+            otp_attempts = 0,
+            otp_last_attempt_at = datetime('now')
         WHERE id = ?
     ");
-    $stmt->execute([$codigo, $ttlMin, $firmaId]);
+    $stmt->execute([$hash, $ttlMin, $firmaId]);
+    return true;
 }
 
+/**
+ * Verifica el OTP introducido por el firmante.
+ *   - Max 5 intentos fallidos antes de bloquear (hasta que se genere uno nuevo).
+ *   - Al éxito, INVALIDA el OTP para que no se pueda reutilizar.
+ */
 function contrato_verify_otp(PDO $pdo, int $firmaId, string $codigoIntroducido): bool
 {
     $stmt = $pdo->prepare("
-        SELECT otp_code, otp_expires_at
+        SELECT otp_hash, otp_code, otp_expires_at, otp_attempts
         FROM contratos_firmas
         WHERE id = ?
     ");
     $stmt->execute([$firmaId]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
-    if (!$row || !$row['otp_code']) return false;
-    if (strtotime($row['otp_expires_at']) < time()) return false;
-    if (!hash_equals($row['otp_code'], trim($codigoIntroducido))) return false;
-    $pdo->prepare("UPDATE contratos_firmas SET otp_verified_at = datetime('now') WHERE id = ?")->execute([$firmaId]);
+    if (!$row) return false;
+
+    // Bloqueo tras 5 intentos fallidos: obliga a pedir nuevo OTP
+    if ((int)($row['otp_attempts'] ?? 0) >= 5) return false;
+
+    $expected = $row['otp_hash'] ?: ($row['otp_code'] ? hash('sha256', $row['otp_code']) : null);
+    if (!$expected) return false;
+    if (empty($row['otp_expires_at']) || strtotime($row['otp_expires_at']) < time()) return false;
+
+    $provided = hash('sha256', trim($codigoIntroducido));
+    if (!hash_equals($expected, $provided)) {
+        $pdo->prepare("UPDATE contratos_firmas SET otp_attempts = COALESCE(otp_attempts,0) + 1 WHERE id = ?")->execute([$firmaId]);
+        return false;
+    }
+    // Éxito: invalidar OTP (no reutilizable) + marcar verificado
+    $pdo->prepare("UPDATE contratos_firmas SET otp_verified_at = datetime('now'), otp_hash = NULL, otp_code = NULL, otp_expires_at = NULL WHERE id = ?")->execute([$firmaId]);
     return true;
 }
 
@@ -478,6 +529,12 @@ function contrato_verify_otp(PDO $pdo, int $firmaId, string $codigoIntroducido):
 function contrato_request_tsa_timestamp(string $hash): ?string
 {
     if (!SIGN_TSA_ENABLED) return null;
+    // Defensa en profundidad: aunque el hash ya viene de hash_file('sha256',...),
+    // validamos que sea exactamente 64 chars hex antes de pasarlo a exec().
+    if (!ctype_xdigit($hash) || strlen($hash) !== 64) {
+        error_log('contrato_request_tsa_timestamp: hash no hexadecimal, abortando');
+        return null;
+    }
     // Generar TSQ (timestamp request) con OpenSSL CLI
     $tmpQ = tempnam(sys_get_temp_dir(), 'tsq');
     $tmpR = tempnam(sys_get_temp_dir(), 'tsr');
@@ -487,7 +544,10 @@ function contrato_request_tsa_timestamp(string $hash): ?string
         escapeshellarg($tmpQ)
     );
     exec($cmd, $out, $rc);
-    if ($rc !== 0 || !file_exists($tmpQ)) { @unlink($tmpQ); @unlink($tmpR); return null; }
+    if ($rc !== 0 || !file_exists($tmpQ) || filesize($tmpQ) === 0) {
+        error_log('contrato_request_tsa_timestamp: openssl ts fallo rc=' . $rc . ' · ' . implode(' | ', $out));
+        @unlink($tmpQ); @unlink($tmpR); return null;
+    }
     $tsq = file_get_contents($tmpQ);
     // Enviar al endpoint TSA
     $ch = curl_init(SIGN_TSA_URL);
@@ -502,7 +562,10 @@ function contrato_request_tsa_timestamp(string $hash): ?string
     $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
     @unlink($tmpQ); @unlink($tmpR);
-    if ($code !== 200 || !$tsr) return null;
+    if ($code !== 200 || !$tsr) {
+        error_log('contrato_request_tsa_timestamp: TSA http=' . $code);
+        return null;
+    }
     return base64_encode($tsr);
 }
 
@@ -514,6 +577,12 @@ function contrato_new_mpdf(): \Mpdf\Mpdf
 {
     $defaultConfig = (new \Mpdf\Config\ConfigVariables())->getDefaults();
     $defaultFontConfig = (new \Mpdf\Config\FontVariables())->getDefaults();
+
+    // tempDir explícito dentro del proyecto — evita fallos en shared hosting
+    // donde /tmp puede no ser escribible o estar aislado por usuario.
+    $tempDir = __DIR__ . '/../uploads/mpdf_tmp';
+    if (!is_dir($tempDir)) @mkdir($tempDir, 0755, true);
+
     return new \Mpdf\Mpdf([
         'mode' => 'utf-8',
         'format' => 'A4',
@@ -526,6 +595,7 @@ function contrato_new_mpdf(): \Mpdf\Mpdf
         'default_font' => 'dejavusans',
         'fontDir' => array_merge($defaultConfig['fontDir'], []),
         'fontdata' => $defaultFontConfig['fontdata'],
+        'tempDir' => $tempDir,
     ]);
 }
 
@@ -900,14 +970,30 @@ function contrato_resolve_country(string $ip): ?string
 // ====================================================================
 
 /**
- * Cliente IP detectando proxy / Cloudflare.
+ * Cliente IP con política explícita:
+ *   - Si `SIGN_TRUST_PROXY_HEADERS` está definida y es true, aceptamos CF-Connecting-IP
+ *     o el último salto de X-Forwarded-For (útil tras Cloudflare / reverse proxy conocido).
+ *   - Por defecto devolvemos REMOTE_ADDR, la única IP que no puede falsearse por cabeceras.
+ *
+ * Esto protege el audit trail eIDAS contra spoofing en setups que no estén tras proxy.
  */
 function contrato_client_ip(): string
 {
-    foreach (['HTTP_CF_CONNECTING_IP', 'HTTP_X_FORWARDED_FOR', 'REMOTE_ADDR'] as $h) {
-        if (!empty($_SERVER[$h])) return trim(explode(',', $_SERVER[$h])[0]);
+    $trust = defined('SIGN_TRUST_PROXY_HEADERS') && SIGN_TRUST_PROXY_HEADERS;
+    if ($trust) {
+        if (!empty($_SERVER['HTTP_CF_CONNECTING_IP'])) {
+            $ip = trim($_SERVER['HTTP_CF_CONNECTING_IP']);
+            if (filter_var($ip, FILTER_VALIDATE_IP)) return $ip;
+        }
+        if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+            foreach (explode(',', $_SERVER['HTTP_X_FORWARDED_FOR']) as $candidate) {
+                $ip = trim($candidate);
+                if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) return $ip;
+            }
+        }
     }
-    return '0.0.0.0';
+    $remote = $_SERVER['REMOTE_ADDR'] ?? '';
+    return filter_var($remote, FILTER_VALIDATE_IP) ? $remote : '0.0.0.0';
 }
 
 /**
@@ -915,9 +1001,99 @@ function contrato_client_ip(): string
  */
 function contrato_ua_short(string $ua): string
 {
-    if (preg_match('/Chrome\/([0-9]+).* (Mac OS X|Windows|Linux)/', $ua, $m)) return "Chrome {$m[1]} / {$m[2]}";
-    if (preg_match('/Safari\/.* (Mac OS X|iPhone|iPad)/', $ua, $m)) return "Safari / {$m[1]}";
+    if (preg_match('/Chrome\/([0-9]+).*(Mac OS X|Windows|Linux|Android)/', $ua, $m)) return "Chrome {$m[1]} / {$m[2]}";
+    if (preg_match('/Version\/([0-9.]+).*Safari/', $ua, $m) && preg_match('/(Mac OS X|iPhone|iPad|iPod)/', $ua, $mm)) return "Safari {$m[1]} / {$mm[1]}";
     if (preg_match('/Firefox\/([0-9]+)/', $ua, $m)) return "Firefox {$m[1]}";
     if (preg_match('/Edg\/([0-9]+)/', $ua, $m)) return "Edge {$m[1]}";
     return substr($ua, 0, 80);
+}
+
+// ====================================================================
+//   SEGURIDAD · sanitización HTML plantillas + validación trazo firma + CSRF + tokens
+// ====================================================================
+
+/**
+ * Elimina tags/atributos peligrosos del HTML de una plantilla ANTES de guardarla.
+ * No usa un parser completo (mantener deps reducidas) pero cubre los vectores conocidos:
+ *   - <script>, <iframe>, <object>, <embed>, <link>, <meta>, <style>, <form>
+ *   - Atributos on* (onclick, onerror, onload, …)
+ *   - javascript: / data:text/html en src/href
+ *
+ * Las plantillas admiten HTML arbitrario de TP (tablas, párrafos, estilos inline) pero
+ * nunca deben ejecutar JS en la pantalla del firmante o en el PDF de mPDF.
+ */
+function tp_sanitize_template_html(string $html): string
+{
+    // 1) tags peligrosos completos (incluyendo contenido)
+    $dangerTags = ['script', 'iframe', 'object', 'embed', 'link', 'meta', 'style', 'form', 'base'];
+    foreach ($dangerTags as $tag) {
+        $html = preg_replace('#<' . $tag . '\b[^>]*>.*?</' . $tag . '\s*>#is', '', $html);
+        // Versión sin cierre (self-closing o malformado)
+        $html = preg_replace('#<' . $tag . '\b[^>]*/?>#i', '', $html);
+    }
+    // 2) atributos on*= (handlers de evento)
+    $html = preg_replace('#\s+on[a-z]+\s*=\s*"[^"]*"#i', '', $html);
+    $html = preg_replace("#\s+on[a-z]+\s*=\s*'[^']*'#i", '', $html);
+    $html = preg_replace('#\s+on[a-z]+\s*=\s*[^\s>]+#i', '', $html);
+    // 3) javascript:/vbscript:/data:text/html en atributos que aceptan URLs
+    $html = preg_replace('#(href|src|xlink:href|action|formaction|background)\s*=\s*(["\'])\s*(javascript|vbscript|data:text/html)[^"\']*\2#i', '$1=$2#$2', $html);
+    return $html;
+}
+
+/**
+ * Valida un trazo de firma recibido como data URL base64.
+ * Devuelve ['ok'=>bool, 'reason'=>string, 'bytes'=>int].
+ *   - Longitud razonable (≥200 bytes para evitar canvas vacío; ≤500KB para evitar DoS)
+ *   - Prefix data:image/png;base64,
+ *   - Base64 válido
+ */
+function tp_validate_signature_trazo(string $dataUrl): array
+{
+    $len = strlen($dataUrl);
+    if ($len < 200) return ['ok' => false, 'reason' => 'Trazo vacío o demasiado corto', 'bytes' => $len];
+    if ($len > 500 * 1024) return ['ok' => false, 'reason' => 'Trazo demasiado grande (>500KB)', 'bytes' => $len];
+    if (!preg_match('#^data:image/png;base64,([A-Za-z0-9+/=]+)$#', $dataUrl, $m)) {
+        return ['ok' => false, 'reason' => 'Formato no reconocido (se esperaba PNG base64)', 'bytes' => $len];
+    }
+    $raw = base64_decode($m[1], true);
+    if ($raw === false) return ['ok' => false, 'reason' => 'Base64 inválido', 'bytes' => $len];
+    // Magic bytes PNG: 89 50 4E 47 0D 0A 1A 0A
+    if (substr($raw, 0, 8) !== "\x89PNG\r\n\x1a\n") {
+        return ['ok' => false, 'reason' => 'No es un PNG válido', 'bytes' => $len];
+    }
+    return ['ok' => true, 'reason' => 'OK', 'bytes' => $len];
+}
+
+/**
+ * CSRF simple por sesión (scope por acción para evitar reuse cross-feature).
+ * Uso:
+ *   $token = tp_csrf_token('admin');   // en el HTML
+ *   if (!tp_csrf_check('admin', $_POST['csrf_token'])) abort;
+ */
+function tp_csrf_token(string $scope = 'default'): string
+{
+    if (session_status() !== PHP_SESSION_ACTIVE) return '';
+    if (empty($_SESSION['_csrf_tokens'][$scope])) {
+        $_SESSION['_csrf_tokens'][$scope] = bin2hex(random_bytes(32));
+    }
+    return $_SESSION['_csrf_tokens'][$scope];
+}
+
+function tp_csrf_check(string $scope, ?string $token): bool
+{
+    if (session_status() !== PHP_SESSION_ACTIVE) return false;
+    $expected = $_SESSION['_csrf_tokens'][$scope] ?? '';
+    if (!$expected || !$token) return false;
+    return hash_equals($expected, (string)$token);
+}
+
+/**
+ * Comprueba si el signing_token del contrato ha expirado.
+ * Si la columna no existe (deploy a medio aplicar), considera que no expira.
+ */
+function contrato_token_expired(array $contratoRow): bool
+{
+    $exp = $contratoRow['signing_token_expires_at'] ?? null;
+    if (!$exp) return false;
+    return strtotime($exp) < time();
 }

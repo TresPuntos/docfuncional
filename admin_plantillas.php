@@ -71,6 +71,12 @@ if (isset($_GET['preview_pdf'])) {
 // ====================================================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     header('Content-Type: application/json; charset=utf-8');
+
+    // CSRF: todas las acciones mutadoras requieren token válido
+    if (!tp_csrf_check('admin_plantillas', $_POST['csrf_token'] ?? null)) {
+        echo json_encode(['success' => false, 'error' => 'CSRF token inválido. Recarga la página.']); exit;
+    }
+
     $action = $_POST['action'];
 
     if ($action === 'save') {
@@ -79,14 +85,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $nombre = trim($_POST['nombre'] ?? '');
         $tipo = trim($_POST['tipo'] ?? 'custom');
         $destinatario = $_POST['destinatario'] ?? 'cliente';
-        $html = $_POST['html_content'] ?? '';
-        $firmantes = json_decode($_POST['firmantes'] ?? '[]', true);
+        $htmlRaw = $_POST['html_content'] ?? '';
+        $firmantesRaw = json_decode($_POST['firmantes'] ?? '[]', true);
         $variables = json_decode($_POST['variables'] ?? '[]', true);
         $requireOtp = !empty($_POST['require_otp']) ? 1 : 0;
         $requireTsa = !empty($_POST['require_tsa']) ? 1 : 0;
         $retencion = (int)($_POST['retencion_anios'] ?? 6);
 
-        if (!$slug || !$nombre || !$html) {
+        if (!$slug || !$nombre || !$htmlRaw) {
             echo json_encode(['success' => false, 'error' => 'Slug, nombre y contenido HTML son obligatorios']); exit;
         }
         if (!preg_match('/^[a-z0-9-]+$/', $slug)) {
@@ -95,11 +101,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         if (!in_array($destinatario, ['cliente','proveedor','ambos'], true)) {
             echo json_encode(['success' => false, 'error' => 'Destinatario inválido']); exit;
         }
-        if (!$firmantes || !is_array($firmantes)) {
-            echo json_encode(['success' => false, 'error' => 'Debe haber al menos un firmante']); exit;
+
+        // Whitelist de firmantes — solo roles conocidos
+        if (!is_array($firmantesRaw)) $firmantesRaw = [];
+        $firmantes = array_values(array_intersect($firmantesRaw, ['cliente','proveedor','tp']));
+        if (empty($firmantes)) {
+            echo json_encode(['success' => false, 'error' => 'Debe haber al menos un firmante válido (cliente, proveedor o tp)']); exit;
         }
 
+        // Sanitización HTML: strip tags/attrs peligrosos antes de guardar.
+        // El HTML se renderiza luego en iframe al firmante + mPDF → defensa en profundidad.
+        $html = tp_sanitize_template_html($htmlRaw);
+
         // Auto-detectar variables que el admin no haya declarado (les ponemos defaults)
+        if (!is_array($variables)) $variables = [];
         $detected = contrato_extract_variables($html);
         $declaredNames = array_column($variables, 'name');
         foreach ($detected as $vn) {
@@ -109,11 +124,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
 
         if ($id) {
-            // UPDATE
+            // UPDATE — solo bumpeamos versión si el HTML cambió (evita inflación en re-guardados sin diff)
+            $prev = $pdo->prepare("SELECT html_content FROM contratos_plantillas WHERE id = ?");
+            $prev->execute([$id]);
+            $prevHtml = $prev->fetchColumn();
+            $versionExpr = ($prevHtml !== $html) ? 'version + 1' : 'version';
             $pdo->prepare("UPDATE contratos_plantillas SET
                 slug = ?, nombre = ?, tipo = ?, destinatario = ?, html_content = ?,
                 variables_json = ?, firmantes_json = ?, require_otp = ?, require_tsa = ?,
-                retencion_anios = ?, updated_at = CURRENT_TIMESTAMP, version = version + 1
+                retencion_anios = ?, updated_at = CURRENT_TIMESTAMP, version = $versionExpr
                 WHERE id = ?")
                 ->execute([
                     $slug, $nombre, $tipo, $destinatario, $html,
@@ -151,7 +170,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $p = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$p) { echo json_encode(['success' => false, 'error' => 'No existe']); exit; }
 
-        $newSlug = $p['slug'] . '-copia-' . substr((string)time(), -4);
+        $newSlug = $p['slug'] . '-copia-' . bin2hex(random_bytes(3));
         $pdo->prepare("INSERT INTO contratos_plantillas
             (slug, nombre, tipo, destinatario, html_content, variables_json, firmantes_json, require_otp, require_tsa, retencion_anios, activo, version)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1)")
@@ -207,6 +226,7 @@ $plantillas = $pdo->query("SELECT p.*,
 $editingHtml = $editing['html_content'] ?? '';
 $editingVars = $editing ? (json_decode($editing['variables_json'] ?: '[]', true)) : [];
 $editingFirmantes = $editing ? (json_decode($editing['firmantes_json'] ?: '[]', true)) : ['cliente','tp'];
+$csrfToken = tp_csrf_token('admin_plantillas');
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -519,6 +539,7 @@ if ($creatingNew) $adminBreadcrumbItems[] = ['label' => 'Nueva plantilla', 'href
 <script src="https://unpkg.com/lucide@latest"></script>
 <script>
 lucide.createIcons();
+const CSRF_TOKEN = <?= json_encode($csrfToken) ?>;
 
 <?php if ($editing || $creatingNew): ?>
 const INITIAL_VARS = <?= json_encode($editingVars) ?>;
@@ -579,6 +600,7 @@ async function submitEdit(ev){
     const form = document.getElementById('editForm');
     const fd = new FormData(form);
     fd.append('action', 'save');
+    fd.append('csrf_token', CSRF_TOKEN);
 
     const firmantes = [];
     if (document.getElementById('firm_cliente').checked) firmantes.push('cliente');
@@ -604,21 +626,21 @@ detectVars();
 
 async function duplicatePl(id){
     if (!confirm('¿Duplicar plantilla?')) return;
-    const fd = new FormData(); fd.append('action','duplicate'); fd.append('id', id);
+    const fd = new FormData(); fd.append('action','duplicate'); fd.append('id', id); fd.append('csrf_token', CSRF_TOKEN);
     const res = await fetch('admin_plantillas.php', { method:'POST', body:fd });
     const data = await res.json();
     if (data.success) location.href = '?id=' + data.new_id;
     else alert(data.error);
 }
 async function toggleActive(id){
-    const fd = new FormData(); fd.append('action','toggle_active'); fd.append('id', id);
+    const fd = new FormData(); fd.append('action','toggle_active'); fd.append('id', id); fd.append('csrf_token', CSRF_TOKEN);
     const res = await fetch('admin_plantillas.php', { method:'POST', body:fd });
     const data = await res.json();
     if (data.success) location.reload();
 }
 async function deletePl(id, nombre){
     if (!confirm('¿Borrar "'+nombre+'" definitivamente? Esto solo funciona si no tiene contratos asociados.')) return;
-    const fd = new FormData(); fd.append('action','delete'); fd.append('id', id);
+    const fd = new FormData(); fd.append('action','delete'); fd.append('id', id); fd.append('csrf_token', CSRF_TOKEN);
     const res = await fetch('admin_plantillas.php', { method:'POST', body:fd });
     const data = await res.json();
     if (data.success) location.reload(); else alert(data.error);
