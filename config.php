@@ -41,6 +41,27 @@ if (!defined('JORDAN_DOC_ENABLED')) define('JORDAN_DOC_ENABLED', false);
 //   define('INTERNAL_EMAILS', 'jordi@trespuntoscomunicacion.es,jordiexp@gmail.com');
 if (!defined('INTERNAL_EMAILS')) define('INTERNAL_EMAILS', '');
 
+// === TRES PUNTOS (datos legales para contratos) ===
+// Los valores reales viven en config.local.php. Aquí defaults seguros.
+if (!defined('TP_RAZON_SOCIAL'))    define('TP_RAZON_SOCIAL', 'Tres Puntos Comunicación S.L.');
+if (!defined('TP_CIF'))             define('TP_CIF', '');
+if (!defined('TP_DIRECCION'))       define('TP_DIRECCION', '');
+if (!defined('TP_EMAIL_CONTACTO'))  define('TP_EMAIL_CONTACTO', '');
+if (!defined('TP_EMAIL_LOPD'))      define('TP_EMAIL_LOPD', '');
+if (!defined('TP_WEB'))             define('TP_WEB', 'trespuntoscomunicacion.es');
+if (!defined('TP_FIRMANTE_NOMBRE')) define('TP_FIRMANTE_NOMBRE', '');
+if (!defined('TP_FIRMANTE_DNI'))    define('TP_FIRMANTE_DNI', '');
+if (!defined('TP_FIRMANTE_CARGO'))  define('TP_FIRMANTE_CARGO', '');
+if (!defined('TP_FIRMANTE_EMAIL'))  define('TP_FIRMANTE_EMAIL', '');
+
+// === FIRMA ELECTRÓNICA — defaults ===
+if (!defined('SIGN_OTP_THRESHOLD_EUR'))    define('SIGN_OTP_THRESHOLD_EUR', 3000);
+if (!defined('SIGN_OTP_TTL_MINUTES'))      define('SIGN_OTP_TTL_MINUTES', 10);
+if (!defined('SIGN_TSA_ENABLED'))          define('SIGN_TSA_ENABLED', true);
+if (!defined('SIGN_TSA_URL'))              define('SIGN_TSA_URL', 'https://freetsa.org/tsr');
+if (!defined('SIGN_RETENTION_YEARS'))      define('SIGN_RETENTION_YEARS', 6);
+if (!defined('SIGN_CONTRACT_EXPIRES_DAYS'))define('SIGN_CONTRACT_EXPIRES_DAYS', 30);
+
 /**
  * ¿Es este email parte del equipo interno? (case-insensitive, trim)
  */
