@@ -707,11 +707,18 @@ $adminSidebarPropuestas = $propuestas;
 <?php if (!$filterProp): ?>
     <!-- DIRECTORIO GLOBAL DE PROVEEDORES -->
     <style>
+        /* Safety net: ningún SVG Lucide del directorio crece más de lo debido */
+        .pv-dir-grid svg.lucide,
+        .pv-dir-grid i[data-lucide] { max-width: 14px; max-height: 14px; }
+        .pv-dir-toolbar svg.lucide,
+        .pv-dir-toolbar i[data-lucide] { max-width: 14px; max-height: 14px; }
+
         .pv-dir-toolbar { display: flex; gap: .75rem; align-items: center; margin: 0 0 1rem; flex-wrap: wrap; }
         .pv-dir-search { flex: 1; min-width: 240px; position: relative; }
         .pv-dir-search input { width: 100%; box-sizing: border-box; background: var(--bg-subtle); border: 1px solid var(--border-base); color: var(--text-primary); padding: .55rem .75rem .55rem 2.1rem; border-radius: 8px; font-family: inherit; font-size: .88rem; outline: none; transition: border-color .12s; }
         .pv-dir-search input:focus { border-color: var(--mint); }
-        .pv-dir-search i[data-lucide] { position: absolute; left: .7rem; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; color: var(--text-muted); pointer-events: none; }
+        .pv-dir-search i[data-lucide],
+        .pv-dir-search svg.lucide { position: absolute !important; left: .7rem; top: 50%; transform: translateY(-50%); width: 14px !important; height: 14px !important; color: var(--text-muted); pointer-events: none; }
         .pv-dir-count { color: var(--text-muted); font-size: .8rem; font-variant-numeric: tabular-nums; }
         .pv-dir-empty { color: var(--text-muted); padding: 3rem 2rem; text-align: center; background: var(--bg-surface); border-radius: 10px; border: 1px dashed var(--border-base); }
         .pv-dir-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: .85rem; }
@@ -727,11 +734,13 @@ $adminSidebarPropuestas = $propuestas;
         .pv-dir-card__status.inactive { color: var(--text-muted); }
         .pv-dir-card__meta { display: flex; flex-direction: column; gap: .35rem; font-size: .78rem; color: var(--text-secondary); }
         .pv-dir-card__meta-row { display: flex; align-items: center; gap: .5rem; }
-        .pv-dir-card__meta-row i[data-lucide] { width: 12px; height: 12px; color: var(--text-muted); stroke-width: 1.75; flex-shrink: 0; }
+        .pv-dir-card__meta-row i[data-lucide],
+        .pv-dir-card__meta-row svg.lucide { width: 12px !important; height: 12px !important; color: var(--text-muted); stroke-width: 1.75; flex-shrink: 0; }
         .pv-dir-card__stats { display: flex; gap: .85rem; margin-top: .65rem; padding-top: .65rem; border-top: 1px dashed var(--border-base); font-size: .75rem; }
         .pv-dir-card__stat { display: flex; align-items: center; gap: .3rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
         .pv-dir-card__stat strong { color: var(--text-secondary); font-weight: 600; }
-        .pv-dir-card__stat i[data-lucide] { width: 12px; height: 12px; }
+        .pv-dir-card__stat i[data-lucide],
+        .pv-dir-card__stat svg.lucide { width: 12px !important; height: 12px !important; flex-shrink: 0; }
         .pv-dir-hint { margin-top: 1.5rem; padding: .85rem 1rem; background: rgba(var(--mint-rgb), .06); border: 1px solid rgba(var(--mint-rgb), .18); border-radius: 8px; color: var(--text-secondary); font-size: .82rem; line-height: 1.5; }
         .pv-dir-hint strong { color: var(--mint); }
     </style>

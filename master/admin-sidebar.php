@@ -99,6 +99,15 @@ $archivedProps = array_values(array_filter($allProps, fn($p) => (int)$p['status'
 .admin-sidebar__scroll::-webkit-scrollbar-thumb { background: transparent; border-radius: 2px; transition: background .15s; }
 .admin-sidebar__scroll:hover::-webkit-scrollbar-thumb { background: var(--border-strong, #2a2a2a); }
 
+/* Safety net: ningún icono Lucide dentro del sidebar puede crecer por defecto */
+.admin-sidebar svg.lucide,
+.admin-sidebar i[data-lucide] {
+    width: 14px;
+    height: 14px;
+    max-width: 14px;
+    max-height: 14px;
+}
+
 /* ----- Brand ----- */
 .admin-sidebar__brand {
     display: flex;
@@ -375,8 +384,9 @@ $archivedProps = array_values(array_filter($allProps, fn($p) => (int)$p['status'
     background: rgba(255, 255, 255, 0.03);
     color: var(--text-primary, #f5f5f5);
 }
-.nav-item i[data-lucide] {
-    width: 13px; height: 13px;
+.nav-item i[data-lucide],
+.nav-item svg.lucide {
+    width: 14px !important; height: 14px !important;
     stroke-width: 1.75;
     flex-shrink: 0;
     color: var(--text-muted, #8a8a8a);
@@ -441,8 +451,9 @@ $archivedProps = array_values(array_filter($allProps, fn($p) => (int)$p['status'
     border-radius: 0 2px 2px 0;
 }
 
-.prop__chevron {
-    width: 12px; height: 12px;
+.prop__chevron,
+svg.prop__chevron.lucide {
+    width: 12px !important; height: 12px !important;
     stroke-width: 2;
     flex-shrink: 0;
     color: var(--text-muted, #8a8a8a);
@@ -493,8 +504,9 @@ $archivedProps = array_values(array_filter($allProps, fn($p) => (int)$p['status'
     border-radius: 50%;
     flex-shrink: 0;
 }
-.prop__badge i[data-lucide] {
-    width: 12px; height: 12px;
+.prop__badge i[data-lucide],
+.prop__badge svg.lucide {
+    width: 12px !important; height: 12px !important;
     stroke-width: 1.9;
     flex-shrink: 0;
 }
@@ -550,8 +562,9 @@ $archivedProps = array_values(array_filter($allProps, fn($p) => (int)$p['status'
     height: 1px;
     background: var(--mint, #5dffbf);
 }
-.prop__sub a i[data-lucide] {
-    width: 13px; height: 13px;
+.prop__sub a i[data-lucide],
+.prop__sub a svg.lucide {
+    width: 13px !important; height: 13px !important;
     stroke-width: 1.75;
     color: var(--text-muted, #8a8a8a);
     flex-shrink: 0;

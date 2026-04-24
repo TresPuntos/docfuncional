@@ -1087,10 +1087,14 @@ else: ?>
                                            class="inline-flex items-center gap-1.5 mt-2 text-[10px] text-text-muted hover:text-purple-300 border-t border-border-subtle pt-1.5 transition-colors"
                                            title="Gestionar proveedores">
                                             <span class="font-semibold uppercase tracking-wider text-text-muted/70">Colaboradores:</span>
-                                            <span class="text-purple-300 font-bold">🏗️ <?php echo $ps['total']; ?></span>
+                                            <span class="inline-flex items-center gap-1 text-purple-300 font-semibold">
+                                                <i data-lucide="hard-hat" class="w-3 h-3"></i><?php echo $ps['total']; ?>
+                                            </span>
                                             <?php if ($ps['presupuestos']>0): ?>
                                                 <span class="text-text-muted">·</span>
-                                                <span class="text-purple-300 font-bold">📄 <?php echo $ps['presupuestos']; ?></span>
+                                                <span class="inline-flex items-center gap-1 text-purple-300 font-semibold">
+                                                    <i data-lucide="file-text" class="w-3 h-3"></i><?php echo $ps['presupuestos']; ?>
+                                                </span>
                                             <?php endif; ?>
                                         </a>
                                     <?php endif; ?>
