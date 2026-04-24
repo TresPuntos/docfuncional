@@ -687,12 +687,36 @@ $adminSidebarPropuestas = $propuestas;
 <?php include __DIR__ . '/master/admin-sidebar.php'; ?>
 
 <main class="admin-main">
+    <?php
+    // H3: breadcrumbs
+    $__bcClientName = '';
+    if ($filterPropuesta > 0) {
+        $__idx = array_search($filterPropuesta, array_column($propuestas, 'id'));
+        if ($__idx !== false) $__bcClientName = $propuestas[$__idx]['client_name'] ?? '';
+    }
+    if ($filterPropuesta > 0 && $__bcClientName) {
+        $adminBreadcrumbItems = [
+            ['label' => 'Dashboard', 'href' => 'admin.php'],
+            ['label' => $__bcClientName, 'href' => null],
+            ['label' => 'Comentarios', 'href' => null],
+        ];
+        // H5: nav prev/next entre propuestas
+        $adminBreadcrumbPropNav = ['current_id' => $filterPropuesta, 'view' => 'comentarios'];
+    } else {
+        $adminBreadcrumbItems = [
+            ['label' => 'Dashboard', 'href' => 'admin.php'],
+            ['label' => 'Bandeja (todas)', 'href' => null],
+        ];
+        $adminBreadcrumbPropNav = null;
+    }
+    include __DIR__ . '/master/admin-breadcrumb.php';
+    ?>
     <div class="admin-main-header">
         <h1 class="admin-main-title">
             <i data-lucide="message-square-text"></i>
             Comentarios y firmas
-            <?php if ($filterPropuesta > 0 && $adminSidebarPropuestaSlug): ?>
-                <small>· <?= e($propuestas[array_search($filterPropuesta, array_column($propuestas, 'id'))]['client_name'] ?? '') ?></small>
+            <?php if ($filterPropuesta > 0 && $__bcClientName): ?>
+                <small>· <?= e($__bcClientName) ?></small>
             <?php endif; ?>
         </h1>
         <div class="admin-main-actions">

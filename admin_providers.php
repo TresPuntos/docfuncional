@@ -377,6 +377,17 @@ if ($detailProv > 0) {
     <?php include __DIR__ . '/master/admin-sidebar.php'; ?>
 
     <main class="admin-main">
+        <?php
+        // H3: breadcrumb detalle proveedor
+        $adminBreadcrumbItems = [
+            ['label' => 'Dashboard', 'href' => 'admin.php'],
+            ['label' => e($pv['client_name']), 'href' => 'admin_providers.php?propuesta_id=' . (int)$pv['propuesta_id']],
+            ['label' => 'Proveedores', 'href' => 'admin_providers.php?propuesta_id=' . (int)$pv['propuesta_id']],
+            ['label' => e($pv['nombre']) . ($pv['empresa'] ? ' · ' . e($pv['empresa']) : ''), 'href' => null],
+        ];
+        $adminBreadcrumbPropNav = null;
+        include __DIR__ . '/master/admin-breadcrumb.php';
+        ?>
         <div class="admin-main-header">
             <h1 class="admin-main-title">
                 <i data-lucide="hard-hat"></i>
@@ -650,6 +661,24 @@ $adminSidebarPropuestas = $propuestas;
 <?php include __DIR__ . '/master/admin-sidebar.php'; ?>
 
 <main class="admin-main">
+    <?php
+    // H3 + H5: breadcrumb + nav prev/next
+    if ($filterProp > 0 && !empty($currentProp)) {
+        $adminBreadcrumbItems = [
+            ['label' => 'Dashboard', 'href' => 'admin.php'],
+            ['label' => e($currentProp['client_name']), 'href' => null],
+            ['label' => 'Proveedores', 'href' => null],
+        ];
+        $adminBreadcrumbPropNav = ['current_id' => $filterProp, 'view' => 'proveedores'];
+    } else {
+        $adminBreadcrumbItems = [
+            ['label' => 'Dashboard', 'href' => 'admin.php'],
+            ['label' => 'Proveedores (todos)', 'href' => null],
+        ];
+        $adminBreadcrumbPropNav = null;
+    }
+    include __DIR__ . '/master/admin-breadcrumb.php';
+    ?>
     <div class="admin-main-header">
         <h1 class="admin-main-title">
             <i data-lucide="hard-hat"></i>
