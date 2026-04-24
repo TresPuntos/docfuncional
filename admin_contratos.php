@@ -149,6 +149,99 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         exit;
     }
 
+    if ($action === 'create_from_pdf') {
+        // One-off: sube un PDF existente (ej. el contrato que Jordi redactó con Claude)
+        // y lo firman tal cual sin placeholders.
+        $titulo = trim($_POST['titulo'] ?? '') ?: 'Contrato';
+        $tipo = trim($_POST['tipo'] ?? 'custom');
+        $propuestaId = (int)($_POST['propuesta_id'] ?? 0) ?: null;
+        $destTipo = $_POST['destinatario_tipo'] ?? '';
+        $destId = (int)($_POST['destinatario_id'] ?? 0) ?: null;
+        $firmantes = json_decode($_POST['firmantes'] ?? '[]', true);
+        $requireOtp = !empty($_POST['require_otp']) ? 1 : 0;
+
+        if (!in_array($destTipo, ['cliente','proveedor'], true) || !$firmantes || !is_array($firmantes)) {
+            echo json_encode(['success' => false, 'error' => 'Faltan datos (destinatario o firmantes)']); exit;
+        }
+        if (empty($_FILES['pdf']) || $_FILES['pdf']['error'] !== UPLOAD_ERR_OK) {
+            echo json_encode(['success' => false, 'error' => 'Sube un archivo PDF válido']); exit;
+        }
+        if ($_FILES['pdf']['type'] !== 'application/pdf' && !str_ends_with(strtolower($_FILES['pdf']['name']), '.pdf')) {
+            echo json_encode(['success' => false, 'error' => 'El archivo debe ser PDF']); exit;
+        }
+        if ($_FILES['pdf']['size'] > 20 * 1024 * 1024) {
+            echo json_encode(['success' => false, 'error' => 'El PDF no puede superar 20 MB']); exit;
+        }
+
+        // Insertar registro sin plantilla_id
+        $pdo->prepare("INSERT INTO contratos
+            (plantilla_id, propuesta_id, destinatario_tipo, destinatario_id, titulo, datos_json, estado, hash_documento, expira_at)
+            VALUES (NULL, ?, ?, ?, ?, NULL, 'borrador', '', datetime('now', '+' || ? || ' days'))")
+            ->execute([$propuestaId, $destTipo, $destId, $titulo, SIGN_CONTRACT_EXPIRES_DAYS]);
+        $contratoId = (int)$pdo->lastInsertId();
+
+        // Guardar el PDF subido
+        $dir = __DIR__ . '/uploads/contratos/' . $contratoId;
+        if (!is_dir($dir)) mkdir($dir, 0755, true);
+        $destPath = $dir . '/uploaded.pdf';
+        if (!move_uploaded_file($_FILES['pdf']['tmp_name'], $destPath)) {
+            $pdo->prepare("DELETE FROM contratos WHERE id = ?")->execute([$contratoId]);
+            echo json_encode(['success' => false, 'error' => 'No se pudo guardar el PDF']); exit;
+        }
+
+        // Hash del PDF subido (fuente de verdad para el contrato one-off)
+        $hash = contrato_hash_file($destPath);
+        $relPath = 'uploads/contratos/' . $contratoId . '/uploaded.pdf';
+
+        // Guardamos una clave especial en datos_json que indica que es PDF directo
+        // Además guardamos tipo y require_otp flags
+        $meta = ['mode' => 'pdf_direct', 'tipo' => $tipo, 'require_otp' => $requireOtp, 'original_name' => $_FILES['pdf']['name']];
+        $pdo->prepare("UPDATE contratos SET hash_documento = ?, pdf_sin_firmar_path = ?, datos_json = ? WHERE id = ?")
+            ->execute([$hash, $relPath, json_encode($meta, JSON_UNESCAPED_UNICODE), $contratoId]);
+
+        contrato_log_evento($pdo, $contratoId, 'creado', 'admin', ['modo' => 'pdf_direct', 'archivo' => $_FILES['pdf']['name']]);
+
+        // Crear slots de firma
+        foreach ($firmantes as $i => $rol) {
+            if (!in_array($rol, ['cliente','proveedor','tp'], true)) continue;
+            $datosFirmante = [];
+            if ($rol === 'tp') {
+                $datosFirmante = [
+                    'firmante_nombre' => TP_FIRMANTE_NOMBRE, 'firmante_email' => TP_FIRMANTE_EMAIL,
+                    'firmante_documento' => TP_FIRMANTE_DNI, 'firmante_empresa' => TP_RAZON_SOCIAL,
+                    'firmante_cargo' => TP_FIRMANTE_CARGO, 'firmante_direccion' => TP_DIRECCION,
+                ];
+            } elseif ($rol === 'proveedor' && $destId) {
+                $pv = $pdo->prepare("SELECT nombre, empresa, email FROM propuesta_proveedores WHERE id = ?");
+                $pv->execute([$destId]);
+                $row = $pv->fetch(PDO::FETCH_ASSOC);
+                if ($row) $datosFirmante = [
+                    'firmante_nombre' => $row['nombre'], 'firmante_email' => $row['email'],
+                    'firmante_empresa' => $row['empresa'],
+                ];
+            } elseif ($rol === 'cliente' && $propuestaId) {
+                $pp = $pdo->prepare("SELECT client_name FROM propuestas WHERE id = ?");
+                $pp->execute([$propuestaId]);
+                $datosFirmante = ['firmante_nombre' => $pp->fetchColumn() ?: ''];
+            }
+            $pdo->prepare("INSERT INTO contratos_firmas
+                (contrato_id, rol, orden, firmante_nombre, firmante_email, firmante_documento, firmante_empresa, firmante_cargo, firmante_direccion)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                ->execute([
+                    $contratoId, $rol, $i + 1,
+                    $datosFirmante['firmante_nombre'] ?? null,
+                    $datosFirmante['firmante_email'] ?? null,
+                    $datosFirmante['firmante_documento'] ?? null,
+                    $datosFirmante['firmante_empresa'] ?? null,
+                    $datosFirmante['firmante_cargo'] ?? null,
+                    $datosFirmante['firmante_direccion'] ?? null,
+                ]);
+        }
+
+        echo json_encode(['success' => true, 'contrato_id' => $contratoId]);
+        exit;
+    }
+
     if ($action === 'send_to_signer') {
         $id = (int)($_POST['contrato_id'] ?? 0);
         $stmt = $pdo->prepare("SELECT * FROM contratos WHERE id = ?");
@@ -156,7 +249,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $ctr = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$ctr) { echo json_encode(['success' => false, 'error' => 'No existe']); exit; }
 
-        // Generar PDF v0 (sin firmas todavía)
+        // CASO A · PDF directo (plantilla_id NULL): el PDF ya está subido, solo cambiamos estado
+        if (empty($ctr['plantilla_id'])) {
+            $pdo->prepare("UPDATE contratos SET estado = 'enviado', enviado_at = datetime('now') WHERE id = ?")->execute([$id]);
+            contrato_log_evento($pdo, $id, 'enviado', 'admin', ['modo' => 'pdf_direct']);
+            echo json_encode(['success' => true, 'pdf_path' => $ctr['pdf_sin_firmar_path']]);
+            exit;
+        }
+
+        // CASO B · Plantilla HTML: generamos v0 sin firmas
         $plant = $pdo->prepare("SELECT * FROM contratos_plantillas WHERE id = ?");
         $plant->execute([$ctr['plantilla_id']]);
         $plant = $plant->fetch(PDO::FETCH_ASSOC);
@@ -173,8 +274,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             ->execute([$relPath, $id]);
         contrato_log_evento($pdo, $id, 'enviado', 'admin');
 
-        // Si destinatario es proveedor, ya tiene token /s/ — solo notificamos por Telegram
-        // Email al firmante destinatario lo gestionamos en otro endpoint (pendiente sprint 2 con OTP)
         echo json_encode(['success' => true, 'pdf_path' => $relPath]);
         exit;
     }
@@ -248,28 +347,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 //   Helper: generar PDF final firmado (con audit trail)
 // ====================================================================
 function generar_pdf_final(PDO $pdo, int $contratoId): string {
-    $ctr = $pdo->prepare("SELECT c.*, p.html_content, p.tipo FROM contratos c LEFT JOIN contratos_plantillas p ON p.id = c.plantilla_id WHERE c.id = ?");
+    $ctr = $pdo->prepare("SELECT c.*, p.html_content, p.tipo AS plantilla_tipo FROM contratos c LEFT JOIN contratos_plantillas p ON p.id = c.plantilla_id WHERE c.id = ?");
     $ctr->execute([$contratoId]);
     $row = $ctr->fetch(PDO::FETCH_ASSOC);
-    $datos = json_decode($row['datos_json'], true) ?: [];
-    $html = contrato_render_template($row['html_content'], $datos);
 
     $firmas = $pdo->prepare("SELECT * FROM contratos_firmas WHERE contrato_id = ? ORDER BY orden ASC");
     $firmas->execute([$contratoId]);
     $firmasArr = $firmas->fetchAll(PDO::FETCH_ASSOC);
 
-    // Sello de tiempo cualificado (sobre el hash del documento)
     $tsa = contrato_request_tsa_timestamp($row['hash_documento']);
 
     $dir = __DIR__ . '/uploads/contratos/' . $contratoId;
     if (!is_dir($dir)) mkdir($dir, 0755, true);
     $finalPath = $dir . '/v_final.pdf';
-    contrato_generate_pdf($html, $firmasArr, [
+
+    $meta = [
         'titulo' => $row['titulo'],
-        'tipo' => $row['tipo'],
+        'tipo' => $row['plantilla_tipo'] ?? (json_decode($row['datos_json'] ?: '{}', true)['tipo'] ?? 'custom'),
         'hash_documento' => $row['hash_documento'],
         'tsa_timestamp' => $tsa,
-    ], $finalPath);
+    ];
+
+    if (empty($row['plantilla_id']) && !empty($row['pdf_sin_firmar_path'])) {
+        // CASO A · PDF directo: apilar PDF subido + hoja audit trail al final (FPDI)
+        $basePath = __DIR__ . '/' . $row['pdf_sin_firmar_path'];
+        contrato_stamp_pdf_with_audit($basePath, $firmasArr, $meta, $finalPath);
+    } else {
+        // CASO B · Plantilla HTML: renderizar + audit trail
+        $datos = json_decode($row['datos_json'], true) ?: [];
+        $html = contrato_render_template($row['html_content'], $datos);
+        contrato_generate_pdf($html, $firmasArr, $meta, $finalPath);
+    }
 
     $rel = 'uploads/contratos/' . $contratoId . '/v_final.pdf';
     $hashFinal = contrato_hash_file($finalPath);
@@ -278,11 +386,10 @@ function generar_pdf_final(PDO $pdo, int $contratoId): string {
         ->execute([$rel, $hashFinal, $contratoId]);
 
     if ($tsa) {
-        // Guardar el tsa_timestamp en cada firma (para audit)
         $pdo->prepare("UPDATE contratos_firmas SET tsa_timestamp = ? WHERE contrato_id = ?")->execute([$tsa, $contratoId]);
     }
 
-    contrato_log_evento($pdo, $contratoId, 'pdf_final_generado', 'sistema', ['hash_final' => substr($hashFinal, 0, 12)]);
+    contrato_log_evento($pdo, $contratoId, 'pdf_final_generado', 'sistema', ['hash_final' => substr($hashFinal, 0, 12), 'modo' => empty($row['plantilla_id']) ? 'pdf_direct' : 'plantilla']);
     return $rel;
 }
 
@@ -707,13 +814,24 @@ if ($contratoIdView && $contratoView) {
 </main>
 </div>
 
-<!-- Modal: Nuevo contrato -->
+<!-- Modal: Nuevo contrato — tabs [Desde plantilla] / [Subir PDF] -->
 <div class="modal-backdrop" id="createModal">
     <div class="modal">
         <div class="modal-head">
             <h2><i data-lucide="file-plus" style="width:18px;height:18px"></i> Nuevo contrato</h2>
             <button class="icon-btn" onclick="closeCreateModal()"><i data-lucide="x"></i></button>
         </div>
+
+        <div style="display:flex;gap:.25rem;padding:0 1.5rem;border-bottom:1px solid var(--border-base)">
+            <button type="button" class="tab active" id="tabPlantilla" onclick="switchCreateTab('plantilla')">
+                <i data-lucide="layout-template" style="width:14px;height:14px;margin-right:.35rem"></i> Desde plantilla
+            </button>
+            <button type="button" class="tab" id="tabPdf" onclick="switchCreateTab('pdf')">
+                <i data-lucide="upload" style="width:14px;height:14px;margin-right:.35rem"></i> Subir PDF directo
+            </button>
+        </div>
+
+        <!-- FORM 1 · Desde plantilla -->
         <form id="createForm" onsubmit="return submitCreate(event)">
             <div class="modal-body">
                 <div class="field">
@@ -765,7 +883,88 @@ if ($contratoIdView && $contratoView) {
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-ghost" onclick="closeCreateModal()">Cancelar</button>
-                <button type="submit" class="btn btn-primary"><i data-lucide="check" style="width:14px;height:14px"></i> Crear contrato</button>
+                <button type="submit" class="btn btn-primary"><i data-lucide="check" style="width:14px;height:14px"></i> Crear desde plantilla</button>
+            </div>
+        </form>
+
+        <!-- FORM 2 · Subir PDF directo -->
+        <form id="createPdfForm" onsubmit="return submitCreatePdf(event)" enctype="multipart/form-data" style="display:none">
+            <div class="modal-body">
+                <div style="background:var(--bg-subtle);padding:.85rem 1rem;border-radius:8px;margin-bottom:1.2rem;font-size:.8rem;color:var(--text-secondary);line-height:1.55">
+                    <strong style="color:var(--text-primary)">Contrato one-off.</strong> Sube un PDF ya redactado (por ejemplo un contrato que hayas redactado para un proyecto concreto). El sistema lo firma tal cual y le añade la hoja de audit trail al final. No reusable, no editable.
+                </div>
+
+                <div class="field">
+                    <label>1. Archivo PDF <span style="color:#ff6b6b">*</span></label>
+                    <input type="file" name="pdf" accept="application/pdf,.pdf" required>
+                    <div style="color:var(--text-muted);font-size:.72rem;margin-top:.25rem">Máximo 20 MB. Solo PDF.</div>
+                </div>
+
+                <div class="field">
+                    <label>2. Título del contrato <span style="color:#ff6b6b">*</span></label>
+                    <input type="text" name="titulo" placeholder="Ej. Contrato mantenimiento · Dani · Cardalis" required>
+                </div>
+
+                <div class="field-row">
+                    <div class="field">
+                        <label>3. Tipo</label>
+                        <select name="tipo">
+                            <option value="custom">Personalizado</option>
+                            <option value="nda">NDA</option>
+                            <option value="msa">MSA</option>
+                            <option value="sow">SOW</option>
+                            <option value="dpa">DPA</option>
+                            <option value="mantenimiento">Mantenimiento</option>
+                            <option value="change_order">Change Order</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label>4. Requiere OTP por email</label>
+                        <select name="require_otp">
+                            <option value="0">No</option>
+                            <option value="1">Sí (refuerza &gt;3.000€)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="field-row">
+                    <div class="field">
+                        <label>5. Vinculado a propuesta (opcional)</label>
+                        <select name="propuesta_id">
+                            <option value="">— Sin propuesta —</option>
+                            <?php foreach ($propuestasDisponibles as $p): ?>
+                            <option value="<?=$p['id']?>"><?=e($p['client_name'])?> · <?=e($p['slug'])?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label>6. Contraparte (quién firma) <span style="color:#ff6b6b">*</span></label>
+                        <select name="destinatario_id" required>
+                            <option value="">— Selecciona —</option>
+                            <optgroup label="Proveedores">
+                                <?php foreach ($proveedoresDisponibles as $pv): ?>
+                                <option value="prov:<?=$pv['id']?>"><?=e($pv['nombre'])?> · <?=e($pv['empresa'])?></option>
+                                <?php endforeach; ?>
+                            </optgroup>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="field">
+                    <label>7. Firmantes (orden)</label>
+                    <div style="display:flex;gap:.75rem;background:var(--bg-subtle);padding:.85rem 1rem;border-radius:8px">
+                        <label style="display:flex;align-items:center;gap:.4rem;color:var(--text-secondary);font-size:.85rem;font-weight:400;margin:0">
+                            <input type="checkbox" name="firmante_contraparte" checked disabled style="width:auto"> Contraparte (1º)
+                        </label>
+                        <label style="display:flex;align-items:center;gap:.4rem;color:var(--text-secondary);font-size:.85rem;font-weight:400;margin:0">
+                            <input type="checkbox" name="firmante_tp" checked style="width:auto"> Tres Puntos (2º)
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-ghost" onclick="closeCreateModal()">Cancelar</button>
+                <button type="submit" class="btn btn-primary"><i data-lucide="upload" style="width:14px;height:14px"></i> Subir y crear</button>
             </div>
         </form>
     </div>
@@ -815,6 +1014,51 @@ lucide.createIcons();
 // Modal create
 function openCreateModal(){ document.getElementById('createModal').classList.add('open'); }
 function closeCreateModal(){ document.getElementById('createModal').classList.remove('open'); }
+function switchCreateTab(which){
+    const tabPlant = document.getElementById('tabPlantilla');
+    const tabPdf = document.getElementById('tabPdf');
+    const formPlant = document.getElementById('createForm');
+    const formPdf = document.getElementById('createPdfForm');
+    if (which === 'pdf') {
+        tabPlant.classList.remove('active'); tabPdf.classList.add('active');
+        formPlant.style.display = 'none'; formPdf.style.display = '';
+    } else {
+        tabPlant.classList.add('active'); tabPdf.classList.remove('active');
+        formPlant.style.display = ''; formPdf.style.display = 'none';
+    }
+}
+
+async function submitCreatePdf(ev){
+    ev.preventDefault();
+    const form = document.getElementById('createPdfForm');
+    const fd = new FormData(form);
+    fd.append('action', 'create_from_pdf');
+    const dest = fd.get('destinatario_id');
+    if (dest && dest.startsWith('prov:')) {
+        fd.set('destinatario_tipo', 'proveedor');
+        fd.set('destinatario_id', dest.replace('prov:', ''));
+    } else {
+        fd.set('destinatario_tipo', 'cliente');
+    }
+    // Firmantes → array JSON (orden: contraparte primero, tp después)
+    const firmantes = [];
+    const contraparteTipo = fd.get('destinatario_tipo');
+    firmantes.push(contraparteTipo);
+    if (form.firmante_tp.checked) firmantes.push('tp');
+    fd.append('firmantes', JSON.stringify(firmantes));
+
+    const btn = form.querySelector('button[type=submit]');
+    btn.disabled = true; btn.textContent = 'Subiendo…';
+    const res = await fetch('admin_contratos.php', { method:'POST', body:fd });
+    const data = await res.json();
+    if (data.success) {
+        location.href = 'admin_contratos.php?contrato_id=' + data.contrato_id;
+    } else {
+        alert('Error: ' + (data.error || 'desconocido'));
+        btn.disabled = false; btn.innerHTML = '<i data-lucide="upload" style="width:14px;height:14px"></i> Subir y crear';
+    }
+    return false;
+}
 
 function onPlantillaChange(){
     const sel = document.getElementById('plantillaSelect');

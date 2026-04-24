@@ -266,6 +266,66 @@ function contrato_generate_pdf(string $htmlContrato, array $firmas, array $meta,
 }
 
 /**
+ * Apila un PDF subido por el admin (one-off) + le añade la hoja de audit trail al final.
+ * Usa FPDI (ya incluido como dependencia de mPDF).
+ *
+ * @param string $basePdfPath PDF original (sin firmar) que subió el admin
+ * @param array  $firmas      filas de contratos_firmas
+ * @param array  $meta        ['titulo','tipo','hash_documento','tsa_timestamp']
+ * @param string $destino     ruta absoluta destino (v_final.pdf)
+ * @return string             $destino
+ */
+function contrato_stamp_pdf_with_audit(string $basePdfPath, array $firmas, array $meta, string $destino): string
+{
+    if (!file_exists($basePdfPath)) {
+        throw new RuntimeException("PDF base no encontrado: $basePdfPath");
+    }
+
+    $mpdf = new \Mpdf\Mpdf([
+        'mode' => 'utf-8',
+        'format' => 'A4',
+        'margin_left' => 20,
+        'margin_right' => 20,
+        'margin_top' => 20,
+        'margin_bottom' => 20,
+    ]);
+    $mpdf->SetTitle($meta['titulo'] ?? 'Contrato Tres Puntos');
+    $mpdf->SetAuthor('Tres Puntos Comunicación S.L.');
+    $mpdf->SetCreator('doc.trespuntos-lab.com · Firma electrónica eIDAS');
+    $mpdf->SetSubject($meta['tipo'] ?? 'Contrato');
+
+    // Importar cada página del PDF original tal cual (con sus dimensiones)
+    $pageCount = $mpdf->SetSourceFile($basePdfPath);
+    for ($i = 1; $i <= $pageCount; $i++) {
+        $tpl = $mpdf->ImportPage($i);
+        $size = $mpdf->getTemplateSize($tpl);
+        $orientation = ($size['width'] > $size['height']) ? 'L' : 'P';
+        $mpdf->AddPageByArray([
+            'orientation' => $orientation,
+            'sheet-size' => [$size['width'], $size['height']],
+            'margin-left' => 0, 'margin-right' => 0,
+            'margin-top' => 0, 'margin-bottom' => 0,
+        ]);
+        $mpdf->UseTemplate($tpl);
+    }
+
+    // Página de audit trail con branding TP (A4 normal)
+    $mpdf->AddPageByArray([
+        'orientation' => 'P',
+        'sheet-size' => 'A4',
+        'margin-left' => 20, 'margin-right' => 20,
+        'margin-top' => 20, 'margin-bottom' => 20,
+    ]);
+    $mpdf->WriteHTML(contrato_base_css(), \Mpdf\HTMLParserMode::HEADER_CSS);
+    $mpdf->WriteHTML(contrato_audit_page_html($firmas, $meta), \Mpdf\HTMLParserMode::HTML_BODY);
+
+    $dir = dirname($destino);
+    if (!is_dir($dir)) mkdir($dir, 0755, true);
+    $mpdf->Output($destino, \Mpdf\Output\Destination::FILE);
+    return $destino;
+}
+
+/**
  * CSS base para todos los contratos — alineado con la identidad TP pero adaptado a PDF impreso (fondo claro).
  */
 function contrato_base_css(): string

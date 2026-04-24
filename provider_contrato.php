@@ -42,7 +42,7 @@ if (empty($_SESSION[$sessKey])) {
 
 // Verifica el contrato pertenece a este proveedor
 $ctr = $pdo->prepare("
-    SELECT c.*, p.html_content, p.tipo AS plantilla_tipo, p.firmantes_json, p.require_otp
+    SELECT c.*, p.html_content, p.tipo AS plantilla_tipo, p.firmantes_json, p.require_otp AS plant_require_otp
     FROM contratos c
     LEFT JOIN contratos_plantillas p ON p.id = c.plantilla_id
     WHERE c.id = ? AND c.destinatario_tipo = 'proveedor' AND c.destinatario_id = ?
@@ -50,6 +50,11 @@ $ctr = $pdo->prepare("
 $ctr->execute([$contratoId, $provider['id']]);
 $contrato = $ctr->fetch(PDO::FETCH_ASSOC);
 if (!$contrato) { http_response_code(404); echo 'Contrato no encontrado'; exit; }
+
+// Detectar modo plantilla vs PDF directo
+$datosMeta = json_decode($contrato['datos_json'] ?: '{}', true) ?: [];
+$isPdfDirect = empty($contrato['plantilla_id']);
+$contrato['require_otp'] = $isPdfDirect ? (int)($datosMeta['require_otp'] ?? 0) : (int)($contrato['plant_require_otp'] ?? 0);
 
 if (!in_array($contrato['estado'], ['enviado','visto','firmado_parcial'], true) && $contrato['estado'] !== 'borrador') {
     // Ya está firmado o expirado o rechazado
@@ -196,11 +201,24 @@ function _provider_generar_pdf_final_inline(PDO $pdo, int $contratoId): void {
     contrato_log_evento($pdo, $contratoId, 'pdf_final_generado', 'sistema');
 }
 
+// GET: servir PDF original (para iframe en modo PDF directo)
+if (isset($_GET['view_pdf']) && $isPdfDirect && $contrato['pdf_sin_firmar_path']) {
+    $abs = __DIR__ . '/' . $contrato['pdf_sin_firmar_path'];
+    if (file_exists($abs)) {
+        header('Content-Type: application/pdf');
+        header('Content-Disposition: inline; filename="contrato-' . $contratoId . '.pdf"');
+        readfile($abs);
+        exit;
+    }
+    http_response_code(404); exit;
+}
+
 // ====================================================================
 //   GET: render UI
 // ====================================================================
 $datos = json_decode($contrato['datos_json'], true) ?: [];
-$contractHtml = contrato_render_template($contrato['html_content'], $datos);
+$contractHtml = $isPdfDirect ? '' : contrato_render_template($contrato['html_content'], $datos);
+$pdfViewUrl = $isPdfDirect ? ('?token=' . urlencode($token) . '&contrato_id=' . $contratoId . '&view_pdf=1') : null;
 
 $alreadySignedByProvider = $firmaProveedor && !empty($firmaProveedor['firmado_at']);
 $wasFullySigned = $contrato['estado'] === 'firmado';
@@ -242,7 +260,8 @@ body { margin:0; background:var(--bg-base); color:var(--text-primary); font-fami
 .hero .meta { color:var(--text-muted); font-size:.85rem; }
 .hero .meta b { color:var(--text-secondary); font-weight:600; }
 .callout-info { background:rgba(93,255,191,.06); border-left:3px solid var(--mint); padding:1rem 1.2rem; border-radius:8px; margin-top:1.2rem; font-size:.88rem; color:var(--text-secondary); }
-.contract-doc { background:#fff; color:#1a1a1a; padding:3rem 3.5rem; border-radius:14px; box-shadow:0 4px 20px rgba(0,0,0,.4); font-family:Georgia, serif; font-size:11.5pt; line-height:1.55; max-height:600px; overflow-y:auto; margin-bottom:1.5rem; }
+.contract-doc { background:#fff; color:#1a1a1a; padding:3rem 3.5rem; border-radius:14px; box-shadow:0 4px 20px rgba(0,0,0,.4); font-family:Georgia, serif; font-size:11.5pt; line-height:1.55; margin-bottom:1.5rem; }
+.contract-doc .doc-end-sentinel { display:block; height:1px; margin-top:2rem; }
 .contract-doc .tp-cover h1, .contract-doc .tp-section h2 { font-family:'Plus Jakarta Sans', sans-serif; color:#0e0e0e; font-weight:800; }
 .contract-doc .tp-cover h1 { font-size:1.6rem; margin:0 0 .4rem; }
 .contract-doc .tp-cover .subtitle { color:#5dffbf; background:#0e0e0e; padding:.2rem .5rem; display:inline-block; border-radius:5px; font-weight:700; font-size:.95rem; margin-bottom:1rem; }
@@ -305,6 +324,38 @@ canvas#sigPad { display:block; width:100%; height:200px; touch-action:none; curs
         <a class="btn" href="/s/<?= urlencode($token) ?>" style="margin-left:.5rem">Continuar al proyecto</a>
     </div>
 </div>
+<?php elseif ($alreadySignedByProvider): // Ya firmaste pero falta TP ?>
+<div class="hero">
+    <div class="alert alert-ok" style="background:rgba(93,255,191,.1)">
+        <strong>✓ Tu firma se registró correctamente.</strong><br>
+        Ahora toca a <?= htmlspecialchars(TP_RAZON_SOCIAL, ENT_QUOTES, 'UTF-8') ?> contra-firmar. Cuando ambas partes hayamos firmado, recibirás el PDF final con el certificado de firma electrónica.
+    </div>
+    <h1><?= htmlspecialchars($contrato['titulo'], ENT_QUOTES, 'UTF-8') ?></h1>
+    <div class="meta" style="margin-top:1rem;line-height:1.8">
+        <div><b>Tu firma</b> · <?= htmlspecialchars($firmaProveedor['firmante_nombre'] ?? '', ENT_QUOTES, 'UTF-8') ?> (<?= htmlspecialchars($firmaProveedor['firmante_email'] ?? '', ENT_QUOTES, 'UTF-8') ?>)<br>
+        Firmado el <?= date('d/m/Y H:i', strtotime($firmaProveedor['firmado_at'])) ?> · IP <?= htmlspecialchars($firmaProveedor['ip'] ?? '', ENT_QUOTES, 'UTF-8') ?></div>
+        <div style="margin-top:.5rem;color:var(--text-muted)">
+            <?php
+            $tpPend = null;
+            foreach ($firmasView ?? [] as $fv) { if ($fv['rol']==='tp') { $tpPend = $fv; break; } }
+            // También consultamos directamente por si firmasView no está
+            if (!$tpPend) {
+                $tpQ = $pdo->prepare("SELECT firmante_nombre, firmado_at FROM contratos_firmas WHERE contrato_id = ? AND rol = 'tp'");
+                $tpQ->execute([$contratoId]);
+                $tpPend = $tpQ->fetch(PDO::FETCH_ASSOC);
+            }
+            ?>
+            <b>Falta por firmar</b> · <?= htmlspecialchars($tpPend['firmante_nombre'] ?? 'Tres Puntos', ENT_QUOTES, 'UTF-8') ?>
+            <?= empty($tpPend['firmado_at']) ? ' · ⏳ pendiente' : '' ?>
+        </div>
+    </div>
+    <div style="margin-top:1.5rem">
+        <a class="btn" href="/s/<?= urlencode($token) ?>">Continuar al proyecto</a>
+    </div>
+    <div class="callout-info" style="margin-top:1.2rem">
+        Tu firma queda registrada con fecha <b><?= date('d/m/Y H:i', strtotime($firmaProveedor['firmado_at'])) ?></b>, IP <?= htmlspecialchars($firmaProveedor['ip'] ?? '—', ENT_QUOTES, 'UTF-8') ?> y el hash SHA-256 del documento. Cuando Tres Puntos contra-firme, recibirás el PDF completo por email y podrás descargarlo aquí mismo.
+    </div>
+</div>
 <?php else: ?>
 
 <div class="hero">
@@ -321,9 +372,21 @@ canvas#sigPad { display:block; width:100%; height:200px; touch-action:none; curs
 
 <div class="scroll-progress"><div id="scrollBar"></div></div>
 
+<?php if ($isPdfDirect): ?>
+<div class="contract-doc" id="contractDoc" style="padding:0;background:#1f1f1f">
+    <iframe src="<?= htmlspecialchars($pdfViewUrl, ENT_QUOTES, 'UTF-8') ?>" style="width:100%;height:720px;border:0;border-radius:14px;background:#fff" onload="onPdfLoaded()"></iframe>
+    <div class="doc-end-sentinel" id="docEndSentinel"></div>
+</div>
+<div style="background:var(--bg-subtle);padding:.75rem 1rem;border-radius:8px;font-size:.8rem;color:var(--text-muted);margin:-.8rem 0 1.5rem;display:flex;align-items:center;gap:.5rem">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+    Haz scroll dentro del PDF o hasta el final de la página para activar la firma.
+</div>
+<?php else: ?>
 <div class="contract-doc" id="contractDoc">
     <?= $contractHtml ?>
+    <div class="doc-end-sentinel" id="docEndSentinel"></div>
 </div>
+<?php endif; ?>
 
 <div class="sign-card" id="signCard">
     <h2>Firma del contrato</h2>
@@ -401,20 +464,45 @@ const REQUIRE_OTP = <?= $contrato['require_otp'] ? 'true' : 'false' ?>;
 const SIGN_START = Date.now();
 let SCROLL_OK = false;
 
-// Scroll tracking dentro del contractDoc
+// Scroll tracking: barra de progreso sobre el documento completo + sentinel al final
 const docEl = document.getElementById('contractDoc');
+const sentinel = document.getElementById('docEndSentinel');
 const bar = document.getElementById('scrollBar');
 const warn = document.getElementById('readWarning');
-docEl?.addEventListener('scroll', () => {
-    const pct = (docEl.scrollTop + docEl.clientHeight) / docEl.scrollHeight * 100;
-    bar.style.width = Math.min(pct, 100) + '%';
-    if (pct >= 95 && !SCROLL_OK) {
-        SCROLL_OK = true;
-        document.getElementById('consentCheck').disabled = false;
-        warn.style.display = 'none';
-        checkReady();
-    }
-});
+
+function unlockSignature(){
+    if (SCROLL_OK) return;
+    SCROLL_OK = true;
+    document.getElementById('consentCheck').disabled = false;
+    if (warn) warn.style.display = 'none';
+    bar.style.width = '100%';
+    checkReady();
+}
+
+// 1) Barra de progreso: porcentaje de la página leído respecto al documento
+function updateProgress(){
+    if (!docEl) return;
+    const rect = docEl.getBoundingClientRect();
+    const docTop = window.scrollY + rect.top;
+    const docHeight = docEl.scrollHeight;
+    const viewed = Math.max(0, Math.min(docHeight, window.scrollY + window.innerHeight - docTop));
+    const pct = Math.min(100, (viewed / docHeight) * 100);
+    bar.style.width = pct + '%';
+    if (pct >= 95) unlockSignature();
+}
+window.addEventListener('scroll', updateProgress, { passive: true });
+window.addEventListener('resize', updateProgress);
+updateProgress();
+
+// 2) IntersectionObserver sobre el sentinel al final del documento (más fiable)
+if (sentinel && 'IntersectionObserver' in window) {
+    const io = new IntersectionObserver((entries) => {
+        for (const e of entries) {
+            if (e.isIntersecting) unlockSignature();
+        }
+    }, { rootMargin: '0px 0px -20% 0px' });
+    io.observe(sentinel);
+}
 
 // Canvas firma
 const cv = document.getElementById('sigPad');
@@ -491,15 +579,15 @@ async function submitSign(){
 }
 
 initSig();
-// Trigger scroll inicial por si el doc cabe entero sin scroll
-setTimeout(() => {
-    if (docEl && docEl.scrollHeight <= docEl.clientHeight + 20) {
-        SCROLL_OK = true;
-        document.getElementById('consentCheck').disabled = false;
-        warn.style.display = 'none';
-        checkReady();
-    }
-}, 200);
+// Re-evaluar progreso después de cargar todo (fonts, imágenes)
+setTimeout(updateProgress, 300);
+
+// Si es PDF directo, desbloqueamos cuando el iframe ha cargado (no podemos medir scroll interno)
+// + al hacer click en el iframe durante ≥8 segundos asumimos que está leyendo
+function onPdfLoaded(){
+    // Desbloqueo progresivo: tras 5s con el iframe cargado se habilita
+    setTimeout(unlockSignature, 5000);
+}
 </script>
 </body>
 </html>

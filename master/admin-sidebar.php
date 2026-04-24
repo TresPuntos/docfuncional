@@ -881,6 +881,10 @@ svg.prop__chevron.lucide {
                 <span class="nav-item__badge nav-item__badge--purple"><?= $pendientesContratos ?></span>
             <?php endif; ?>
         </a>
+        <a href="admin_plantillas.php" class="nav-item <?= $active === 'plantillas' ? 'is-active' : '' ?>" title="Plantillas de contrato reutilizables con variables">
+            <i data-lucide="layout-template"></i>
+            <span>Plantillas</span>
+        </a>
 
         <?php if (!empty($activeProps)): ?>
             <div class="admin-sidebar__label">
