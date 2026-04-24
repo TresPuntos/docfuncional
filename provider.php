@@ -261,30 +261,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['pin'])) {
         $pdo->prepare("UPDATE propuesta_proveedores SET last_accessed_at = CURRENT_TIMESTAMP, accesos = accesos + 1 WHERE id = ?")
             ->execute([$provider['id']]);
 
-        // === GATE DE CONTRATOS PENDIENTES (NDA, subcontratación, etc) ===
-        // Si hay algún contrato dirigido a este proveedor en estado 'enviado'/'visto'/'firmado_parcial',
-        // redirige a la pantalla de firma antes de dejarlo pasar a la propuesta.
-        $pendiente = $pdo->prepare("
-            SELECT id FROM contratos
-            WHERE destinatario_tipo = 'proveedor' AND destinatario_id = ?
-              AND estado IN ('enviado','visto','firmado_parcial')
-            ORDER BY created_at ASC LIMIT 1
-        ");
-        $pendiente->execute([$provider['id']]);
-        $pendienteId = $pendiente->fetchColumn();
-
         $scheme = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http';
         $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
 
-        if ($pendienteId) {
-            // Solo bloqueamos si es contrato dirigido a este proveedor concretamente
-            // y la firma de rol='proveedor' aún no se ha completado
-            $checkFirma = $pdo->prepare("SELECT id FROM contratos_firmas WHERE contrato_id = ? AND rol = 'proveedor' AND firmado_at IS NULL");
-            $checkFirma->execute([$pendienteId]);
-            if ($checkFirma->fetchColumn()) {
-                header('Location: ' . $scheme . '://' . $host . '/provider_contrato.php?token=' . urlencode($token) . '&contrato_id=' . (int)$pendienteId);
-                exit;
+        // === GATE DE CONTRATOS PENDIENTES (NDA, subcontratación, etc) ===
+        // Tolera que las tablas contratos/contratos_firmas aún no estén creadas en prod:
+        // si fallan, seguimos el flujo normal (propuesta) sin romper al proveedor.
+        try {
+            $pendiente = $pdo->prepare("
+                SELECT id FROM contratos
+                WHERE destinatario_tipo = 'proveedor' AND destinatario_id = ?
+                  AND estado IN ('enviado','visto','firmado_parcial')
+                ORDER BY created_at ASC LIMIT 1
+            ");
+            $pendiente->execute([$provider['id']]);
+            $pendienteId = $pendiente->fetchColumn();
+
+            if ($pendienteId) {
+                $checkFirma = $pdo->prepare("SELECT id FROM contratos_firmas WHERE contrato_id = ? AND rol = 'proveedor' AND firmado_at IS NULL");
+                $checkFirma->execute([$pendienteId]);
+                if ($checkFirma->fetchColumn()) {
+                    header('Location: ' . $scheme . '://' . $host . '/provider_contrato.php?token=' . urlencode($token) . '&contrato_id=' . (int)$pendienteId);
+                    exit;
+                }
             }
+        } catch (\Throwable $_e) {
+            // Tablas de contratos no existen todavía en esta BD → seguimos sin gate
         }
 
         // Redirige a view.php con el token — el proveedor ve la misma vista que el cliente
@@ -301,19 +303,23 @@ if ($unlocked && $_SERVER['REQUEST_METHOD'] === 'GET') {
     $scheme = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http';
     $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
 
-    // Mismo check de contratos pendientes
-    $pendiente = $pdo->prepare("
-        SELECT c.id FROM contratos c
-        WHERE c.destinatario_tipo = 'proveedor' AND c.destinatario_id = ?
-          AND c.estado IN ('enviado','visto','firmado_parcial')
-          AND EXISTS (SELECT 1 FROM contratos_firmas WHERE contrato_id = c.id AND rol = 'proveedor' AND firmado_at IS NULL)
-        ORDER BY c.created_at ASC LIMIT 1
-    ");
-    $pendiente->execute([$provider['id']]);
-    $pendienteId = $pendiente->fetchColumn();
-    if ($pendienteId) {
-        header('Location: ' . $scheme . '://' . $host . '/provider_contrato.php?token=' . urlencode($token) . '&contrato_id=' . (int)$pendienteId);
-        exit;
+    // Mismo check de contratos pendientes — defensivo por si las tablas aún no existen
+    try {
+        $pendiente = $pdo->prepare("
+            SELECT c.id FROM contratos c
+            WHERE c.destinatario_tipo = 'proveedor' AND c.destinatario_id = ?
+              AND c.estado IN ('enviado','visto','firmado_parcial')
+              AND EXISTS (SELECT 1 FROM contratos_firmas WHERE contrato_id = c.id AND rol = 'proveedor' AND firmado_at IS NULL)
+            ORDER BY c.created_at ASC LIMIT 1
+        ");
+        $pendiente->execute([$provider['id']]);
+        $pendienteId = $pendiente->fetchColumn();
+        if ($pendienteId) {
+            header('Location: ' . $scheme . '://' . $host . '/provider_contrato.php?token=' . urlencode($token) . '&contrato_id=' . (int)$pendienteId);
+            exit;
+        }
+    } catch (\Throwable $_e) {
+        // Tablas de contratos no existen todavía → seguimos al flujo normal
     }
 
     header('Location: ' . $scheme . '://' . $host . '/p/' . rawurlencode($provider['slug']) . '?__provider=' . urlencode($token));
