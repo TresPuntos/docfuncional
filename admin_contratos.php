@@ -289,35 +289,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             contrato_log_evento($pdo, $id, 'enviado', 'admin');
         }
 
-        // Enviar email al firmante destinatario (si tenemos email)
-        $emailSent = false; $emailTo = null; $emailError = null;
+        // Enviar email al/los firmante/s destinatario (acepta uno o varios emails separados por coma)
+        $emailSent = false; $emailTo = []; $emailError = null; $emailInvalid = [];
         $slotStmt = $pdo->prepare("SELECT firmante_nombre, firmante_email FROM contratos_firmas WHERE contrato_id = ? AND rol = ? LIMIT 1");
         $slotStmt->execute([$id, $ctr['destinatario_tipo']]);
         $slot = $slotStmt->fetch(PDO::FETCH_ASSOC);
-        $emailTo = $forceEmail ?: ($slot['firmante_email'] ?? '');
-        if ($emailTo && filter_var($emailTo, FILTER_VALIDATE_EMAIL)) {
-            // Actualizar el email en la firma si vino "forzado" (cliente sin email pre-seteado)
-            if ($forceEmail && $slot && (empty($slot['firmante_email']) || $slot['firmante_email'] !== $forceEmail)) {
-                $pdo->prepare("UPDATE contratos_firmas SET firmante_email = ? WHERE contrato_id = ? AND rol = ?")
-                    ->execute([$forceEmail, $id, $ctr['destinatario_tipo']]);
-            }
-            $host = $_SERVER['HTTP_HOST'] ?? 'doc.trespuntos-lab.com';
-            $scheme = (($_SERVER['HTTPS'] ?? '') === 'on' || strpos($host, 'localhost') === false) ? 'https' : 'http';
-            $signUrl = $scheme . '://' . $host . '/sign.php?token=' . urlencode($ctr['signing_token']);
-            $emailSent = contrato_send_invite_email($emailTo, $slot['firmante_nombre'] ?? '', $ctr['titulo'], $signUrl);
-            contrato_log_evento($pdo, $id, $emailSent ? 'email_invite_enviado' : 'email_invite_fallido', 'admin', ['to' => $emailTo]);
-        } else {
-            $emailError = 'Sin email del firmante · copia el link manualmente';
+
+        $rawEmailsInput = $forceEmail !== '' ? $forceEmail : ($slot['firmante_email'] ?? '');
+        if ($rawEmailsInput) {
+            $parsed = tp_parse_email_list($rawEmailsInput);
+            $emailTo = $parsed['valid'];
+            $emailInvalid = $parsed['invalid'];
         }
 
         $host = $_SERVER['HTTP_HOST'] ?? 'doc.trespuntos-lab.com';
         $scheme = (($_SERVER['HTTPS'] ?? '') === 'on' || strpos($host, 'localhost') === false) ? 'https' : 'http';
         $signUrl = $scheme . '://' . $host . '/sign.php?token=' . urlencode($ctr['signing_token']);
 
+        if (!empty($emailTo)) {
+            // Guardar lista canónica en firmante_email (separados por coma) y dejar el primero accesible
+            $canonList = implode(', ', $emailTo);
+            if ($slot && $slot['firmante_email'] !== $canonList) {
+                $pdo->prepare("UPDATE contratos_firmas SET firmante_email = ? WHERE contrato_id = ? AND rol = ?")
+                    ->execute([$canonList, $id, $ctr['destinatario_tipo']]);
+            }
+            $emailSent = contrato_send_invite_email($emailTo, $slot['firmante_nombre'] ?? '', $ctr['titulo'], $signUrl);
+            contrato_log_evento($pdo, $id, $emailSent ? 'email_invite_enviado' : 'email_invite_fallido', 'admin', ['to' => $emailTo, 'invalid' => $emailInvalid]);
+        } else {
+            $emailError = $emailInvalid ? ('Ningún email válido · inválidos: ' . implode(', ', $emailInvalid)) : 'Sin email · copia el link manualmente';
+        }
+
         echo json_encode([
             'success' => true,
             'email_sent' => $emailSent,
             'email_to' => $emailTo,
+            'email_invalid' => $emailInvalid,
             'email_error' => $emailError,
             'sign_url' => $signUrl,
         ]);
@@ -326,29 +332,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
     if ($action === 'resend_email') {
         $id = (int)($_POST['contrato_id'] ?? 0);
-        $email = trim($_POST['email'] ?? '');
-        if (!$email || !filter_var($email, FILTER_VALIDATE_EMAIL)) { echo json_encode(['success' => false, 'error' => 'Email inválido']); exit; }
+        $emailRaw = trim($_POST['email'] ?? '');
+        $parsed = tp_parse_email_list($emailRaw);
+        if (empty($parsed['valid'])) {
+            echo json_encode(['success' => false, 'error' => 'Ningún email válido' . ($parsed['invalid'] ? ' · inválidos: ' . implode(', ', $parsed['invalid']) : '')]);
+            exit;
+        }
         $ctr = $pdo->prepare("SELECT * FROM contratos WHERE id = ?");
         $ctr->execute([$id]);
         $ctr = $ctr->fetch(PDO::FETCH_ASSOC);
         if (!$ctr) { echo json_encode(['success' => false, 'error' => 'No existe']); exit; }
-        // Asegurar signing_token
         if (empty($ctr['signing_token'])) {
             $tok = bin2hex(random_bytes(16));
             $pdo->prepare("UPDATE contratos SET signing_token = ? WHERE id = ?")->execute([$tok, $id]);
             $ctr['signing_token'] = $tok;
         }
+        $canonList = implode(', ', $parsed['valid']);
         $pdo->prepare("UPDATE contratos_firmas SET firmante_email = ? WHERE contrato_id = ? AND rol = ?")
-            ->execute([$email, $id, $ctr['destinatario_tipo']]);
+            ->execute([$canonList, $id, $ctr['destinatario_tipo']]);
         $slot = $pdo->prepare("SELECT firmante_nombre FROM contratos_firmas WHERE contrato_id = ? AND rol = ? LIMIT 1");
         $slot->execute([$id, $ctr['destinatario_tipo']]);
         $nombre = $slot->fetchColumn() ?: '';
         $host = $_SERVER['HTTP_HOST'] ?? 'doc.trespuntos-lab.com';
         $scheme = (($_SERVER['HTTPS'] ?? '') === 'on' || strpos($host, 'localhost') === false) ? 'https' : 'http';
         $signUrl = $scheme . '://' . $host . '/sign.php?token=' . urlencode($ctr['signing_token']);
-        $ok = contrato_send_invite_email($email, $nombre, $ctr['titulo'], $signUrl);
-        contrato_log_evento($pdo, $id, $ok ? 'email_invite_reenviado' : 'email_invite_reenvio_fallido', 'admin', ['to' => $email]);
-        echo json_encode(['success' => $ok, 'sign_url' => $signUrl]);
+        $ok = contrato_send_invite_email($parsed['valid'], $nombre, $ctr['titulo'], $signUrl);
+        contrato_log_evento($pdo, $id, $ok ? 'email_invite_reenviado' : 'email_invite_reenvio_fallido', 'admin', ['to' => $parsed['valid'], 'invalid' => $parsed['invalid']]);
+        echo json_encode([
+            'success' => $ok,
+            'email_to' => $parsed['valid'],
+            'email_invalid' => $parsed['invalid'],
+            'sign_url' => $signUrl,
+        ]);
         exit;
     }
 
@@ -860,8 +875,9 @@ if ($contratoIdView && $contratoView) {
             <div style="margin-top:1rem;background:var(--bg-subtle);padding:1rem;border-radius:10px">
                 <div style="font-size:.78rem;color:var(--text-muted);margin-bottom:.55rem">Al enviar, se genera el PDF borrador y (si hay email) se notifica al firmante con el link de firma.</div>
                 <div class="field" style="margin-bottom:.6rem">
-                    <label style="font-size:.7rem">Email del firmante (destinatario <strong><?=e($contratoView['destinatario_tipo'])?></strong>)</label>
-                    <input type="email" id="signerEmailInput" value="<?=e($destSlotEmail)?>" placeholder="<?= $contratoView['destinatario_tipo'] === 'cliente' ? 'persona@cliente.com' : 'persona@proveedor.com' ?>" style="width:100%;background:var(--bg-muted);border:1px solid var(--border-base);color:var(--text-primary);padding:.5rem .7rem;border-radius:6px;font-size:.85rem">
+                    <label style="font-size:.7rem">Email/s del firmante (destinatario <strong><?=e($contratoView['destinatario_tipo'])?>)</strong></label>
+                    <input type="text" id="signerEmailInput" value="<?=e($destSlotEmail)?>" placeholder="persona@empresa.com, otro@empresa.com" style="width:100%;background:var(--bg-muted);border:1px solid var(--border-base);color:var(--text-primary);padding:.5rem .7rem;border-radius:6px;font-size:.85rem">
+                    <div style="font-size:.68rem;color:var(--text-muted);margin-top:.3rem">Puedes poner varios separados por coma o punto y coma. Se enviará el mismo link a todos.</div>
                 </div>
                 <button class="btn btn-primary" onclick="sendToSigner(<?=$contratoView['id']?>)">
                     <i data-lucide="send" style="width:14px;height:14px"></i> Enviar al firmante
@@ -878,11 +894,12 @@ if ($contratoIdView && $contratoView) {
                     <a class="btn" href="<?=e($signUrl)?>" target="_blank"><i data-lucide="external-link" style="width:14px;height:14px"></i></a>
                 </div>
                 <div style="display:flex;gap:.4rem;align-items:center">
-                    <input type="email" id="resendEmailInput" value="<?=e($destSlotEmail)?>" placeholder="email del firmante" style="flex:1;background:var(--bg-muted);border:1px solid var(--border-base);color:var(--text-primary);padding:.5rem .7rem;border-radius:6px;font-size:.78rem">
+                    <input type="text" id="resendEmailInput" value="<?=e($destSlotEmail)?>" placeholder="email1@x.com, email2@x.com" style="flex:1;background:var(--bg-muted);border:1px solid var(--border-base);color:var(--text-primary);padding:.5rem .7rem;border-radius:6px;font-size:.78rem">
                     <button class="btn" onclick="resendEmail(<?=$contratoView['id']?>)" title="Enviar email con link de firma">
                         <i data-lucide="mail" style="width:14px;height:14px"></i> Enviar email
                     </button>
                 </div>
+                <div style="font-size:.68rem;color:var(--text-muted);margin-top:.3rem">Separa varios emails con coma o punto y coma.</div>
             </div>
             <?php endif; ?>
         </div>
@@ -1225,9 +1242,13 @@ async function sendToSigner(id){
     const data = await res.json();
     if (data.success) {
         let msg = 'Contrato enviado.\n\n';
-        if (data.email_sent) msg += '✓ Email enviado a: ' + data.email_to + '\n';
-        else if (data.email_to) msg += '⚠ Email no se pudo enviar a ' + data.email_to + ' (revisa Resend).\n';
+        const sent = Array.isArray(data.email_to) ? data.email_to : (data.email_to ? [data.email_to] : []);
+        if (data.email_sent && sent.length) msg += '✓ Email enviado a: ' + sent.join(', ') + '\n';
+        else if (sent.length) msg += '⚠ Email no se pudo enviar (revisa Resend).\n';
         else msg += '⚠ ' + (data.email_error || 'Sin email configurado') + '\n';
+        if (Array.isArray(data.email_invalid) && data.email_invalid.length) {
+            msg += '⚠ Direcciones inválidas ignoradas: ' + data.email_invalid.join(', ') + '\n';
+        }
         msg += '\nLink de firma:\n' + data.sign_url;
         alert(msg);
         location.reload();
@@ -1251,8 +1272,12 @@ async function resendEmail(id){
     fd.append('email', email);
     const res = await fetch('admin_contratos.php', { method:'POST', body:fd });
     const data = await res.json();
-    if (data.success) alert('✓ Email enviado a ' + email);
-    else alert('Error: ' + (data.error || 'No se pudo enviar. Revisa Resend.'));
+    if (data.success) {
+        const to = Array.isArray(data.email_to) ? data.email_to.join(', ') : email;
+        let msg = '✓ Email enviado a ' + to;
+        if (Array.isArray(data.email_invalid) && data.email_invalid.length) msg += '\n⚠ Inválidos ignorados: ' + data.email_invalid.join(', ');
+        alert(msg);
+    } else alert('Error: ' + (data.error || 'No se pudo enviar. Revisa Resend.'));
 }
 
 // Sign modal

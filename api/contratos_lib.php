@@ -369,16 +369,38 @@ function tp_render_email_layout(array $opts): string
 }
 
 /**
+ * Parsea una cadena con uno o varios emails (separados por coma, punto-y-coma o salto de línea).
+ * Devuelve ['valid' => [...emails válidos], 'invalid' => [...rechazados]].
+ */
+function tp_parse_email_list(string $raw): array
+{
+    $parts = preg_split('/[\s,;]+/', trim($raw), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+    $valid = []; $invalid = [];
+    foreach ($parts as $p) {
+        $p = trim($p);
+        if ($p === '') continue;
+        if (filter_var($p, FILTER_VALIDATE_EMAIL)) $valid[] = $p;
+        else $invalid[] = $p;
+    }
+    $valid = array_values(array_unique($valid));
+    return ['valid' => $valid, 'invalid' => $invalid];
+}
+
+/**
  * Wrapper HTTP para enviar emails via Resend usando el layout estándar.
+ * Acepta un email único (string) o una lista (array) — todos van al campo `to`.
  * Devuelve true si Resend respondió 2xx.
  */
-function tp_send_email(string $to, string $subject, array $layoutOpts, ?string $replyTo = null): bool
+function tp_send_email($to, string $subject, array $layoutOpts, ?string $replyTo = null): bool
 {
     if (!defined('RESEND_API_KEY') || !RESEND_API_KEY) return false;
+    $toList = is_array($to) ? $to : [$to];
+    $toList = array_values(array_filter($toList, fn($e) => filter_var($e, FILTER_VALIDATE_EMAIL)));
+    if (empty($toList)) return false;
     $html = tp_render_email_layout($layoutOpts);
     $payload = [
         'from' => defined('RESEND_FROM') ? RESEND_FROM : 'Tres Puntos <noreply@trespuntos-lab.com>',
-        'to' => [$to],
+        'to' => $toList,
         'reply_to' => $replyTo ?: (defined('RESEND_REPLY_TO') ? RESEND_REPLY_TO : 'jordi@trespuntoscomunicacion.es'),
         'subject' => $subject,
         'html' => $html,
@@ -396,14 +418,15 @@ function tp_send_email(string $to, string $subject, array $layoutOpts, ?string $
 }
 
 /**
- * Email al firmante cuando el admin envía el contrato.
+ * Email al/los firmante/s cuando el admin envía el contrato.
+ * @param string|array $emails Uno o varios emails (string o lista).
  */
-function contrato_send_invite_email(string $email, string $nombre, string $titulo, string $signUrl): bool
+function contrato_send_invite_email($emails, string $nombre, string $titulo, string $signUrl): bool
 {
     $tpRazon = defined('TP_RAZON_SOCIAL') ? TP_RAZON_SOCIAL : 'Tres Puntos Comunicación S.L.';
     $nombreSeguro = htmlspecialchars($nombre ?: 'firmante', ENT_QUOTES, 'UTF-8');
     $tpRazonSeguro = htmlspecialchars($tpRazon, ENT_QUOTES, 'UTF-8');
-    return tp_send_email($email, 'Firma pendiente · ' . $titulo, [
+    return tp_send_email($emails, 'Firma pendiente · ' . $titulo, [
         'preheader'    => $tpRazon . ' te ha enviado un contrato para firmar electrónicamente.',
         'title'        => 'Tienes un contrato para firmar',
         'intro'        => 'Hola <strong>' . $nombreSeguro . '</strong>,<br><br>' . $tpRazonSeguro . ' te ha enviado para firma electrónica el siguiente documento:',

@@ -258,8 +258,22 @@ body { margin:0; background:var(--bg-base); color:var(--text-primary); font-fami
 .sign-card .sub { color:var(--text-muted); font-size:.85rem; margin-bottom:1.5rem; }
 .field { margin-bottom:1.1rem; }
 .field label { display:block; color:var(--text-muted); font-size:.78rem; margin-bottom:.35rem; font-weight:600; }
-.field input, .field select { width:100%; background:var(--bg-subtle); color:var(--text-primary); border:1px solid var(--border-base); padding:.7rem .85rem; border-radius:8px; font-size:.95rem; font-family:inherit; }
+.field input, .field select { width:100%; background:var(--bg-subtle); color:var(--text-primary); border:1px solid var(--border-base); padding:.7rem .85rem; border-radius:8px; font-size:.95rem; font-family:inherit; transition:border-color .15s; }
 .field input:focus { outline:none; border-color:var(--mint); }
+.field input.is-invalid { border-color:#ff6b6b; background:rgba(255,107,107,.05); }
+.field input.is-valid { border-color:#0FA36C; }
+.field .field-error { margin-top:.3rem;font-size:.72rem;color:#ff8a8a;line-height:1.4;display:none; }
+.field .field-error.show { display:block; }
+.field .field-ok { margin-top:.3rem;font-size:.72rem;color:var(--mint);line-height:1.4; }
+.field .field-hint { margin-top:.3rem;font-size:.72rem;color:var(--text-muted);line-height:1.4; }
+.inline-alert { background:rgba(255,107,107,.1); border-left:3px solid #ff6b6b; padding:.85rem 1rem; border-radius:6px; margin-bottom:1rem; color:#ff8a8a; font-size:.85rem; display:none; }
+.inline-alert.show { display:block; }
+.missing-checklist { background:var(--bg-subtle); border-radius:8px; padding:.75rem 1rem; margin-top:1rem; font-size:.78rem; color:var(--text-muted); line-height:1.7; }
+.missing-checklist ul { list-style:none; padding:0; margin:.25rem 0 0 0; }
+.missing-checklist li { padding-left:1.2rem; position:relative; }
+.missing-checklist li::before { content:'○'; position:absolute; left:0; color:#ff8a8a; font-size:.85rem; }
+.missing-checklist li.done { color:var(--mint); text-decoration:line-through; opacity:.6; }
+.missing-checklist li.done::before { content:'✓'; color:var(--mint); }
 .row2 { display:grid; grid-template-columns:1fr 1fr; gap:1rem; }
 @media (max-width:640px){ .row2 { grid-template-columns:1fr; } }
 .consent { display:flex; align-items:flex-start; gap:.6rem; background:var(--bg-subtle); padding:1rem; border-radius:8px; font-size:.82rem; color:var(--text-secondary); line-height:1.5; }
@@ -323,25 +337,31 @@ canvas#sigPad { display:block; width:100%; height:220px; touch-action:none; curs
     <h2>Firma del contrato</h2>
     <div class="sub">Firmas como <strong><?= htmlspecialchars($rolDestinatario === 'cliente' ? ($firmaSlot['firmante_nombre'] ?? 'Cliente') : ($firmaSlot['firmante_empresa'] ?? $firmaSlot['firmante_nombre'] ?? 'Proveedor'), ENT_QUOTES, 'UTF-8') ?></strong></div>
 
+    <div class="inline-alert" id="serverError"></div>
+
     <div class="row2">
         <div class="field">
             <label>Nombre completo del firmante</label>
-            <input type="text" id="fNombre" value="<?= htmlspecialchars($firmaSlot['firmante_nombre'] ?? '', ENT_QUOTES, 'UTF-8') ?>" required>
+            <input type="text" id="fNombre" value="<?= htmlspecialchars($firmaSlot['firmante_nombre'] ?? '', ENT_QUOTES, 'UTF-8') ?>" required autocomplete="name">
+            <div class="field-error" id="errNombre">Indica el nombre completo.</div>
         </div>
         <div class="field">
             <label>Email</label>
-            <input type="email" id="fEmail" value="<?= htmlspecialchars($firmaSlot['firmante_email'] ?? '', ENT_QUOTES, 'UTF-8') ?>" required>
+            <input type="email" id="fEmail" value="<?= htmlspecialchars($firmaSlot['firmante_email'] ?? '', ENT_QUOTES, 'UTF-8') ?>" required autocomplete="email">
+            <div class="field-error" id="errEmail">Email no válido.</div>
         </div>
     </div>
     <div class="row2">
         <div class="field">
             <label>DNI / NIE / CIF</label>
-            <input type="text" id="fDocumento" placeholder="12345678A · X1234567A · A12345674" required autocomplete="off" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase(); validateDoc()">
-            <div id="docHint" style="margin-top:.3rem;font-size:.72rem;color:var(--text-muted);line-height:1.4">Validamos que sea un documento real (DNI con letra calculada, NIE con prefijo X/Y/Z, CIF con dígito de control).</div>
+            <input type="text" id="fDocumento" placeholder="12345678Z · X1234567L · B13750906" required autocomplete="off" style="text-transform:uppercase">
+            <div class="field-hint" id="docHint">DNI con letra calculada, NIE con prefijo X/Y/Z, CIF con dígito de control.</div>
+            <div class="field-error" id="errDocumento">Documento no válido.</div>
         </div>
         <div class="field">
             <label>Cargo / posición</label>
             <input type="text" id="fCargo" placeholder="Ej. CEO, Apoderado">
+            <div class="field-hint">Opcional.</div>
         </div>
     </div>
 
@@ -352,6 +372,7 @@ canvas#sigPad { display:block; width:100%; height:220px; touch-action:none; curs
             <input type="text" id="otpInput" placeholder="Código 6 dígitos" maxlength="6" inputmode="numeric" disabled>
             <button class="btn" type="button" id="otpBtn" onclick="requestOtp()">Enviarme código</button>
         </div>
+        <div class="field-hint">Introduce el código que recibas por email antes de firmar.</div>
     </div>
     <?php endif; ?>
 
@@ -368,9 +389,24 @@ canvas#sigPad { display:block; width:100%; height:220px; touch-action:none; curs
 
     <div id="readWarning" class="alert alert-warn" style="margin-top:1rem">Lee el documento hasta el final para activar la firma.</div>
 
-    <div style="margin-top:1.5rem;display:flex;justify-content:flex-end">
+    <div style="margin-top:1.5rem;display:flex;justify-content:flex-end;align-items:center;gap:1rem">
+        <div id="signStatus" style="flex:1;font-size:.78rem;color:var(--text-muted)"></div>
         <button class="btn btn-primary" id="signBtn" disabled onclick="submitSign()">✍ Firmar contrato</button>
     </div>
+
+    <div class="missing-checklist" id="missingChecklist">
+        <strong style="color:var(--text-secondary);font-size:.72rem;text-transform:uppercase;letter-spacing:.05em">Para firmar necesitamos</strong>
+        <ul>
+            <li data-check="scroll">Leer el documento hasta el final</li>
+            <li data-check="nombre">Nombre completo</li>
+            <li data-check="email">Email válido</li>
+            <li data-check="doc">DNI / NIE / CIF válido</li>
+            <?php if ($contrato['require_otp']): ?><li data-check="otp">Código OTP de 6 dígitos</li><?php endif; ?>
+            <li data-check="firma">Firma manuscrita dibujada</li>
+            <li data-check="consent">Aceptar cláusula eIDAS</li>
+        </ul>
+    </div>
+
     <div class="legal-clausula">Conforme al art. 1262 CC y Reglamento (UE) 910/2014 (eIDAS), la firma electrónica de este documento tiene plena validez jurídica equiparable a la manuscrita.</div>
 </div>
 
@@ -433,36 +469,71 @@ function initSig(){
     const stop = e => { if(drawing){ drawing=false; lastPt=null; try{cv.releasePointerCapture(e.pointerId);}catch(_){} } };
     cv.addEventListener('pointerup', stop); cv.addEventListener('pointerleave', stop); cv.addEventListener('pointercancel', stop);
 
-    const cc = document.getElementById('consentCheck'); if (cc) cc.onchange = checkReady;
-    ['fNombre','fEmail','fDocumento','otpInput'].forEach(id => { const el = document.getElementById(id); if(el) el.oninput = checkReady; });
+    const cc = document.getElementById('consentCheck'); if (cc) cc.onchange = () => { markChecklist('consent', cc.checked); checkReady(); };
+    attachFieldValidators();
 }
 function clearSig(){ if(ctx) ctx.clearRect(0,0,cssW,cssH); checkReady(); }
 function isCanvasEmpty(){ if(!ctx) return true; const d = ctx.getImageData(0,0,cv.width,cv.height).data; for(let i=3;i<d.length;i+=4) if(d[i]!==0) return false; return true; }
-function checkReady(){
-    const consent = document.getElementById('consentCheck')?.checked;
-    const empty = isCanvasEmpty();
-    const nombre = document.getElementById('fNombre')?.value.trim() ?? '';
-    const email = document.getElementById('fEmail')?.value.trim() ?? '';
-    const documento = document.getElementById('fDocumento')?.value.trim() ?? '';
-    const docValid = validateDoc(false);
-    let otpOk = true;
-    if (REQUIRE_OTP) { const otp = document.getElementById('otpInput')?.value.trim() ?? ''; otpOk = otp.length === 6; }
-    const btn = document.getElementById('signBtn');
-    if (btn) btn.disabled = !(SCROLL_OK && consent && !empty && nombre && email && docValid && otpOk);
+
+function attachFieldValidators(){
+    const fNombre = document.getElementById('fNombre');
+    const fEmail = document.getElementById('fEmail');
+    const fDoc = document.getElementById('fDocumento');
+    const fOtp = document.getElementById('otpInput');
+    if (fNombre) fNombre.addEventListener('input', () => { validateNombre(); checkReady(); });
+    if (fEmail) fEmail.addEventListener('input', () => { validateEmail(); checkReady(); });
+    if (fDoc) fDoc.addEventListener('input', e => {
+        e.target.value = e.target.value.toUpperCase().replace(/[\s\-.]/g, '');
+        validateDoc();
+        checkReady();
+    });
+    if (fOtp) fOtp.addEventListener('input', () => checkReady());
+    // Estado inicial
+    validateNombre(); validateEmail(); validateDoc();
 }
 
-/**
- * Validación DNI/NIE/CIF en cliente (misma lógica que el backend).
- * Pinta el hint en verde/rojo. Devuelve true si válido.
- */
-function validateDoc(updateUI = true){
+function setField(id, state){ // state: 'ok' | 'error' | 'neutral'
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.classList.remove('is-valid','is-invalid');
+    if (state === 'ok') el.classList.add('is-valid');
+    else if (state === 'error') el.classList.add('is-invalid');
+}
+function showError(id, show, msg){
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (msg) el.textContent = msg;
+    el.classList.toggle('show', !!show);
+}
+function markChecklist(key, done){
+    const li = document.querySelector('.missing-checklist li[data-check="' + key + '"]');
+    if (li) li.classList.toggle('done', !!done);
+}
+
+function validateNombre(){
+    const v = (document.getElementById('fNombre')?.value || '').trim();
+    const ok = v.length >= 2;
+    setField('fNombre', v === '' ? 'neutral' : (ok ? 'ok' : 'error'));
+    showError('errNombre', !ok && v !== '');
+    markChecklist('nombre', ok);
+    return ok;
+}
+function validateEmail(){
+    const v = (document.getElementById('fEmail')?.value || '').trim();
+    const ok = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+    setField('fEmail', v === '' ? 'neutral' : (ok ? 'ok' : 'error'));
+    showError('errEmail', !ok && v !== '');
+    markChecklist('email', ok);
+    return ok;
+}
+function validateDoc(){
     const input = document.getElementById('fDocumento');
-    const hint = document.getElementById('docHint');
     if (!input) return true;
+    const hint = document.getElementById('docHint');
     const raw = (input.value || '').replace(/[\s\-.]/g, '').toUpperCase();
     const letras = 'TRWAGMYFPDXBNJZSQVHLCKE';
-    let result = { valid:false, type:null, reason:'Escribe tu documento' };
-    if (raw.length === 0) result = { valid:false, type:null, reason:'Escribe tu documento' };
+    let result = { valid:false, type:null, reason:'' };
+    if (raw.length === 0) result = { valid:false, type:null, reason:'' };
     else if (/^\d{8}[A-Z]$/.test(raw)) {
         const num = parseInt(raw.slice(0,8), 10);
         const expected = letras[num % 23];
@@ -496,23 +567,63 @@ function validateDoc(updateUI = true){
         else ok = ctrl === ctrlLet || ctrl === String(ctrlNum);
         result = ok
             ? { valid:true, type:'CIF', reason:'CIF válido' }
-            : { valid:false, type:'CIF', reason:`Dígito de control CIF incorrecto (${ctrlLet} o ${ctrlNum})` };
-    } else if (raw.length > 0) {
-        result = { valid:false, type:null, reason:'Formato no reconocido · esperado 12345678A, X1234567A o A12345674' };
+            : { valid:false, type:'CIF', reason:`Dígito control CIF incorrecto (debería ser ${ctrlLet} o ${ctrlNum})` };
+    } else {
+        result = { valid:false, type:null, reason:'Formato no reconocido · 12345678Z · X1234567L · B13750906' };
     }
-    if (updateUI && hint) {
-        if (result.valid) {
-            hint.style.color = '#0FA36C';
-            hint.textContent = '✓ ' + result.type + ' válido';
-        } else if (raw.length === 0) {
-            hint.style.color = 'var(--text-muted)';
-            hint.textContent = 'Validamos que sea un documento real (DNI, NIE o CIF).';
-        } else {
-            hint.style.color = '#ff8a8a';
-            hint.textContent = '✗ ' + result.reason;
+    setField('fDocumento', raw === '' ? 'neutral' : (result.valid ? 'ok' : 'error'));
+    showError('errDocumento', !result.valid && raw !== '', result.reason);
+    if (hint) {
+        if (result.valid) { hint.style.color = '#0FA36C'; hint.textContent = '✓ ' + result.type + ' válido'; }
+        else if (raw === '') { hint.style.color = ''; hint.textContent = 'DNI con letra calculada, NIE con prefijo X/Y/Z, CIF con dígito de control.'; }
+        else { hint.style.color = 'var(--text-muted)'; hint.textContent = 'DNI con letra calculada, NIE con prefijo X/Y/Z, CIF con dígito de control.'; }
+    }
+    markChecklist('doc', result.valid);
+    return result.valid;
+}
+
+function checkReady(){
+    const consent = document.getElementById('consentCheck')?.checked;
+    const empty = isCanvasEmpty();
+    const nombreOk = validateNombre();
+    const emailOk  = validateEmail();
+    const docOk    = validateDoc();
+    let otpOk = true;
+    if (REQUIRE_OTP) {
+        const otp = (document.getElementById('otpInput')?.value || '').trim();
+        otpOk = otp.length === 6;
+        markChecklist('otp', otpOk);
+    }
+    markChecklist('scroll', SCROLL_OK);
+    markChecklist('firma', !empty);
+    markChecklist('consent', !!consent);
+    const btn = document.getElementById('signBtn');
+    const status = document.getElementById('signStatus');
+    const allOk = SCROLL_OK && consent && !empty && nombreOk && emailOk && docOk && otpOk;
+    if (btn) btn.disabled = !allOk;
+    if (status) {
+        if (allOk) status.textContent = 'Listo para firmar.';
+        else {
+            const pend = [];
+            if (!SCROLL_OK) pend.push('leer el documento');
+            if (!nombreOk) pend.push('nombre');
+            if (!emailOk) pend.push('email válido');
+            if (!docOk) pend.push('documento válido');
+            if (REQUIRE_OTP && !otpOk) pend.push('código OTP');
+            if (empty) pend.push('dibujar firma');
+            if (!consent) pend.push('aceptar cláusula');
+            status.textContent = 'Falta: ' + pend.join(', ') + '.';
         }
     }
-    return result.valid;
+}
+
+function showServerError(msg){
+    const el = document.getElementById('serverError');
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.add('show');
+    el.scrollIntoView({ behavior:'smooth', block:'center' });
+    setTimeout(() => el.classList.remove('show'), 8000);
 }
 
 async function requestOtp(){
@@ -541,10 +652,16 @@ async function submitSign(){
     fd.append('client_timestamp', new Date().toISOString());
     fd.append('scroll_depth_pct','100');
     const btn = document.getElementById('signBtn'); btn.disabled = true; btn.textContent = 'Firmando…';
-    const res = await fetch('?token=' + encodeURIComponent(TOKEN), { method:'POST', body:fd });
-    const data = await res.json();
-    if (data.success) location.reload();
-    else { alert('Error: ' + (data.error || 'desconocido')); btn.disabled = false; btn.textContent = '✍ Firmar contrato'; }
+    document.getElementById('serverError')?.classList.remove('show');
+    try {
+        const res = await fetch('?token=' + encodeURIComponent(TOKEN), { method:'POST', body:fd });
+        const data = await res.json();
+        if (data.success) { location.reload(); return; }
+        showServerError('No se pudo firmar: ' + (data.error || 'error desconocido'));
+    } catch (e) {
+        showServerError('Error de red: ' + e.message);
+    }
+    btn.disabled = false; btn.textContent = '✍ Firmar contrato';
 }
 
 initSig();
