@@ -2216,27 +2216,154 @@ if ($is_unlocked) {
         .tp-tabs__panel[aria-hidden="false"] { display: block; }
         @keyframes tp-tab-fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 
-        /* ===== tp-bar-chart · barras CSS puras ===== */
-        .tp-bar-chart { margin: 1.5rem 0 2rem; display: flex; flex-direction: column; gap: .75rem; }
-        .tp-bar-chart__row { display: grid; grid-template-columns: 140px 1fr auto; gap: 1rem; align-items: center; }
-        .tp-bar-chart__label { font-size: .85rem; color: var(--text-secondary, #b3b3b3); font-weight: 600; }
+        /* ===== tp-bar-chart · barras CSS refined ===== */
+        .tp-bar-chart { margin: 1.75rem 0 2rem; display: flex; flex-direction: column; gap: .55rem; }
+        .tp-bar-chart__divider {
+            display: flex; align-items: center; gap: .65rem;
+            font-size: .7rem; font-weight: 700; color: var(--text-muted, #8a8a8a);
+            text-transform: uppercase; letter-spacing: .08em;
+            margin: .9rem 0 .35rem;
+        }
+        .tp-bar-chart__divider::after {
+            content: ''; flex: 1; height: 1px;
+            background: linear-gradient(90deg, var(--border-strong, #2a2a2a), transparent);
+        }
+        .tp-bar-chart__row {
+            display: grid; grid-template-columns: 160px 1fr auto;
+            gap: 1.1rem; align-items: center;
+            padding: .15rem 0;
+        }
+        .tp-bar-chart__label {
+            font-size: .82rem;
+            color: var(--text-secondary, #b3b3b3);
+            font-weight: 500;
+            letter-spacing: .005em;
+        }
         .tp-bar-chart__track {
-            background: var(--bg-subtle, #191919);
-            border: 1px solid var(--border-strong, #2a2a2a);
-            border-radius: 999px; height: 22px; overflow: hidden; position: relative;
+            background: rgba(255,255,255,.025);
+            border: 1px solid rgba(255,255,255,.04);
+            border-radius: 999px; height: 10px;
+            overflow: hidden; position: relative;
+        }
+        [data-theme="light"] .tp-bar-chart__track {
+            background: rgba(0,0,0,.035);
+            border-color: rgba(0,0,0,.06);
         }
         .tp-bar-chart__fill {
             height: 100%; border-radius: 999px;
-            background: linear-gradient(90deg, var(--mint, #5dffbf), rgba(93,255,191,.6));
-            transition: width .6s ease;
+            background: linear-gradient(90deg, rgba(93,255,191,.9), rgba(93,255,191,.45));
+            box-shadow: 0 0 12px rgba(93,255,191,.18);
+            transition: width .6s cubic-bezier(.2,.8,.2,1);
         }
-        .tp-bar-chart__fill--warn { background: linear-gradient(90deg, #ffb800, rgba(255,184,0,.6)); }
-        .tp-bar-chart__fill--muted { background: linear-gradient(90deg, #666, rgba(100,100,100,.6)); }
-        .tp-bar-chart__fill--alt { background: linear-gradient(90deg, #78aaff, rgba(120,170,255,.6)); }
-        .tp-bar-chart__value { font-size: .85rem; font-weight: 700; color: var(--text-primary, #f5f5f5); min-width: 40px; text-align: right; font-family: var(--font-mono, monospace); }
+        .tp-bar-chart__fill--warn { background: linear-gradient(90deg, rgba(251,191,36,.55), rgba(251,191,36,.2)); box-shadow: none; }
+        .tp-bar-chart__fill--alt { background: linear-gradient(90deg, rgba(120,170,255,.5), rgba(120,170,255,.18)); box-shadow: none; }
+        .tp-bar-chart__fill--muted { background: linear-gradient(90deg, rgba(148,163,184,.28), rgba(148,163,184,.08)); box-shadow: none; }
+        .tp-bar-chart__fill--accent { background: linear-gradient(90deg, rgba(93,255,191,.7), rgba(93,255,191,.25)); box-shadow: 0 0 10px rgba(93,255,191,.15); }
+        .tp-bar-chart__value {
+            font-size: .85rem; font-weight: 600;
+            color: var(--text-primary, #f5f5f5);
+            min-width: 36px; text-align: right;
+            font-variant-numeric: tabular-nums;
+            font-feature-settings: "tnum";
+        }
         @media (max-width: 560px) {
-            .tp-bar-chart__row { grid-template-columns: 1fr auto; }
+            .tp-bar-chart__row { grid-template-columns: 1fr auto; gap: .35rem .75rem; }
             .tp-bar-chart__track { grid-column: 1 / -1; }
+        }
+
+        /* ===== tp-journey-v2 · grid de fases con pasos numerados + satisfacción ===== */
+        .tp-journey-v2 {
+            margin: 2rem 0;
+            padding: 1.75rem;
+            background: linear-gradient(180deg, var(--bg-surface, #141414), var(--bg-base, #0e0e0e));
+            border: 1px solid var(--border-base, #1f1f1f);
+            border-radius: 14px;
+        }
+        [data-theme="light"] .tp-journey-v2 {
+            background: var(--bg-surface, #fff);
+            border-color: var(--border-base, #E4E2DC);
+        }
+        .tp-journey-v2__head { margin-bottom: 1.4rem; }
+        .tp-journey-v2__title {
+            font-family: var(--font-heading, 'Plus Jakarta Sans'), sans-serif;
+            font-size: 1rem; font-weight: 700;
+            color: var(--text-primary); margin: 0 0 .25rem;
+            letter-spacing: -0.01em;
+        }
+        .tp-journey-v2__sub { font-size: .82rem; color: var(--text-muted); }
+        .tp-journey-v2__phases {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 1rem;
+        }
+        .tp-journey-v2__phase {
+            padding: 1rem 1.1rem 1.1rem;
+            background: rgba(255,255,255,.02);
+            border: 1px solid var(--border-base, #1f1f1f);
+            border-top: 3px solid var(--phase-accent, var(--mint, #5dffbf));
+            border-radius: 10px;
+        }
+        [data-theme="light"] .tp-journey-v2__phase {
+            background: rgba(0,0,0,.015);
+        }
+        .tp-journey-v2__phase-head {
+            display: flex; align-items: baseline; gap: .55rem;
+            margin-bottom: .9rem; padding-bottom: .65rem;
+            border-bottom: 1px dashed var(--border-base, #1f1f1f);
+        }
+        .tp-journey-v2__phase-num {
+            font-family: var(--font-mono, ui-monospace, monospace);
+            font-size: .72rem; color: var(--text-muted); letter-spacing: .04em;
+            font-variant-numeric: tabular-nums;
+        }
+        .tp-journey-v2__phase-title {
+            font-family: var(--font-heading, 'Plus Jakarta Sans'), sans-serif;
+            font-size: .92rem; font-weight: 700;
+            color: var(--phase-accent, var(--mint, #5dffbf));
+            letter-spacing: -0.005em;
+        }
+        .tp-journey-v2__steps { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: .55rem; }
+        .tp-journey-v2__step {
+            display: grid;
+            grid-template-columns: auto 1fr auto;
+            gap: .6rem; align-items: center;
+            font-size: .82rem;
+            color: var(--text-secondary, #b3b3b3);
+        }
+        .tp-journey-v2__step-dot {
+            width: 8px; height: 8px; border-radius: 999px;
+            background: var(--step-color, var(--text-muted));
+            box-shadow: 0 0 6px var(--step-color, transparent);
+            flex-shrink: 0;
+        }
+        .tp-journey-v2__step[data-score="5"] { --step-color: #5dffbf; }
+        .tp-journey-v2__step[data-score="4"] { --step-color: #8de0b5; }
+        .tp-journey-v2__step[data-score="3"] { --step-color: #e0b35d; }
+        .tp-journey-v2__step[data-score="2"] { --step-color: #e08c5d; }
+        .tp-journey-v2__step[data-score="1"] { --step-color: #e05d5d; }
+        .tp-journey-v2__step-label { color: var(--text-primary); font-weight: 500; }
+        .tp-journey-v2__step-score {
+            font-family: var(--font-mono, ui-monospace, monospace);
+            font-size: .7rem;
+            font-variant-numeric: tabular-nums;
+            color: var(--step-color);
+            background: rgba(255,255,255,.03);
+            padding: .1rem .45rem; border-radius: 999px;
+            border: 1px solid color-mix(in srgb, var(--step-color) 20%, transparent);
+            font-weight: 600;
+        }
+        [data-theme="light"] .tp-journey-v2__step-score { background: rgba(0,0,0,.03); }
+        .tp-journey-v2__legend {
+            margin-top: 1.1rem; padding-top: .85rem;
+            border-top: 1px dashed var(--border-base, #1f1f1f);
+            display: flex; flex-wrap: wrap; gap: 1rem;
+            font-size: .7rem; color: var(--text-muted);
+        }
+        .tp-journey-v2__legend-item { display: inline-flex; align-items: center; gap: .4rem; }
+        .tp-journey-v2__legend-dot {
+            width: 8px; height: 8px; border-radius: 999px;
+            flex-shrink: 0;
+            box-shadow: 0 0 6px currentColor;
         }
     </style>
 
@@ -2280,7 +2407,93 @@ if ($is_unlocked) {
                 flowchart: { htmlLabels: true, curve: 'basis', padding: 16 },
                 sequence: { useMaxWidth: true, actorMargin: 60 }
             });
+            // Transforma bloques Mermaid 'journey' → componente tp-journey-v2 (más legible)
+            function transformMermaidJourneys() {
+                var PHASE_COLORS = ['#5dffbf', '#78aaff', '#c084fc', '#ffb800', '#ff8c8c'];
+                document.querySelectorAll('pre.mermaid, .mermaid').forEach(function (el) {
+                    var raw = (el.getAttribute('data-original') || el.textContent || '').trim();
+                    if (!/^journey\b/i.test(raw)) return;
+
+                    var lines = raw.split('\n').map(function(s){ return s.replace(/\r/g,'').trimEnd(); });
+                    var title = '';
+                    var phases = [];
+                    var currentPhase = null;
+                    for (var i = 0; i < lines.length; i++) {
+                        var line = lines[i];
+                        var trimmed = line.trim();
+                        if (!trimmed || /^journey$/i.test(trimmed)) continue;
+                        var mt = trimmed.match(/^title\s+(.+)$/i);
+                        if (mt) { title = mt[1].trim(); continue; }
+                        var ms = trimmed.match(/^section\s+(.+)$/i);
+                        if (ms) {
+                            currentPhase = { name: ms[1].trim(), steps: [] };
+                            phases.push(currentPhase);
+                            continue;
+                        }
+                        // Paso: "Buscar curso: 4: Alumno"
+                        var mstep = trimmed.match(/^(.+?)\s*:\s*(\d+)\s*:\s*(.+)$/);
+                        if (mstep && currentPhase) {
+                            currentPhase.steps.push({
+                                label: mstep[1].trim(),
+                                score: parseInt(mstep[2], 10) || 3,
+                                actor: mstep[3].trim()
+                            });
+                        }
+                    }
+                    if (phases.length === 0) return;
+
+                    // Construir HTML del nuevo componente
+                    var wrap = document.createElement('div');
+                    wrap.className = 'tp-journey-v2';
+                    var html = '';
+                    if (title) {
+                        html += '<div class="tp-journey-v2__head">';
+                        html += '<h4 class="tp-journey-v2__title">' + escHtml(title) + '</h4>';
+                        html += '</div>';
+                    }
+                    html += '<div class="tp-journey-v2__phases">';
+                    phases.forEach(function (phase, idx) {
+                        var color = PHASE_COLORS[idx % PHASE_COLORS.length];
+                        html += '<div class="tp-journey-v2__phase" style="--phase-accent: ' + color + ';">';
+                        html += '<div class="tp-journey-v2__phase-head">';
+                        html += '<span class="tp-journey-v2__phase-num">' + String(idx + 1).padStart(2, '0') + '</span>';
+                        html += '<span class="tp-journey-v2__phase-title">' + escHtml(phase.name) + '</span>';
+                        html += '</div>';
+                        html += '<ul class="tp-journey-v2__steps">';
+                        phase.steps.forEach(function (step) {
+                            html += '<li class="tp-journey-v2__step" data-score="' + step.score + '" title="Satisfacción: ' + step.score + '/5 · ' + escHtml(step.actor) + '">';
+                            html += '<span class="tp-journey-v2__step-dot"></span>';
+                            html += '<span class="tp-journey-v2__step-label">' + escHtml(step.label) + '</span>';
+                            html += '<span class="tp-journey-v2__step-score">' + step.score + '/5</span>';
+                            html += '</li>';
+                        });
+                        html += '</ul>';
+                        html += '</div>';
+                    });
+                    html += '</div>';
+                    // Leyenda
+                    html += '<div class="tp-journey-v2__legend">';
+                    html += '<span class="tp-journey-v2__legend-item"><span class="tp-journey-v2__legend-dot" style="background:#5dffbf;color:#5dffbf;"></span>Excelente (5)</span>';
+                    html += '<span class="tp-journey-v2__legend-item"><span class="tp-journey-v2__legend-dot" style="background:#8de0b5;color:#8de0b5;"></span>Bueno (4)</span>';
+                    html += '<span class="tp-journey-v2__legend-item"><span class="tp-journey-v2__legend-dot" style="background:#e0b35d;color:#e0b35d;"></span>Aceptable (3)</span>';
+                    html += '<span class="tp-journey-v2__legend-item"><span class="tp-journey-v2__legend-dot" style="background:#e05d5d;color:#e05d5d;"></span>Fricción (&lt;3)</span>';
+                    html += '</div>';
+                    wrap.innerHTML = html;
+
+                    // Reemplazar el pre o el contenedor tp-mermaid superior si existe
+                    var container = el.closest('.tp-mermaid') || el;
+                    container.parentNode.replaceChild(wrap, container);
+                });
+
+                function escHtml(s) {
+                    return String(s).replace(/[&<>"']/g, function(c){
+                        return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+                    });
+                }
+            }
+
             document.addEventListener('DOMContentLoaded', function () {
+                transformMermaidJourneys();  // primero: journeys → custom component
                 window.mermaid.run({ querySelector: '.mermaid' }).catch(function(e){ console.warn('Mermaid:', e); });
             });
             // Re-render al cambiar tema
