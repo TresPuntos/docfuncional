@@ -70,6 +70,16 @@ function getDBConnection()
         $pdo->setAttribute(PDO::ATTR_EMULATE_PREPARES, false);
         // Habilitar claves foráneas
         $pdo->exec('PRAGMA foreign_keys = ON;');
+
+        // === CONCURRENCIA SQLITE ===
+        // WAL mode permite lecturas concurrentes durante escrituras (mucho mejor
+        // para apps con tracking + comments + jordan + analytics corriendo en paralelo).
+        // busy_timeout: si la BD está bloqueada por otra escritura, SQLite espera
+        // hasta 5s antes de lanzar "database is locked" (fix del bug de Jordan 500
+        // detectado 2026-04-24).
+        $pdo->exec('PRAGMA journal_mode = WAL;');
+        $pdo->exec('PRAGMA busy_timeout = 5000;');
+        $pdo->exec('PRAGMA synchronous = NORMAL;');
         return $pdo;
     }
     catch (PDOException $e) {
