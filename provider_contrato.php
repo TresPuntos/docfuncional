@@ -150,19 +150,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             ]);
         contrato_log_evento($pdo, $contratoId, 'firmado_proveedor', $emailFirma);
 
-        // Si todas las firmas completas → genera PDF final
+        // Si todas las firmas completas → genera PDF final inline (NO incluir admin_contratos.php porque re-ejecuta config)
         $pendientes = $pdo->prepare("SELECT COUNT(*) FROM contratos_firmas WHERE contrato_id = ? AND firmado_at IS NULL");
         $pendientes->execute([$contratoId]);
         $completed = (int)$pendientes->fetchColumn() === 0;
         if ($completed) {
-            require_once __DIR__ . '/admin_contratos.php'; // Para cargar la función generar_pdf_final
-            // generar_pdf_final está dentro del archivo, lo llamamos directamente solo si está definida
-            if (function_exists('generar_pdf_final')) {
-                generar_pdf_final($pdo, $contratoId);
-            } else {
-                // Fallback inline si admin_contratos.php no se carga limpiamente
-                _provider_generar_pdf_final_inline($pdo, $contratoId);
-            }
+            _provider_generar_pdf_final_inline($pdo, $contratoId);
         } else {
             $pdo->prepare("UPDATE contratos SET estado = 'firmado_parcial' WHERE id = ?")->execute([$contratoId]);
         }
@@ -175,30 +168,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     exit;
 }
 
-// Helper inline por si require fallo (defensivo)
+// Helper inline · genera PDF final (soporta modo plantilla HTML y modo PDF directo con FPDI)
 function _provider_generar_pdf_final_inline(PDO $pdo, int $contratoId): void {
-    $row = $pdo->prepare("SELECT c.*, p.html_content, p.tipo FROM contratos c LEFT JOIN contratos_plantillas p ON p.id = c.plantilla_id WHERE c.id = ?");
+    $row = $pdo->prepare("SELECT c.*, p.html_content, p.tipo AS plantilla_tipo FROM contratos c LEFT JOIN contratos_plantillas p ON p.id = c.plantilla_id WHERE c.id = ?");
     $row->execute([$contratoId]);
     $r = $row->fetch(PDO::FETCH_ASSOC);
-    $datos = json_decode($r['datos_json'], true) ?: [];
-    $html = contrato_render_template($r['html_content'], $datos);
+
     $firmas = $pdo->prepare("SELECT * FROM contratos_firmas WHERE contrato_id = ? ORDER BY orden ASC");
     $firmas->execute([$contratoId]);
     $firmasArr = $firmas->fetchAll(PDO::FETCH_ASSOC);
+
     $tsa = contrato_request_tsa_timestamp($r['hash_documento']);
+
     $dir = __DIR__ . '/uploads/contratos/' . $contratoId;
     if (!is_dir($dir)) mkdir($dir, 0755, true);
     $finalPath = $dir . '/v_final.pdf';
-    contrato_generate_pdf($html, $firmasArr, [
-        'titulo' => $r['titulo'], 'tipo' => $r['tipo'],
-        'hash_documento' => $r['hash_documento'], 'tsa_timestamp' => $tsa,
-    ], $finalPath);
+
+    $meta = [
+        'titulo' => $r['titulo'],
+        'tipo' => $r['plantilla_tipo'] ?? (json_decode($r['datos_json'] ?: '{}', true)['tipo'] ?? 'custom'),
+        'hash_documento' => $r['hash_documento'],
+        'tsa_timestamp' => $tsa,
+    ];
+
+    if (empty($r['plantilla_id']) && !empty($r['pdf_sin_firmar_path'])) {
+        // PDF directo: apilar PDF base + audit trail (FPDI)
+        $basePath = __DIR__ . '/' . $r['pdf_sin_firmar_path'];
+        contrato_stamp_pdf_with_audit($basePath, $firmasArr, $meta, $finalPath);
+    } else {
+        // Plantilla HTML
+        $datos = json_decode($r['datos_json'], true) ?: [];
+        $html = contrato_render_template($r['html_content'], $datos);
+        contrato_generate_pdf($html, $firmasArr, $meta, $finalPath);
+    }
+
     $rel = 'uploads/contratos/' . $contratoId . '/v_final.pdf';
     $hashFinal = contrato_hash_file($finalPath);
     $pdo->prepare("UPDATE contratos SET pdf_firmado_path = ?, hash_final = ?, estado = 'firmado', firmado_at = datetime('now') WHERE id = ?")
         ->execute([$rel, $hashFinal, $contratoId]);
     if ($tsa) $pdo->prepare("UPDATE contratos_firmas SET tsa_timestamp = ? WHERE contrato_id = ?")->execute([$tsa, $contratoId]);
-    contrato_log_evento($pdo, $contratoId, 'pdf_final_generado', 'sistema');
+    contrato_log_evento($pdo, $contratoId, 'pdf_final_generado', 'sistema', ['hash_final' => substr($hashFinal, 0, 12), 'modo' => empty($r['plantilla_id']) ? 'pdf_direct' : 'plantilla']);
 }
 
 // GET: servir PDF original (para iframe en modo PDF directo)
@@ -297,7 +306,7 @@ body { margin:0; background:var(--bg-base); color:var(--text-primary); font-fami
 .btn-primary:hover:not(:disabled) { background:#49e6a8; }
 .btn:disabled { opacity:.4; cursor:not-allowed; }
 .sign-pad-wrap { background:#fff; border-radius:10px; padding:.5rem; margin:.5rem 0; }
-canvas#sigPad { display:block; width:100%; height:200px; touch-action:none; cursor:crosshair; border-radius:6px; }
+canvas#sigPad { display:block; width:100%; height:220px; touch-action:none; cursor:crosshair; border-radius:6px; user-select:none; }
 .sigtools { display:flex; gap:.5rem; margin-top:.4rem; }
 .alert { background:rgba(93,255,191,.08); border-left:3px solid var(--mint); padding:1rem 1.2rem; border-radius:8px; margin-bottom:1rem; color:var(--text-secondary); font-size:.85rem; }
 .alert-ok { color:var(--mint); }
@@ -504,20 +513,59 @@ if (sentinel && 'IntersectionObserver' in window) {
     io.observe(sentinel);
 }
 
-// Canvas firma
+// Canvas firma — suavizado con quadraticCurveTo + DPR para evitar pixelado
 const cv = document.getElementById('sigPad');
-let ctx, drawing = false;
+let ctx, drawing = false, lastPt = null, cssW = 0, cssH = 0;
 function initSig(){
     if (!cv) return;
+    const rect = cv.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    cssW = rect.width; cssH = rect.height;
+    cv.width = cssW * dpr;
+    cv.height = cssH * dpr;
     ctx = cv.getContext('2d');
-    ctx.strokeStyle = '#0e0e0e'; ctx.lineWidth = 2.2; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    cv.onpointerdown = e => { drawing = true; const r = cv.getBoundingClientRect(); ctx.beginPath(); ctx.moveTo(e.clientX - r.left, e.clientY - r.top); };
-    cv.onpointermove = e => { if(!drawing) return; const r = cv.getBoundingClientRect(); ctx.lineTo(e.clientX - r.left, e.clientY - r.top); ctx.stroke(); checkReady(); };
-    cv.onpointerup = cv.onpointerleave = () => drawing = false;
+    ctx.scale(dpr, dpr);
+    ctx.strokeStyle = '#0e0e0e';
+    ctx.lineWidth = 2.4;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.imageSmoothingEnabled = true;
+
+    function pt(e){ const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+
+    cv.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        drawing = true;
+        lastPt = pt(e);
+        cv.setPointerCapture(e.pointerId);
+        // puntito inicial (para marcar i en firmas con puntos)
+        ctx.beginPath();
+        ctx.arc(lastPt.x, lastPt.y, 1.2, 0, Math.PI * 2);
+        ctx.fillStyle = '#0e0e0e';
+        ctx.fill();
+    });
+    cv.addEventListener('pointermove', e => {
+        if (!drawing) return;
+        e.preventDefault();
+        const p = pt(e);
+        // Suavizado: curva cuadrática entre puntos usando el midpoint como control
+        const mid = { x: (lastPt.x + p.x) / 2, y: (lastPt.y + p.y) / 2 };
+        ctx.beginPath();
+        ctx.moveTo(lastPt.x, lastPt.y);
+        ctx.quadraticCurveTo(lastPt.x, lastPt.y, mid.x, mid.y);
+        ctx.stroke();
+        lastPt = p;
+        checkReady();
+    });
+    const stop = e => { if (drawing) { drawing = false; lastPt = null; try { cv.releasePointerCapture(e.pointerId); } catch(_){} } };
+    cv.addEventListener('pointerup', stop);
+    cv.addEventListener('pointerleave', stop);
+    cv.addEventListener('pointercancel', stop);
+
     document.getElementById('consentCheck').onchange = checkReady;
     ['fNombre','fEmail','fDocumento','otpInput'].forEach(id => { const el = document.getElementById(id); if(el) el.oninput = checkReady; });
 }
-function clearSig(){ if(ctx) ctx.clearRect(0,0,cv.width,cv.height); checkReady(); }
+function clearSig(){ if(ctx) ctx.clearRect(0,0,cssW,cssH); checkReady(); }
 function isCanvasEmpty(){
     if (!ctx) return true;
     const d = ctx.getImageData(0,0,cv.width,cv.height).data;
