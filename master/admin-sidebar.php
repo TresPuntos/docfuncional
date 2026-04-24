@@ -867,6 +867,20 @@ svg.prop__chevron.lucide {
                 <span class="nav-item__badge nav-item__badge--purple"><?= $globalProvidersTotal ?></span>
             <?php endif; ?>
         </a>
+        <?php
+        // Badge contratos pendientes de firma
+        $pendientesContratos = 0;
+        try {
+            $pendientesContratos = (int)$pdo->query("SELECT COUNT(*) FROM contratos WHERE estado IN ('enviado','visto','firmado_parcial')")->fetchColumn();
+        } catch (\Throwable $_) { /* tabla aún no migrada */ }
+        ?>
+        <a href="admin_contratos.php" class="nav-item <?= $active === 'contratos' ? 'is-active' : '' ?>" title="Contratos con firma electrónica eIDAS (NDA, MSA, SOW, DPA…)">
+            <i data-lucide="file-signature"></i>
+            <span>Contratos</span>
+            <?php if ($pendientesContratos > 0): ?>
+                <span class="nav-item__badge nav-item__badge--purple"><?= $pendientesContratos ?></span>
+            <?php endif; ?>
+        </a>
 
         <?php if (!empty($activeProps)): ?>
             <div class="admin-sidebar__label">
