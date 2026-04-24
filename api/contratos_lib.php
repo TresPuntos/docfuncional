@@ -248,6 +248,9 @@ function contrato_generate_pdf(string $htmlContrato, array $firmas, array $meta,
     $mpdf->SetCreator('doc.trespuntos-lab.com · Firma electrónica eIDAS');
     $mpdf->SetSubject($meta['tipo'] ?? 'Contrato');
 
+    // Auto-inyectar el logo SVG dentro del primer .tp-cover si no hay ya <img class="tp-logo">
+    $htmlContrato = contrato_inject_logo($htmlContrato);
+
     // Cuerpo del contrato
     $mpdf->WriteHTML(contrato_base_css(), \Mpdf\HTMLParserMode::HEADER_CSS);
     $mpdf->WriteHTML($htmlContrato, \Mpdf\HTMLParserMode::HTML_BODY);
@@ -263,6 +266,28 @@ function contrato_generate_pdf(string $htmlContrato, array $firmas, array $meta,
     if (!is_dir($dir)) mkdir($dir, 0755, true);
     $mpdf->Output($destino, \Mpdf\Output\Destination::FILE);
     return $destino;
+}
+
+/**
+ * Inyecta el logo SVG print de Tres Puntos al inicio del .tp-cover.
+ * Reemplaza el texto "<div class='brand'>TRES PUNTOS</div>" por el logo SVG directamente.
+ * Si ya hay un <img class="tp-logo"> no hace nada.
+ */
+function contrato_inject_logo(string $html): string
+{
+    if (strpos($html, 'tp-logo') !== false) return $html;
+    $logoPath = __DIR__ . '/../master/brand/logo-print.svg';
+    if (!file_exists($logoPath)) return $html;
+    // mPDF acepta img con src=file:// o ruta absoluta
+    $imgTag = '<img class="tp-logo" src="' . $logoPath . '" alt="Tres Puntos" />';
+    // Reemplazar la primera aparición de <div class="brand">...</div> por logo + brand (o solo logo)
+    $replaced = preg_replace(
+        '/<div\s+class=["\']brand["\']\s*>[^<]*<\/div>/u',
+        $imgTag,
+        $html,
+        1
+    );
+    return $replaced ?? $html;
 }
 
 /**
@@ -330,28 +355,37 @@ function contrato_stamp_pdf_with_audit(string $basePdfPath, array $firmas, array
  */
 function contrato_base_css(): string
 {
+    // Paleta LIGHT/PRINT oficial (Notion "Design System Light + Dark"):
+    // --tp-mint: #0FA36C (oscurecido para AA sobre blanco)
+    // --tp-bg-base: #F7F6F3 · --tp-bg-surface: #FFFFFF · --tp-text-primary: #141414
     return <<<CSS
 <style>
-@page { margin: 20mm; }
+@page { margin: 22mm 20mm 22mm 20mm; }
 body {
     font-family: dejavusans, sans-serif;
     font-size: 10.5pt;
-    line-height: 1.55;
-    color: #1a1a1a;
+    line-height: 1.6;
+    color: #141414;
+    background: #ffffff;
 }
 .tp-cover {
     margin-bottom: 20mm;
 }
+.tp-cover .tp-logo {
+    width: 42mm;
+    height: auto;
+    margin-bottom: 6mm;
+}
 .tp-cover .brand {
-    font-size: 11pt;
+    font-size: 10pt;
     font-weight: 700;
-    letter-spacing: .2em;
-    color: #0e0e0e;
-    margin-bottom: 2mm;
+    letter-spacing: .22em;
+    color: #0FA36C;
+    margin-bottom: 3mm;
 }
 .tp-cover .rule {
     border: 0;
-    border-top: 2px solid #5dffbf;
+    border-top: 2px solid #0FA36C;
     width: 40mm;
     margin: 4mm 0 8mm 0;
 }
@@ -359,12 +393,12 @@ body {
     font-size: 26pt;
     line-height: 1.1;
     font-weight: 800;
-    color: #0e0e0e;
+    color: #141414;
     margin: 0 0 4mm 0;
 }
 .tp-cover .subtitle {
-    font-size: 14pt;
-    color: #5dffbf;
+    font-size: 13pt;
+    color: #0FA36C;
     font-weight: 700;
     margin: 0 0 10mm 0;
 }
@@ -376,9 +410,12 @@ body {
 .tp-cover .firmantes-bloque {
     font-size: 10pt;
     color: #3a3a3a;
-    line-height: 1.6;
+    line-height: 1.7;
+    background: #F7F6F3;
+    padding: 4mm 5mm;
+    border-radius: 4px;
 }
-.tp-cover .firmantes-bloque strong { color: #0e0e0e; }
+.tp-cover .firmantes-bloque strong { color: #141414; }
 .tp-cover .fecha {
     font-size: 9.5pt;
     color: #6a6a6a;
@@ -387,14 +424,14 @@ body {
 .tp-section h2 {
     font-size: 18pt;
     font-weight: 800;
-    color: #0e0e0e;
+    color: #141414;
     margin: 14mm 0 4mm 0;
     page-break-after: avoid;
 }
 .tp-section h3 {
-    font-size: 13pt;
+    font-size: 12.5pt;
     font-weight: 700;
-    color: #0e0e0e;
+    color: #141414;
     margin: 6mm 0 2mm 0;
     page-break-after: avoid;
 }
@@ -410,24 +447,28 @@ table.tp-table {
     font-size: 10pt;
 }
 table.tp-table th {
-    background: #f0f0f0;
+    background: #141414;
+    color: #ffffff;
     text-align: left;
     padding: 2.5mm 3mm;
     font-weight: 700;
-    border: 1px solid #d5d5d5;
+    border: 1px solid #141414;
+    letter-spacing: .02em;
 }
 table.tp-table td {
     padding: 2.5mm 3mm;
     border: 1px solid #d5d5d5;
+    background: #ffffff;
 }
+table.tp-table tr:nth-child(even) td { background: #fafafa; }
 table.tp-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .tp-callout {
-    background: #f5fff9;
-    border-left: 3px solid #5dffbf;
+    background: #F7F6F3;
+    border-left: 3px solid #0FA36C;
     padding: 4mm 5mm;
     margin: 4mm 0;
     font-size: 9.5pt;
-    color: #1a3a2a;
+    color: #2a2a2a;
 }
 .tp-legal {
     font-size: 8.5pt;
@@ -435,86 +476,41 @@ table.tp-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
     line-height: 1.5;
     margin-top: 8mm;
 }
-.tp-signatures {
-    margin-top: 14mm;
-}
-.tp-signatures .rule {
-    border: 0;
-    border-top: 2px solid #5dffbf;
-    width: 100%;
-    margin-bottom: 8mm;
-}
-.tp-signatures table { width: 100%; border-collapse: collapse; }
-.tp-signatures td {
-    width: 50%;
-    vertical-align: top;
-    padding-right: 10mm;
-    font-size: 10pt;
-}
-.tp-signatures .label {
-    font-size: 10pt;
-    font-weight: 700;
-    color: #0e0e0e;
-    margin-bottom: 1mm;
-}
-.tp-signatures .datos { color: #3a3a3a; font-size: 9.5pt; line-height: 1.55; }
-.tp-signatures .firma-img {
-    height: 25mm;
-    border-bottom: 1px solid #1a1a1a;
-    padding-bottom: 1mm;
-    margin-bottom: 1mm;
-}
-.tp-signatures .firma-placeholder {
-    height: 25mm;
-    border-bottom: 1px solid #ccc;
-    margin-bottom: 1mm;
-}
 /* Hoja audit trail */
 .tp-audit h2 {
     font-size: 18pt;
     font-weight: 800;
-    color: #0e0e0e;
+    color: #141414;
     margin: 0 0 4mm 0;
 }
 .tp-audit .subtitle {
-    color: #5dffbf;
+    color: #0FA36C;
     font-weight: 700;
     font-size: 12pt;
     margin-bottom: 8mm;
 }
 .tp-audit table { width: 100%; border-collapse: collapse; font-size: 9pt; margin-bottom: 6mm; }
-.tp-audit th { background: #0e0e0e; color: #5dffbf; padding: 2mm 3mm; text-align: left; font-weight: 700; }
-.tp-audit td { padding: 2mm 3mm; border-bottom: 1px solid #e5e5e5; vertical-align: top; font-family: 'dejavusansmono', monospace; font-size: 8.5pt; }
+.tp-audit th { background: #141414; color: #ffffff; padding: 2mm 3mm; text-align: left; font-weight: 700; }
+.tp-audit td { padding: 2mm 3mm; border-bottom: 1px solid #e5e5e5; vertical-align: top; font-family: 'dejavusansmono', monospace; font-size: 8.5pt; color: #141414; }
 .tp-audit td.k { color: #6a6a6a; width: 40%; font-family: dejavusans; }
 .tp-audit .hash {
-    background: #fafafa;
+    background: #F7F6F3;
     border: 1px solid #e5e5e5;
     padding: 2mm 3mm;
     font-family: dejavusansmono, monospace;
     font-size: 7.5pt;
     word-break: break-all;
     margin: 2mm 0;
-    color: #1a1a1a;
+    color: #141414;
 }
 .tp-audit .clausula-eidas {
-    background: #f5fff9;
-    border-left: 3px solid #5dffbf;
+    background: #F7F6F3;
+    border-left: 3px solid #0FA36C;
     padding: 4mm 5mm;
     margin-top: 8mm;
     font-size: 8.5pt;
-    color: #1a3a2a;
-    line-height: 1.55;
-}
-.page-footer {
-    position: fixed;
-    bottom: -10mm;
-    left: 0;
-    right: 0;
-    text-align: center;
-    font-size: 8pt;
-    color: #8a8a8a;
-    border-top: 1px solid #e5e5e5;
-    padding-top: 2mm;
+    color: #2a2a2a;
+    line-height: 1.6;
 }
 </style>
 CSS;
