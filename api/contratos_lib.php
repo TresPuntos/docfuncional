@@ -108,69 +108,184 @@ function contrato_generate_otp(): string
 
 function contrato_send_otp_email(string $email, string $nombre, string $codigo, string $tituloContrato): bool
 {
-    if (!defined('RESEND_API_KEY') || !RESEND_API_KEY) return false;
     $ttl = SIGN_OTP_TTL_MINUTES;
-    $html = '<!DOCTYPE html><html><body style="font-family:Inter,sans-serif;background:#f5f5f5;padding:40px 0;margin:0">'
-        . '<div style="max-width:520px;margin:0 auto;background:#fff;border-radius:12px;padding:32px;box-shadow:0 1px 3px rgba(0,0,0,.08)">'
-        . '<div style="font-size:12px;letter-spacing:.2em;color:#8a8a8a;font-weight:600;margin-bottom:20px">TRES PUNTOS</div>'
-        . '<h2 style="margin:0 0 8px 0;color:#0e0e0e;font-size:22px">Código para firmar</h2>'
-        . '<p style="color:#3a3a3a;line-height:1.6;margin:0 0 24px 0">Hola ' . htmlspecialchars($nombre, ENT_QUOTES, 'UTF-8') . ',</p>'
-        . '<p style="color:#3a3a3a;line-height:1.6;margin:0 0 24px 0">Para firmar <strong>' . htmlspecialchars($tituloContrato, ENT_QUOTES, 'UTF-8') . '</strong>, introduce este código en la pantalla de firma:</p>'
-        . '<div style="background:#0e0e0e;color:#5dffbf;font-family:JetBrains Mono,monospace;font-size:36px;letter-spacing:.3em;text-align:center;padding:24px;border-radius:10px;margin:0 0 20px 0;font-weight:700">' . $codigo . '</div>'
-        . '<p style="color:#8a8a8a;font-size:13px;line-height:1.5;margin:0 0 8px 0">Válido durante ' . $ttl . ' minutos. Si no has iniciado el proceso de firma, ignora este email.</p>'
-        . '<hr style="border:none;border-top:1px solid #e5e5e5;margin:24px 0">'
-        . '<p style="color:#8a8a8a;font-size:12px;line-height:1.5;margin:0">Este código se envía para verificar tu identidad conforme al Reglamento (UE) 910/2014 (eIDAS). La firma resultante tendrá plena validez jurídica entre las partes.</p>'
-        . '</div></body></html>';
-    $payload = [
-        'from' => RESEND_FROM,
-        'to' => [$email],
-        'reply_to' => RESEND_REPLY_TO,
-        'subject' => 'Código para firmar · ' . $tituloContrato,
-        'html' => $html,
-    ];
-    $ch = curl_init('https://api.resend.com/emails');
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_POST => true,
-        CURLOPT_HTTPHEADER => [
-            'Authorization: Bearer ' . RESEND_API_KEY,
-            'Content-Type: application/json',
-        ],
-        CURLOPT_POSTFIELDS => json_encode($payload),
-        CURLOPT_TIMEOUT => 10,
+    $codigoFormatted = chunk_split($codigo, 3, ' ');
+    $e = fn($s) => htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
+    $nombreSeguro = $e($nombre);
+    $tituloSeguro = $e($tituloContrato);
+
+    // Caja especial del código OTP (inline, no usa tp_render porque es visual único)
+    $bodyHtml = 'Hola <strong>' . $nombreSeguro . '</strong>,<br><br>'
+              . 'Para firmar <strong>' . $tituloSeguro . '</strong>, introduce este código en la pantalla de firma:'
+              . '<div style="background:#141414;color:#ffffff;font-family:\'JetBrains Mono\',Menlo,Consolas,monospace;font-size:32px;letter-spacing:.25em;text-align:center;padding:24px;border-radius:10px;margin:24px 0 8px 0;font-weight:700">' . $e($codigoFormatted) . '</div>'
+              . '<div style="font-size:12px;color:#8a8a8a;text-align:center">Válido durante ' . $ttl . ' minutos</div>';
+
+    return tp_send_email($email, 'Código de firma · ' . $tituloContrato, [
+        'preheader'   => 'Código para firmar ' . $tituloContrato . ' · válido ' . $ttl . ' min.',
+        'title'       => 'Tu código de verificación',
+        'body_html'   => $bodyHtml,
+        'footer_note' => 'Este código se envía para verificar tu identidad conforme al Reglamento (UE) 910/2014 (eIDAS). Si no has iniciado ningún proceso de firma, ignora este email. El código caduca automáticamente en ' . $ttl . ' minutos.',
     ]);
-    $res = curl_exec($ch);
-    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-    return $code >= 200 && $code < 300;
 }
 
 /**
- * Email al firmante cuando el admin envía el contrato.
- * Incluye link a sign.php?token=XXX para firmar.
+ * Render del layout estándar Tres Puntos para TODOS los emails transaccionales.
+ *
+ * Cumplimiento email-safe:
+ *   - Tables + inline styles (Outlook, Yahoo, dark mode clients lo requieren)
+ *   - Dual-mode: funciona en clientes con fondo claro y con fondo oscuro
+ *   - Max 600px ancho, fuentes web-safe con fallbacks, responsive básico
+ *
+ * @param array $opts  ['preheader','title','intro','highlight','cta_label','cta_url','body_html','fallback_url','footer_note']
+ * @return string HTML completo listo para enviar
  */
-function contrato_send_invite_email(string $email, string $nombre, string $titulo, string $signUrl): bool
+function tp_render_email_layout(array $opts): string
+{
+    $preheader    = $opts['preheader']    ?? '';
+    $title        = $opts['title']        ?? '';
+    $intro        = $opts['intro']        ?? '';
+    $highlight    = $opts['highlight']    ?? '';
+    $ctaLabel     = $opts['cta_label']    ?? '';
+    $ctaUrl       = $opts['cta_url']      ?? '';
+    $bodyHtml     = $opts['body_html']    ?? '';
+    $fallbackUrl  = $opts['fallback_url'] ?? '';
+    $footerNote   = $opts['footer_note']  ?? 'Este email es parte del sistema de documentos funcionales y contratos de Tres Puntos.';
+
+    $e = fn($s) => htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
+    $tpRazon = defined('TP_RAZON_SOCIAL') ? TP_RAZON_SOCIAL : 'Tres Puntos Comunicación S.L.';
+    $tpEmail = defined('TP_EMAIL_CONTACTO') ? TP_EMAIL_CONTACTO : 'jordi@trespuntoscomunicacion.es';
+    $tpDir   = defined('TP_DIRECCION') ? TP_DIRECCION : 'Barcelona';
+
+    // Preheader: texto invisible que aparece como preview en el inbox
+    $preheaderHtml = $preheader
+        ? '<div style="display:none;max-height:0;overflow:hidden;opacity:0;visibility:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#ffffff">' . $e($preheader) . '</div>'
+        : '';
+
+    // CTA bulletproof (funciona en Outlook)
+    $ctaHtml = '';
+    if ($ctaLabel && $ctaUrl) {
+        $ctaHtml = '
+        <tr><td style="padding:8px 40px 32px 40px" align="left">
+            <table cellspacing="0" cellpadding="0" border="0"><tr>
+                <td align="center" bgcolor="#0FA36C" style="border-radius:10px">
+                    <a href="' . $e($ctaUrl) . '" target="_blank" style="display:inline-block;background:#0FA36C;color:#ffffff;font-family:Inter,Helvetica,Arial,sans-serif;font-size:15px;font-weight:700;line-height:1;text-decoration:none;padding:16px 28px;border-radius:10px;mso-padding-alt:0">
+                        <!--[if mso]>&nbsp;&nbsp;&nbsp;&nbsp;<![endif]-->' . $e($ctaLabel) . '<!--[if mso]>&nbsp;&nbsp;&nbsp;&nbsp;<![endif]-->
+                    </a>
+                </td>
+            </tr></table>
+        </td></tr>';
+    }
+
+    $highlightHtml = $highlight
+        ? '<tr><td style="padding:0 40px 24px 40px">
+            <div style="background:#F7F6F3;border-left:4px solid #0FA36C;padding:16px 20px;border-radius:6px;color:#141414;font-size:15px;font-weight:600;line-height:1.5">' . $e($highlight) . '</div>
+        </td></tr>'
+        : '';
+
+    $introHtml = $intro
+        ? '<tr><td style="padding:0 40px 16px 40px;color:#3a3a3a;font-family:Inter,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6">' . $intro . '</td></tr>'
+        : '';
+
+    $bodyBlock = $bodyHtml
+        ? '<tr><td style="padding:0 40px 16px 40px;color:#3a3a3a;font-family:Inter,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6">' . $bodyHtml . '</td></tr>'
+        : '';
+
+    $fallbackHtml = $fallbackUrl
+        ? '<tr><td style="padding:0 40px 32px 40px">
+            <div style="background:#f5f5f4;border-radius:6px;padding:12px 16px;color:#6a6a6a;font-family:Inter,Helvetica,Arial,sans-serif;font-size:12px;line-height:1.5">
+                <strong style="color:#141414;display:block;margin-bottom:4px;font-size:11px;text-transform:uppercase;letter-spacing:.08em">¿El botón no funciona?</strong>
+                <span style="word-break:break-all;font-family:\'JetBrains Mono\',Menlo,Consolas,monospace;font-size:11px">' . $e($fallbackUrl) . '</span>
+            </div>
+        </td></tr>'
+        : '';
+
+    return '<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="color-scheme" content="light">
+<meta name="supported-color-schemes" content="light">
+<title>' . $e($title) . '</title>
+<!--[if mso]><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml><![endif]-->
+</head>
+<body style="margin:0;padding:0;background:#F7F6F3;font-family:Inter,-apple-system,BlinkMacSystemFont,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased">
+' . $preheaderHtml . '
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#F7F6F3">
+    <tr><td align="center" style="padding:32px 16px 48px 16px">
+        <table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:600px">
+
+            <!-- Header brand bar -->
+            <tr><td style="padding:0 0 20px 0" align="left">
+                <table role="presentation" cellspacing="0" cellpadding="0" border="0"><tr>
+                    <td style="font-family:\'Plus Jakarta Sans\',Helvetica,Arial,sans-serif;font-size:11px;letter-spacing:.25em;font-weight:800;color:#0FA36C">TRES&nbsp;PUNTOS</td>
+                </tr></table>
+            </td></tr>
+
+            <!-- Card -->
+            <tr><td style="background:#ffffff;border:1px solid #eeece7;border-radius:14px;overflow:hidden">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+
+                    <!-- Top accent stripe -->
+                    <tr><td style="background:#0FA36C;height:4px;line-height:4px;font-size:0">&nbsp;</td></tr>
+
+                    <!-- Title -->
+                    <tr><td style="padding:36px 40px 8px 40px">
+                        <h1 style="margin:0;font-family:\'Plus Jakarta Sans\',Helvetica,Arial,sans-serif;font-size:24px;line-height:1.25;font-weight:800;color:#141414;letter-spacing:-.01em">' . $e($title) . '</h1>
+                    </td></tr>
+
+                    ' . $introHtml . '
+                    ' . $highlightHtml . '
+                    ' . $bodyBlock . '
+                    ' . $ctaHtml . '
+                    ' . $fallbackHtml . '
+
+                    <!-- Divider -->
+                    <tr><td style="padding:0 40px"><div style="border-top:1px solid #eeece7;height:1px;line-height:1px;font-size:0">&nbsp;</div></td></tr>
+
+                    <!-- Legal note -->
+                    <tr><td style="padding:20px 40px 8px 40px;color:#8a8a8a;font-family:Inter,Helvetica,Arial,sans-serif;font-size:12px;line-height:1.6">' . $e($footerNote) . '</td></tr>
+
+                    <!-- Signature -->
+                    <tr><td style="padding:8px 40px 32px 40px;color:#3a3a3a;font-family:Inter,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.55">
+                        <strong style="color:#141414">Jordan · Tres Puntos</strong><br>
+                        <span style="color:#8a8a8a">Asistente IA · Partner cercano</span>
+                    </td></tr>
+                </table>
+            </td></tr>
+
+            <!-- Footer identificación empresa -->
+            <tr><td style="padding:24px 8px 0 8px;text-align:center;color:#8a8a8a;font-family:Inter,Helvetica,Arial,sans-serif;font-size:11px;line-height:1.65">
+                <strong style="color:#6a6a6a">' . $e($tpRazon) . '</strong> · ' . $e($tpDir) . '<br>
+                <a href="mailto:' . $e($tpEmail) . '" style="color:#0FA36C;text-decoration:none">' . $e($tpEmail) . '</a>
+                &nbsp;·&nbsp;
+                <a href="https://trespuntoscomunicacion.es" style="color:#0FA36C;text-decoration:none">trespuntoscomunicacion.es</a>
+            </td></tr>
+            <tr><td style="padding:14px 8px 0 8px;text-align:center;color:#b3b3b3;font-family:Inter,Helvetica,Arial,sans-serif;font-size:10px;line-height:1.5">
+                Si recibiste este email por error, puedes ignorarlo sin problema.<br>
+                No respondas a este mensaje · contacta directamente con nosotros.
+            </td></tr>
+
+        </table>
+    </td></tr>
+</table>
+</body></html>';
+}
+
+/**
+ * Wrapper HTTP para enviar emails via Resend usando el layout estándar.
+ * Devuelve true si Resend respondió 2xx.
+ */
+function tp_send_email(string $to, string $subject, array $layoutOpts, ?string $replyTo = null): bool
 {
     if (!defined('RESEND_API_KEY') || !RESEND_API_KEY) return false;
-    $tpRazon = defined('TP_RAZON_SOCIAL') ? TP_RAZON_SOCIAL : 'Tres Puntos';
-    $html = '<!DOCTYPE html><html><body style="font-family:Inter,sans-serif;background:#f5f5f5;padding:40px 0;margin:0">'
-        . '<div style="max-width:560px;margin:0 auto;background:#fff;border-radius:12px;padding:32px;box-shadow:0 1px 3px rgba(0,0,0,.08)">'
-        . '<div style="font-size:12px;letter-spacing:.2em;color:#0FA36C;font-weight:700;margin-bottom:20px">TRES PUNTOS</div>'
-        . '<h2 style="margin:0 0 8px 0;color:#141414;font-size:22px">Tienes un contrato para firmar</h2>'
-        . '<p style="color:#3a3a3a;line-height:1.6;margin:0 0 16px 0">Hola ' . htmlspecialchars($nombre ?: 'firmante', ENT_QUOTES, 'UTF-8') . ',</p>'
-        . '<p style="color:#3a3a3a;line-height:1.6;margin:0 0 24px 0">' . htmlspecialchars($tpRazon, ENT_QUOTES, 'UTF-8') . ' te ha enviado para firma electrónica:</p>'
-        . '<div style="background:#F7F6F3;border-left:3px solid #0FA36C;padding:14px 18px;border-radius:6px;margin:0 0 24px 0;font-weight:600;color:#141414">' . htmlspecialchars($titulo, ENT_QUOTES, 'UTF-8') . '</div>'
-        . '<p style="color:#3a3a3a;line-height:1.6;margin:0 0 24px 0">Haz clic en el botón, lee el documento completo y firma al final. Tardarás menos de 2 minutos.</p>'
-        . '<p style="text-align:center;margin:0 0 28px 0"><a href="' . htmlspecialchars($signUrl, ENT_QUOTES, 'UTF-8') . '" style="display:inline-block;background:#0FA36C;color:#fff;text-decoration:none;padding:14px 28px;border-radius:10px;font-weight:700;font-size:15px">Firmar contrato →</a></p>'
-        . '<p style="color:#8a8a8a;font-size:13px;line-height:1.55;margin:0 0 8px 0">Si el botón no funciona, copia y pega esta URL en tu navegador:<br><span style="word-break:break-all">' . htmlspecialchars($signUrl, ENT_QUOTES, 'UTF-8') . '</span></p>'
-        . '<hr style="border:none;border-top:1px solid #e5e5e5;margin:24px 0">'
-        . '<p style="color:#8a8a8a;font-size:12px;line-height:1.55;margin:0">Este documento se firma electrónicamente conforme al Reglamento (UE) 910/2014 (eIDAS). La firma tendrá plena validez jurídica entre las partes.</p>'
-        . '</div></body></html>';
+    $html = tp_render_email_layout($layoutOpts);
     $payload = [
-        'from' => RESEND_FROM,
-        'to' => [$email],
-        'reply_to' => RESEND_REPLY_TO,
-        'subject' => 'Firma pendiente · ' . $titulo,
+        'from' => defined('RESEND_FROM') ? RESEND_FROM : 'Tres Puntos <noreply@trespuntos-lab.com>',
+        'to' => [$to],
+        'reply_to' => $replyTo ?: (defined('RESEND_REPLY_TO') ? RESEND_REPLY_TO : 'jordi@trespuntoscomunicacion.es'),
+        'subject' => $subject,
         'html' => $html,
     ];
     $ch = curl_init('https://api.resend.com/emails');
@@ -183,6 +298,27 @@ function contrato_send_invite_email(string $email, string $nombre, string $titul
     $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
     return $code >= 200 && $code < 300;
+}
+
+/**
+ * Email al firmante cuando el admin envía el contrato.
+ */
+function contrato_send_invite_email(string $email, string $nombre, string $titulo, string $signUrl): bool
+{
+    $tpRazon = defined('TP_RAZON_SOCIAL') ? TP_RAZON_SOCIAL : 'Tres Puntos Comunicación S.L.';
+    $nombreSeguro = htmlspecialchars($nombre ?: 'firmante', ENT_QUOTES, 'UTF-8');
+    $tpRazonSeguro = htmlspecialchars($tpRazon, ENT_QUOTES, 'UTF-8');
+    return tp_send_email($email, 'Firma pendiente · ' . $titulo, [
+        'preheader'    => $tpRazon . ' te ha enviado un contrato para firmar electrónicamente.',
+        'title'        => 'Tienes un contrato para firmar',
+        'intro'        => 'Hola <strong>' . $nombreSeguro . '</strong>,<br><br>' . $tpRazonSeguro . ' te ha enviado para firma electrónica el siguiente documento:',
+        'highlight'    => $titulo,
+        'body_html'    => 'Haz clic en el botón, revisa el documento completo y firma al final. Todo el proceso dura menos de <strong>2 minutos</strong> y queda registrado con plena validez jurídica.',
+        'cta_label'    => 'Firmar contrato →',
+        'cta_url'      => $signUrl,
+        'fallback_url' => $signUrl,
+        'footer_note'  => 'Este documento se firma electrónicamente conforme al Reglamento (UE) 910/2014 (eIDAS). La firma tendrá plena validez jurídica entre las partes. Al firmar, capturamos datos técnicos (IP, navegador, fecha y hora, hash SHA-256) como prueba de autoría e integridad.',
+    ]);
 }
 
 function contrato_store_otp(PDO $pdo, int $firmaId, string $codigo): void

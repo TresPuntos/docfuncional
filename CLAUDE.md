@@ -319,6 +319,74 @@ a930bb7 fix(db): SQLite WAL mode + busy_timeout                                 
 
 ---
 
+## ✉️ ESTÁNDAR OBLIGATORIO · Plantilla de email transaccional
+
+**Regla**: TODOS los emails que salgan de la web (cliente, proveedor, notificaciones internas, OTPs, alertas, marketing transaccional, reminders) deben renderizarse con `tp_render_email_layout()` definida en `api/contratos_lib.php`.
+
+**Nunca escribir HTML de email a pelo.** Si añades un nuevo flujo de email, lo envías con `tp_send_email()` pasando los opts del layout. Si el caso no encaja (p.ej. código OTP), pasas el bloque custom en `body_html` pero **mantienes el layout (header brand + card + footer)**.
+
+### API
+
+```php
+// Render puro (devuelve string HTML)
+$html = tp_render_email_layout([
+    'preheader'    => 'Texto invisible que aparece como preview en el inbox',
+    'title'        => 'Título grande en la card',
+    'intro'        => 'Párrafo intro opcional (acepta HTML)',
+    'highlight'    => 'Texto destacado en callout mint (ej. título doc)',
+    'body_html'    => 'Cuerpo opcional con HTML libre',
+    'cta_label'    => 'Firmar contrato →',
+    'cta_url'      => 'https://...',
+    'fallback_url' => 'https://...',  // se muestra en caja gris si el botón falla
+    'footer_note'  => 'Pie legal / disclaimer',
+]);
+
+// Envío end-to-end (Resend)
+tp_send_email($to, $subject, [...opts...], $replyTo = null);
+```
+
+### Reglas de diseño del layout (NO tocar)
+
+- **Paleta**: mint print `#0FA36C` (nunca `#5DFFBF`), texto `#141414`, bg `#F7F6F3`, cards `#ffffff`
+- **Ancho fijo 600px** (compatibilidad Outlook)
+- **Tables + inline styles** en todo el HTML (clientes corporativos strippean `<style>`)
+- **CTA bulletproof** con VML fallback Outlook + `mso-padding-alt`
+- **Preheader invisible** para que el preview del inbox sea útil
+- **Brand header**: "TRES PUNTOS" en mint con letter-spacing `.25em`
+- **Accent stripe mint** arriba de la card (4px)
+- **Firma** Jordan · Tres Puntos (asistente IA · partner cercano)
+- **Footer corporativo**: razón social + domicilio + email + web, en gris
+
+### Qué hay que migrar (TODO)
+
+| Archivo | Email actual | Migrar a tp_send_email |
+|---|---|---|
+| `admin_providers.php` | `sendProviderInviteEmail()` (invita proveedor) | pendiente |
+| `admin_feedback.php` | `sendClientCommentNotification()`, `sendStaffReplyNotification()`, `sendVersionAnnouncement()` | pendiente |
+| `provider.php` | invite email proveedor | pendiente |
+| `api/jordan-doc.php` | — (no envía) | N/A |
+| `api/contratos_lib.php` | `contrato_send_invite_email`, `contrato_send_otp_email` | ✅ ya usan el layout |
+
+Cuando toques cualquier email de los "pendientes", migra al layout estándar en la misma sesión. No dejes nada en HTML a pelo.
+
+### Cómo añadir un nuevo email
+
+1. En el módulo correspondiente, construye `$opts` según el tipo de email.
+2. Llama `tp_send_email($to, $subject, $opts, $replyTo)`.
+3. Usa `preheader` siempre (mejora apertura ~20%).
+4. Si es un email con código/token (tipo OTP), mete la "caja especial" como HTML en `body_html` y **omite `cta_label`**.
+5. Para alertas de pago, deadline, etc., añade icono de contexto dentro de `highlight`.
+
+### Testing del layout
+
+```bash
+# Previsualizar el layout con datos de ejemplo:
+php -r "require 'api/contratos_lib.php'; echo tp_render_email_layout(['title'=>'Prueba','intro'=>'Hola','cta_label'=>'Click','cta_url'=>'http://x']);" > /tmp/email.html
+open /tmp/email.html
+```
+
+---
+
 ## 🧭 Estado actual del repo (actualizado 2026-04-24)
 
 ### En producción (main → doc.trespuntos-lab.com)
