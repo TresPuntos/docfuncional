@@ -377,6 +377,17 @@ if ($detailProv > 0) {
     <?php include __DIR__ . '/master/admin-sidebar.php'; ?>
 
     <main class="admin-main">
+        <?php
+        // H3: breadcrumb detalle proveedor
+        $adminBreadcrumbItems = [
+            ['label' => 'Dashboard', 'href' => 'admin.php'],
+            ['label' => e($pv['client_name']), 'href' => 'admin_providers.php?propuesta_id=' . (int)$pv['propuesta_id']],
+            ['label' => 'Proveedores', 'href' => 'admin_providers.php?propuesta_id=' . (int)$pv['propuesta_id']],
+            ['label' => e($pv['nombre']) . ($pv['empresa'] ? ' · ' . e($pv['empresa']) : ''), 'href' => null],
+        ];
+        $adminBreadcrumbPropNav = null;
+        include __DIR__ . '/master/admin-breadcrumb.php';
+        ?>
         <div class="admin-main-header">
             <h1 class="admin-main-title">
                 <i data-lucide="hard-hat"></i>
@@ -561,6 +572,21 @@ if ($filterProp && $currentProp) {
     $proveedores = $pq->fetchAll(PDO::FETCH_ASSOC);
 }
 
+// Directorio global de proveedores (cuando no hay propuesta_id)
+$globalProveedores = [];
+if (!$filterProp) {
+    try {
+        $gq = $pdo->query("SELECT p.id, p.nombre, p.empresa, p.email, p.activo, p.last_accessed_at, p.accesos, p.invited_at,
+            p.propuesta_id, pr.client_name AS propuesta_cliente, pr.slug AS propuesta_slug,
+            (SELECT COUNT(*) FROM proveedor_presupuestos WHERE proveedor_id = p.id) AS n_presupuestos,
+            (SELECT COUNT(*) FROM proveedor_mensajes WHERE proveedor_id = p.id AND is_draft = 0) AS n_mensajes
+            FROM propuesta_proveedores p
+            LEFT JOIN propuestas pr ON pr.id = p.propuesta_id
+            ORDER BY p.activo DESC, p.nombre ASC, p.invited_at DESC");
+        $globalProveedores = $gq->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Exception $e) { $globalProveedores = []; }
+}
+
 // Mensajes de todos los proveedores de esta propuesta (si vista con filtro)
 $mensajes = [];
 if ($filterProp) {
@@ -650,6 +676,24 @@ $adminSidebarPropuestas = $propuestas;
 <?php include __DIR__ . '/master/admin-sidebar.php'; ?>
 
 <main class="admin-main">
+    <?php
+    // H3 + H5: breadcrumb + nav prev/next
+    if ($filterProp > 0 && !empty($currentProp)) {
+        $adminBreadcrumbItems = [
+            ['label' => 'Dashboard', 'href' => 'admin.php'],
+            ['label' => e($currentProp['client_name']), 'href' => null],
+            ['label' => 'Proveedores', 'href' => null],
+        ];
+        $adminBreadcrumbPropNav = ['current_id' => $filterProp, 'view' => 'proveedores'];
+    } else {
+        $adminBreadcrumbItems = [
+            ['label' => 'Dashboard', 'href' => 'admin.php'],
+            ['label' => 'Proveedores (todos)', 'href' => null],
+        ];
+        $adminBreadcrumbPropNav = null;
+    }
+    include __DIR__ . '/master/admin-breadcrumb.php';
+    ?>
     <div class="admin-main-header">
         <h1 class="admin-main-title">
             <i data-lucide="hard-hat"></i>
@@ -661,7 +705,149 @@ $adminSidebarPropuestas = $propuestas;
     </div>
 
 <?php if (!$filterProp): ?>
-    <div class="empty">Elige una propuesta en el sidebar para gestionar sus proveedores.</div>
+    <!-- DIRECTORIO GLOBAL DE PROVEEDORES -->
+    <style>
+        /* Safety net: ningún SVG Lucide del directorio crece más de lo debido */
+        .pv-dir-grid svg.lucide,
+        .pv-dir-grid i[data-lucide] { max-width: 14px; max-height: 14px; }
+        .pv-dir-toolbar svg.lucide,
+        .pv-dir-toolbar i[data-lucide] { max-width: 14px; max-height: 14px; }
+
+        .pv-dir-toolbar { display: flex; gap: .75rem; align-items: center; margin: 0 0 1rem; flex-wrap: wrap; }
+        .pv-dir-search { flex: 1; min-width: 240px; position: relative; }
+        .pv-dir-search input { width: 100%; box-sizing: border-box; background: var(--bg-subtle); border: 1px solid var(--border-base); color: var(--text-primary); padding: .55rem .75rem .55rem 2.1rem; border-radius: 8px; font-family: inherit; font-size: .88rem; outline: none; transition: border-color .12s; }
+        .pv-dir-search input:focus { border-color: var(--mint); }
+        .pv-dir-search i[data-lucide],
+        .pv-dir-search svg.lucide { position: absolute !important; left: .7rem; top: 50%; transform: translateY(-50%); width: 14px !important; height: 14px !important; color: var(--text-muted); pointer-events: none; }
+        .pv-dir-count { color: var(--text-muted); font-size: .8rem; font-variant-numeric: tabular-nums; }
+        .pv-dir-empty { color: var(--text-muted); padding: 3rem 2rem; text-align: center; background: var(--bg-surface); border-radius: 10px; border: 1px dashed var(--border-base); }
+        .pv-dir-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: .85rem; }
+        .pv-dir-card { background: var(--bg-surface); border: 1px solid var(--border-base); border-radius: 10px; padding: 1rem 1.1rem; text-decoration: none; color: inherit; transition: border-color .15s, transform .15s, background-color .15s; display: block; }
+        .pv-dir-card:hover { border-color: var(--border-strong); transform: translateY(-1px); background: rgba(255,255,255,0.01); }
+        .pv-dir-card.inactive { opacity: .55; }
+        .pv-dir-card__head { display: flex; align-items: center; gap: .65rem; margin-bottom: .55rem; }
+        .pv-dir-card__avatar { width: 34px; height: 34px; border-radius: 50%; background: rgba(192,132,252,.12); color: #c084fc; display: grid; place-items: center; font-weight: 700; font-size: .95rem; border: 1px solid rgba(192,132,252,.22); flex-shrink: 0; }
+        .pv-dir-card__name { font-weight: 600; color: var(--text-primary); font-size: .92rem; line-height: 1.2; }
+        .pv-dir-card__empresa { font-size: .75rem; color: var(--text-muted); margin-top: 2px; }
+        .pv-dir-card__status { margin-left: auto; font-size: .65rem; text-transform: uppercase; letter-spacing: .06em; font-weight: 600; }
+        .pv-dir-card__status.active { color: var(--mint); }
+        .pv-dir-card__status.inactive { color: var(--text-muted); }
+        .pv-dir-card__meta { display: flex; flex-direction: column; gap: .35rem; font-size: .78rem; color: var(--text-secondary); }
+        .pv-dir-card__meta-row { display: flex; align-items: center; gap: .5rem; }
+        .pv-dir-card__meta-row i[data-lucide],
+        .pv-dir-card__meta-row svg.lucide { width: 12px !important; height: 12px !important; color: var(--text-muted); stroke-width: 1.75; flex-shrink: 0; }
+        .pv-dir-card__stats { display: flex; gap: .85rem; margin-top: .65rem; padding-top: .65rem; border-top: 1px dashed var(--border-base); font-size: .75rem; }
+        .pv-dir-card__stat { display: flex; align-items: center; gap: .3rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+        .pv-dir-card__stat strong { color: var(--text-secondary); font-weight: 600; }
+        .pv-dir-card__stat i[data-lucide],
+        .pv-dir-card__stat svg.lucide { width: 12px !important; height: 12px !important; flex-shrink: 0; }
+        .pv-dir-hint { margin-top: 1.5rem; padding: .85rem 1rem; background: rgba(var(--mint-rgb), .06); border: 1px solid rgba(var(--mint-rgb), .18); border-radius: 8px; color: var(--text-secondary); font-size: .82rem; line-height: 1.5; }
+        .pv-dir-hint strong { color: var(--mint); }
+    </style>
+
+    <div class="pv-dir-toolbar">
+        <div class="pv-dir-search">
+            <i data-lucide="search"></i>
+            <input type="text" id="pv-dir-search-input" placeholder="Buscar proveedor por nombre, empresa o email…" autocomplete="off">
+        </div>
+        <span class="pv-dir-count"><?= count($globalProveedores) ?> proveedor<?= count($globalProveedores) === 1 ? '' : 'es' ?></span>
+    </div>
+
+    <?php if (empty($globalProveedores)): ?>
+        <div class="pv-dir-empty">
+            <i data-lucide="hard-hat" style="width: 32px; height: 32px; color: var(--text-muted); opacity: .5;"></i>
+            <p style="margin: .75rem 0 .25rem; font-size: .95rem; color: var(--text-secondary);">Aún no has invitado proveedores</p>
+            <p style="margin: 0; font-size: .82rem; color: var(--text-muted);">Desde cualquier propuesta → Proveedores → Invitar proveedor.</p>
+        </div>
+    <?php else: ?>
+        <div class="pv-dir-grid" id="pv-dir-grid">
+            <?php foreach ($globalProveedores as $gp):
+                $gpInitial = mb_strtoupper(mb_substr($gp['nombre'] ?? '?', 0, 1));
+                $gpActive = (int)$gp['activo'] === 1;
+                $gpSearch = strtolower(trim(($gp['nombre'] ?? '') . ' ' . ($gp['empresa'] ?? '') . ' ' . ($gp['email'] ?? '') . ' ' . ($gp['propuesta_cliente'] ?? '')));
+            ?>
+                <a href="admin_providers.php?proveedor_id=<?= (int)$gp['id'] ?>"
+                   class="pv-dir-card<?= $gpActive ? '' : ' inactive' ?>"
+                   data-search="<?= e($gpSearch) ?>">
+                    <div class="pv-dir-card__head">
+                        <div class="pv-dir-card__avatar"><?= e($gpInitial) ?></div>
+                        <div style="min-width:0;">
+                            <div class="pv-dir-card__name"><?= e($gp['nombre'] ?? '—') ?></div>
+                            <?php if (!empty($gp['empresa'])): ?>
+                                <div class="pv-dir-card__empresa"><?= e($gp['empresa']) ?></div>
+                            <?php endif; ?>
+                        </div>
+                        <span class="pv-dir-card__status <?= $gpActive ? 'active' : 'inactive' ?>">
+                            <?= $gpActive ? 'Activo' : 'Revocado' ?>
+                        </span>
+                    </div>
+
+                    <div class="pv-dir-card__meta">
+                        <?php if (!empty($gp['email'])): ?>
+                            <div class="pv-dir-card__meta-row" title="Email">
+                                <i data-lucide="mail"></i>
+                                <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><?= e($gp['email']) ?></span>
+                            </div>
+                        <?php endif; ?>
+                        <?php if (!empty($gp['propuesta_cliente'])): ?>
+                            <div class="pv-dir-card__meta-row" title="Propuesta para la que fue invitado">
+                                <i data-lucide="briefcase"></i>
+                                <span><?= e($gp['propuesta_cliente']) ?></span>
+                            </div>
+                        <?php endif; ?>
+                        <?php if (!empty($gp['last_accessed_at'])): ?>
+                            <div class="pv-dir-card__meta-row" title="Último acceso">
+                                <i data-lucide="clock"></i>
+                                <span>Último acceso: <?= date('d/m/y', strtotime($gp['last_accessed_at'])) ?></span>
+                            </div>
+                        <?php else: ?>
+                            <div class="pv-dir-card__meta-row" title="Nunca ha entrado">
+                                <i data-lucide="clock"></i>
+                                <span style="color: var(--text-muted);">Nunca ha entrado</span>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+
+                    <div class="pv-dir-card__stats">
+                        <span class="pv-dir-card__stat" title="Presupuestos enviados">
+                            <i data-lucide="file-text"></i> <strong><?= (int)$gp['n_presupuestos'] ?></strong> presupuesto<?= (int)$gp['n_presupuestos'] === 1 ? '' : 's' ?>
+                        </span>
+                        <span class="pv-dir-card__stat" title="Mensajes intercambiados">
+                            <i data-lucide="message-circle"></i> <strong><?= (int)$gp['n_mensajes'] ?></strong> mensaje<?= (int)$gp['n_mensajes'] === 1 ? '' : 's' ?>
+                        </span>
+                        <span class="pv-dir-card__stat" title="Accesos al portal">
+                            <i data-lucide="log-in"></i> <strong><?= (int)$gp['accesos'] ?></strong>
+                        </span>
+                    </div>
+                </a>
+            <?php endforeach; ?>
+        </div>
+
+        <div class="pv-dir-hint">
+            <strong>Próximo paso:</strong> al entrar en el detalle de un proveedor se guardan sus presupuestos y mensajes. En el siguiente sprint añadiremos <strong>perfiles completos</strong> con contratos, documentos y datos fiscales.
+        </div>
+    <?php endif; ?>
+
+    <script>
+    (function () {
+        const input = document.getElementById('pv-dir-search-input');
+        const cards = document.querySelectorAll('#pv-dir-grid .pv-dir-card');
+        if (!input || !cards.length) return;
+        function norm(s) { return (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''); }
+        input.addEventListener('input', e => {
+            const q = norm(e.target.value.trim());
+            let visible = 0;
+            cards.forEach(c => {
+                const haystack = norm(c.getAttribute('data-search') || '');
+                const show = !q || haystack.includes(q);
+                c.style.display = show ? '' : 'none';
+                if (show) visible++;
+            });
+            const countEl = document.querySelector('.pv-dir-count');
+            if (countEl) countEl.textContent = q ? (visible + ' coincidencia' + (visible === 1 ? '' : 's')) : (cards.length + ' proveedor' + (cards.length === 1 ? '' : 'es'));
+        });
+    })();
+    </script>
 <?php else: ?>
 
 <h2>Invitar proveedor a <?=e($currentProp['client_name'])?></h2>

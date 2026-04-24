@@ -17,17 +17,25 @@ if (!isset($pdo) || !($pdo instanceof PDO)) {
 
 $allProps = [];
 $statsByProp = [];
+$globalCommentsOpen = 0;
+$globalProvidersTotal = 0;
 if ($pdo) {
     try {
         $allProps = $pdo->query("SELECT id, slug, client_name, status, version FROM propuestas ORDER BY status DESC, client_name ASC")->fetchAll(PDO::FETCH_ASSOC);
     } catch (Exception $e) { $allProps = []; }
     try {
         $cq = $pdo->query("SELECT propuesta_id, SUM(CASE WHEN parent_id IS NULL AND resuelto = 0 THEN 1 ELSE 0 END) AS open_comments FROM comentarios_seccion GROUP BY propuesta_id");
-        foreach ($cq as $r) $statsByProp[(int)$r['propuesta_id']]['comments'] = (int)$r['open_comments'];
+        foreach ($cq as $r) {
+            $statsByProp[(int)$r['propuesta_id']]['comments'] = (int)$r['open_comments'];
+            $globalCommentsOpen += (int)$r['open_comments'];
+        }
     } catch (Exception $e) {}
     try {
         $pq = $pdo->query("SELECT propuesta_id, COUNT(*) AS n FROM propuesta_proveedores WHERE activo = 1 GROUP BY propuesta_id");
-        foreach ($pq as $r) $statsByProp[(int)$r['propuesta_id']]['providers'] = (int)$r['n'];
+        foreach ($pq as $r) {
+            $statsByProp[(int)$r['propuesta_id']]['providers'] = (int)$r['n'];
+            $globalProvidersTotal += (int)$r['n'];
+        }
     } catch (Exception $e) {}
 
     // Listado de proveedores por propuesta (para desplegar en el submenu)
@@ -91,17 +99,25 @@ $archivedProps = array_values(array_filter($allProps, fn($p) => (int)$p['status'
 .admin-sidebar__scroll::-webkit-scrollbar-thumb { background: transparent; border-radius: 2px; transition: background .15s; }
 .admin-sidebar__scroll:hover::-webkit-scrollbar-thumb { background: var(--border-strong, #2a2a2a); }
 
+/* Safety net: ningún icono Lucide dentro del sidebar puede crecer por defecto */
+.admin-sidebar svg.lucide,
+.admin-sidebar i[data-lucide] {
+    width: 14px;
+    height: 14px;
+    max-width: 14px;
+    max-height: 14px;
+}
+
 /* ----- Brand ----- */
 .admin-sidebar__brand {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 2px 8px 14px;
+    gap: 8px;
+    padding: 2px 8px 12px;
     margin-bottom: 2px;
-    border-bottom: 1px solid var(--border-base, #1f1f1f);
 }
 .admin-sidebar__brand-mark {
-    width: 22px; height: 22px;
+    width: 18px; height: 18px;
     flex-shrink: 0;
     color: var(--mint, #5dffbf);
 }
@@ -112,18 +128,19 @@ $archivedProps = array_values(array_filter($allProps, fn($p) => (int)$p['status'
 }
 .admin-sidebar__brand-name {
     font-family: var(--font-heading, 'Plus Jakarta Sans', sans-serif);
-    font-size: 13px;
-    font-weight: 700;
+    font-size: 12px;
+    font-weight: 600;
     color: var(--text-primary, #f5f5f5);
     letter-spacing: -0.01em;
 }
 .admin-sidebar__brand-sub {
-    font-size: 10px;
+    font-size: 9px;
     font-weight: 500;
     color: var(--text-muted, #8a8a8a);
-    letter-spacing: 0.04em;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
     margin-top: 1px;
+    opacity: 0.7;
 }
 
 /* ----- Section label (PROPOSALS ACTIVE 4) ----- */
@@ -145,17 +162,219 @@ $archivedProps = array_values(array_filter($allProps, fn($p) => (int)$p['status'
     color: var(--text-muted, #8a8a8a);
     opacity: 0.6;
 }
+.admin-sidebar__label-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+.label-action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    background: transparent;
+    border: 0;
+    color: var(--text-muted, #8a8a8a);
+    opacity: 0.5;
+    cursor: pointer;
+    text-decoration: none;
+    transition: opacity .12s ease, color .12s ease, background-color .12s ease;
+}
+.label-action-btn:hover { opacity: 1; color: var(--mint, #5dffbf); background: rgba(var(--mint-rgb, 93,255,191), 0.08); }
+.label-action-btn i[data-lucide] { width: 12px; height: 12px; stroke-width: 2; }
+
+/* H6: Search input */
+.sidebar-search {
+    position: relative;
+    margin: 6px 0 10px;
+    padding: 0 4px;
+}
+.sidebar-search__icon {
+    position: absolute;
+    left: 14px; top: 50%; transform: translateY(-50%);
+    width: 13px; height: 13px;
+    color: var(--text-muted, #8a8a8a);
+    stroke-width: 1.75;
+    pointer-events: none;
+}
+.sidebar-search input {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--bg-base, #0e0e0e);
+    border: 1px solid var(--border-base, #1f1f1f);
+    border-radius: 6px;
+    padding: 7px 38px 7px 32px;
+    font-family: inherit;
+    font-size: 12.5px;
+    color: var(--text-primary, #f5f5f5);
+    outline: none;
+    transition: border-color .12s ease, background-color .12s ease;
+}
+.sidebar-search input::placeholder { color: var(--text-muted, #8a8a8a); }
+.sidebar-search input:focus {
+    border-color: var(--mint, #5dffbf);
+    background: var(--bg-surface, #141414);
+}
+.sidebar-search__kbd {
+    position: absolute;
+    right: 10px; top: 50%; transform: translateY(-50%);
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    font-size: 9.5px;
+    color: var(--text-muted, #8a8a8a);
+    background: var(--bg-surface, #141414);
+    border: 1px solid var(--border-base, #1f1f1f);
+    border-radius: 3px;
+    padding: 1px 5px;
+    letter-spacing: 0.02em;
+    pointer-events: none;
+    opacity: 0.6;
+}
+.sidebar-search input:focus + .sidebar-search__kbd { opacity: 0; }
+
+/* H1: badges inline en nav-item top-level */
+.nav-item__badge {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    font-size: 10.5px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--mint, #5dffbf);
+    background: rgba(var(--mint-rgb, 93,255,191), 0.1);
+    border-radius: 10px;
+    padding: 1px 7px;
+    letter-spacing: 0.01em;
+    line-height: 1.3;
+}
+.nav-item__badge--purple {
+    color: #c084fc;
+    background: rgba(192, 132, 252, 0.1);
+}
+
+/* Estados filtrados por search */
+.prop.is-filtered-out { display: none; }
+.admin-sidebar__label.is-filtered-out { display: none; }
+
+/* Breadcrumbs (H3) */
+.admin-breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-muted, #8a8a8a);
+    margin-bottom: 6px;
+}
+.admin-breadcrumb a {
+    color: var(--text-muted, #8a8a8a);
+    text-decoration: none;
+    transition: color .12s ease;
+}
+.admin-breadcrumb a:hover {
+    color: var(--text-primary, #f5f5f5);
+}
+.admin-breadcrumb__sep {
+    color: var(--text-muted, #8a8a8a);
+    opacity: 0.5;
+    font-size: 11px;
+}
+.admin-breadcrumb__current {
+    color: var(--text-secondary, #b3b3b3);
+    font-weight: 500;
+}
+
+/* H5: navegación ←/→ en header */
+.admin-prop-nav {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    margin-left: 8px;
+    background: var(--bg-surface, #141414);
+    border: 1px solid var(--border-base, #1f1f1f);
+    border-radius: 6px;
+    padding: 2px;
+}
+.admin-prop-nav__btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px; height: 26px;
+    border-radius: 4px;
+    background: transparent;
+    border: 0;
+    color: var(--text-secondary, #b3b3b3);
+    cursor: pointer;
+    text-decoration: none;
+    transition: background-color .12s ease, color .12s ease;
+}
+.admin-prop-nav__btn:hover {
+    background: rgba(255,255,255,0.04);
+    color: var(--text-primary, #f5f5f5);
+}
+.admin-prop-nav__btn[aria-disabled="true"] {
+    opacity: 0.3;
+    pointer-events: none;
+}
+.admin-prop-nav__btn i[data-lucide] { width: 14px; height: 14px; stroke-width: 2; }
+.admin-prop-nav__select {
+    background: transparent;
+    border: 0;
+    color: var(--text-secondary, #b3b3b3);
+    font: inherit;
+    font-size: 12px;
+    padding: 3px 8px;
+    cursor: pointer;
+    max-width: 160px;
+    text-overflow: ellipsis;
+}
+.admin-prop-nav__select:focus { outline: 1px solid var(--mint, #5dffbf); border-radius: 3px; }
+
+/* H4: toggle navegador interno dentro del footer sidebar */
+.sidebar-internal-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 8px;
+    background: transparent;
+    border: 1px solid var(--border-base, #1f1f1f);
+    border-radius: 6px;
+    color: var(--text-muted, #8a8a8a);
+    font-family: inherit;
+    font-size: 11.5px;
+    font-weight: 500;
+    cursor: pointer;
+    width: 100%;
+    transition: color .12s ease, border-color .12s ease, background-color .12s ease;
+}
+.sidebar-internal-toggle:hover {
+    color: var(--text-secondary, #b3b3b3);
+    border-color: var(--border-strong, #2a2a2a);
+}
+.sidebar-internal-toggle.is-on {
+    color: #c084fc;
+    border-color: rgba(192, 132, 252, .5);
+    background: rgba(192, 132, 252, .08);
+}
+.sidebar-internal-toggle__dot {
+    width: 7px; height: 7px;
+    border-radius: 999px;
+    background: #666;
+    flex-shrink: 0;
+}
+.sidebar-internal-toggle.is-on .sidebar-internal-toggle__dot { background: #c084fc; box-shadow: 0 0 6px rgba(192,132,252,.5); }
+.sidebar-internal-toggle__text { flex: 1; text-align: left; }
 
 /* ----- Single-level nav item (Dashboard · Cerrar sesión) ----- */
 .nav-item {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 6px 8px;
-    border-radius: 6px;
+    gap: 9px;
+    padding: 5px 8px;
+    border-radius: 5px;
     color: var(--text-secondary, #b3b3b3);
-    font-size: 13px;
-    font-weight: 500;
+    font-size: 12.5px;
+    font-weight: 450;
     text-decoration: none;
     position: relative;
     transition: background-color .12s ease, color .12s ease;
@@ -165,8 +384,9 @@ $archivedProps = array_values(array_filter($allProps, fn($p) => (int)$p['status'
     background: rgba(255, 255, 255, 0.03);
     color: var(--text-primary, #f5f5f5);
 }
-.nav-item i[data-lucide] {
-    width: 15px; height: 15px;
+.nav-item i[data-lucide],
+.nav-item svg.lucide {
+    width: 14px !important; height: 14px !important;
     stroke-width: 1.75;
     flex-shrink: 0;
     color: var(--text-muted, #8a8a8a);
@@ -174,8 +394,9 @@ $archivedProps = array_values(array_filter($allProps, fn($p) => (int)$p['status'
 }
 .nav-item:hover i[data-lucide] { color: var(--text-secondary, #b3b3b3); }
 .nav-item.is-active {
-    color: var(--mint, #5dffbf);
-    background: rgba(var(--mint-rgb, 93, 255, 191), 0.06);
+    color: var(--text-primary, #f5f5f5);
+    background: rgba(255, 255, 255, 0.04);
+    font-weight: 500;
 }
 .nav-item.is-active i[data-lucide] { color: var(--mint, #5dffbf); }
 .nav-item.is-active::before {
@@ -185,7 +406,7 @@ $archivedProps = array_values(array_filter($allProps, fn($p) => (int)$p['status'
     top: 50%;
     transform: translateY(-50%);
     width: 2px;
-    height: 16px;
+    height: 14px;
     background: var(--mint, #5dffbf);
     border-radius: 0 2px 2px 0;
 }
@@ -230,8 +451,9 @@ $archivedProps = array_values(array_filter($allProps, fn($p) => (int)$p['status'
     border-radius: 0 2px 2px 0;
 }
 
-.prop__chevron {
-    width: 12px; height: 12px;
+.prop__chevron,
+svg.prop__chevron.lucide {
+    width: 12px !important; height: 12px !important;
     stroke-width: 2;
     flex-shrink: 0;
     color: var(--text-muted, #8a8a8a);
@@ -280,6 +502,12 @@ $archivedProps = array_values(array_filter($allProps, fn($p) => (int)$p['status'
 .prop__badge-dot {
     width: 6px; height: 6px;
     border-radius: 50%;
+    flex-shrink: 0;
+}
+.prop__badge i[data-lucide],
+.prop__badge svg.lucide {
+    width: 12px !important; height: 12px !important;
+    stroke-width: 1.9;
     flex-shrink: 0;
 }
 .prop__badge--comments { color: var(--mint, #5dffbf); }
@@ -334,8 +562,9 @@ $archivedProps = array_values(array_filter($allProps, fn($p) => (int)$p['status'
     height: 1px;
     background: var(--mint, #5dffbf);
 }
-.prop__sub a i[data-lucide] {
-    width: 13px; height: 13px;
+.prop__sub a i[data-lucide],
+.prop__sub a svg.lucide {
+    width: 13px !important; height: 13px !important;
     stroke-width: 1.75;
     color: var(--text-muted, #8a8a8a);
     flex-shrink: 0;
@@ -619,16 +848,40 @@ $archivedProps = array_values(array_filter($allProps, fn($p) => (int)$p['status'
             </div>
         </div>
 
-        <!-- Top-level nav -->
+        <!-- H6: Search filter -->
+        <div class="sidebar-search">
+            <i data-lucide="search" class="sidebar-search__icon"></i>
+            <input type="text" id="tp-sidebar-search" placeholder="Buscar propuesta…" autocomplete="off" aria-label="Buscar propuesta">
+            <kbd class="sidebar-search__kbd">⌘K</kbd>
+        </div>
+
+        <!-- Top-level nav: solo Dashboard + Proveedores (global directory) -->
         <a href="admin.php" class="nav-item <?= $active === 'dashboard' ? 'is-active' : '' ?>">
             <i data-lucide="layout-dashboard"></i>
             Dashboard
+        </a>
+        <a href="admin_providers.php" class="nav-item <?= ($active === 'proveedores' && !$activePropId) ? 'is-active' : '' ?>" title="Directorio de todos los proveedores con sus contactos y documentos">
+            <i data-lucide="hard-hat"></i>
+            <span>Proveedores</span>
+            <?php if ($globalProvidersTotal > 0): ?>
+                <span class="nav-item__badge nav-item__badge--purple"><?= $globalProvidersTotal ?></span>
+            <?php endif; ?>
         </a>
 
         <?php if (!empty($activeProps)): ?>
             <div class="admin-sidebar__label">
                 <span>Propuestas</span>
-                <span class="admin-sidebar__label-count"><?= count($activeProps) ?></span>
+                <div class="admin-sidebar__label-actions">
+                    <span class="admin-sidebar__label-count"><?= count($activeProps) ?></span>
+                    <!-- H7: colapsar todas -->
+                    <button type="button" class="label-action-btn" id="tp-collapse-all-btn" title="Colapsar todas las propuestas">
+                        <i data-lucide="chevrons-up-down"></i>
+                    </button>
+                    <!-- H10: [+] nueva propuesta -->
+                    <a href="admin.php?new=1" class="label-action-btn" title="Nueva propuesta">
+                        <i data-lucide="plus"></i>
+                    </a>
+                </div>
             </div>
             <?php foreach ($activeProps as $p):
                 $pid = (int)$p['id'];
@@ -646,21 +899,26 @@ $archivedProps = array_values(array_filter($allProps, fn($p) => (int)$p['status'
                         <?php if ($commentsN > 0 || $providersN > 0): ?>
                             <span class="prop__badges">
                                 <?php if ($commentsN > 0): ?>
-                                    <span class="prop__badge prop__badge--comments" title="<?= $commentsN ?> hilo<?= $commentsN === 1 ? '' : 's' ?> de comentarios">
-                                        <span class="prop__badge-dot"></span><?= $commentsN ?>
+                                    <!-- H8: icono Lucide en lugar de dot -->
+                                    <span class="prop__badge prop__badge--comments" title="<?= $commentsN ?> hilo<?= $commentsN === 1 ? '' : 's' ?> de comentarios sin resolver">
+                                        <i data-lucide="message-circle"></i><?= $commentsN ?>
                                     </span>
                                 <?php endif; ?>
                                 <?php if ($providersN > 0): ?>
-                                    <span class="prop__badge prop__badge--providers" title="<?= $providersN ?> proveedor<?= $providersN === 1 ? '' : 'es' ?>">
-                                        <span class="prop__badge-dot"></span><?= $providersN ?>
+                                    <span class="prop__badge prop__badge--providers" title="<?= $providersN ?> proveedor<?= $providersN === 1 ? '' : 'es' ?> invitado<?= $providersN === 1 ? '' : 's' ?>">
+                                        <i data-lucide="hard-hat"></i><?= $providersN ?>
                                     </span>
                                 <?php endif; ?>
                             </span>
                         <?php endif; ?>
                     </summary>
                     <div class="prop__sub">
-                        <!-- GRUPO 1 · Cliente -->
-                        <div class="prop__sub-group">Cliente</div>
+                        <!-- GRUPO 1 · Gestión (acciones internas) -->
+                        <div class="prop__sub-group">Gestión</div>
+                        <a href="admin.php?edit_id=<?= $pid ?>" title="Editar contenido HTML de la propuesta">
+                            <i data-lucide="edit-3"></i>
+                            <span>Editar documento</span>
+                        </a>
                         <a href="admin_feedback.php?propuesta_id=<?= $pid ?>" class="<?= $isActivePid && $active === 'comentarios' ? 'is-active' : '' ?>">
                             <i data-lucide="message-square-text"></i>
                             <span>Comentarios</span>
@@ -671,11 +929,6 @@ $archivedProps = array_values(array_filter($allProps, fn($p) => (int)$p['status'
                         <a href="admin_analytics.php?propuesta_id=<?= $pid ?>" class="<?= $isActivePid && $active === 'analytics' ? 'is-active' : '' ?>">
                             <i data-lucide="bar-chart-3"></i>
                             <span>Analytics</span>
-                        </a>
-                        <a href="/p/<?= urlencode($p['slug']) ?>?__admin_view=1" target="_blank" rel="noopener">
-                            <i data-lucide="file-text"></i>
-                            <span>Ver doc con comentarios</span>
-                            <i data-lucide="arrow-up-right" class="prop__sub-ext"></i>
                         </a>
 
                         <!-- GRUPO 2 · Proveedores (listados individualmente) -->
@@ -710,11 +963,16 @@ $archivedProps = array_values(array_filter($allProps, fn($p) => (int)$p['status'
                             <span>Invitar proveedor</span>
                         </a>
 
-                        <!-- GRUPO 3 · Documento -->
+                        <!-- GRUPO 3 · Documento (H2: consolidado — 1 link + modo en query) -->
                         <div class="prop__sub-group">Documento</div>
-                        <a href="/p/<?= urlencode($p['slug']) ?>" target="_blank" rel="noopener">
+                        <a href="/p/<?= urlencode($p['slug']) ?>?__admin_view=1" target="_blank" rel="noopener" title="Vista modo admin — puedes responder a comentarios como Tres Puntos">
+                            <i data-lucide="file-text"></i>
+                            <span>Abrir documento</span>
+                            <i data-lucide="arrow-up-right" class="prop__sub-ext"></i>
+                        </a>
+                        <a href="/p/<?= urlencode($p['slug']) ?>" target="_blank" rel="noopener" title="Vista sin herramientas de admin — tal cual la ve el cliente">
                             <i data-lucide="eye"></i>
-                            <span>Abrir como cliente</span>
+                            <span>Preview como cliente</span>
                             <i data-lucide="arrow-up-right" class="prop__sub-ext"></i>
                         </a>
                     </div>
@@ -755,17 +1013,17 @@ $archivedProps = array_values(array_filter($allProps, fn($p) => (int)$p['status'
     </div>
 
     <div class="admin-sidebar__footer">
-        <div class="admin-sidebar__legend" aria-label="Leyenda de badges">
-            <div class="admin-sidebar__legend-title">Leyenda</div>
-            <div class="admin-sidebar__legend-row">
-                <span class="admin-sidebar__legend-dot admin-sidebar__legend-dot--mint"></span>
-                <strong>Comentarios</strong> abiertos sin resolver
-            </div>
-            <div class="admin-sidebar__legend-row">
-                <span class="admin-sidebar__legend-dot admin-sidebar__legend-dot--purple"></span>
-                <strong>Proveedores</strong> invitados a la propuesta
-            </div>
-        </div>
+        <!-- H4: Toggle navegador interno, global para las 4 vistas -->
+        <?php $__tpInt = ($_COOKIE['tp_internal'] ?? '') === '1'; ?>
+        <button type="button"
+                class="sidebar-internal-toggle <?= $__tpInt ? 'is-on' : '' ?>"
+                id="tp-sidebar-internal-toggle"
+                title="Cuando está ON, tus visitas a /p/ no cuentan como sesiones del cliente ni activan 'EN VIVO'">
+            <span class="sidebar-internal-toggle__dot"></span>
+            <span class="sidebar-internal-toggle__text">Navegador interno</span>
+            <span style="font-weight:700; letter-spacing:0.04em;"><?= $__tpInt ? 'ON' : 'OFF' ?></span>
+        </button>
+
         <a href="?logout=1" class="nav-item">
             <i data-lucide="log-out"></i>
             Cerrar sesión
@@ -777,7 +1035,7 @@ $archivedProps = array_values(array_filter($allProps, fn($p) => (int)$p['status'
 (function () {
     'use strict';
 
-    // Toggle archivadas con persistencia
+    // ─── Toggle archivadas con persistencia ──────────
     const KEY_ARCH = 'tp_sidebar_show_archived';
     const section = document.getElementById('tp-archived-section');
     const label = document.getElementById('tp-archived-toggle-label');
@@ -796,16 +1054,16 @@ $archivedProps = array_values(array_filter($allProps, fn($p) => (int)$p['status'
         };
     }
 
-    // Persistir estado expanded/collapsed de cada propuesta
+    // ─── Persistir estado expanded/collapsed de cada propuesta ──────────
     const KEY_OPEN = 'tp_sidebar_open_props';
     let openList = [];
     try { openList = JSON.parse(sessionStorage.getItem(KEY_OPEN) || '[]'); } catch (e) {}
 
-    document.querySelectorAll('details.prop').forEach((d) => {
+    const propDetails = Array.from(document.querySelectorAll('details.prop'));
+    propDetails.forEach((d) => {
         const nameEl = d.querySelector('.prop__name');
         if (!nameEl) return;
         const name = (nameEl.childNodes[0] && nameEl.childNodes[0].textContent || nameEl.textContent).trim();
-        // Si la propuesta está activa, forzamos abierto. Si no, aplicamos estado guardado.
         if (!d.hasAttribute('open') && openList.includes(name)) d.setAttribute('open', '');
 
         d.addEventListener('toggle', () => {
@@ -819,5 +1077,99 @@ $archivedProps = array_values(array_filter($allProps, fn($p) => (int)$p['status'
             try { sessionStorage.setItem(KEY_OPEN, JSON.stringify(current)); } catch (e) {}
         });
     });
+
+    // ─── H7: Colapsar todas ──────────
+    const collapseBtn = document.getElementById('tp-collapse-all-btn');
+    if (collapseBtn) {
+        collapseBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            propDetails.forEach(d => { if (d.open) d.removeAttribute('open'); });
+            try { sessionStorage.setItem(KEY_OPEN, '[]'); } catch (e) {}
+        });
+    }
+
+    // ─── H6: Search input + Cmd+K ──────────
+    const searchInput = document.getElementById('tp-sidebar-search');
+    if (searchInput) {
+        function normalize(s) {
+            return (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        }
+        function applyFilter(q) {
+            const needle = normalize(q.trim());
+            let anyVisible = false;
+            propDetails.forEach(d => {
+                const nameEl = d.querySelector('.prop__name');
+                const name = normalize(nameEl ? nameEl.textContent : '');
+                const match = !needle || name.includes(needle);
+                d.classList.toggle('is-filtered-out', !match);
+                if (match) {
+                    anyVisible = true;
+                    if (needle && !d.hasAttribute('open')) d.setAttribute('open', '');
+                }
+            });
+            // Ocultar el label "Propuestas · N" si no hay coincidencias
+            document.querySelectorAll('.admin-sidebar__label').forEach(l => {
+                l.classList.toggle('is-filtered-out', !anyVisible && !!needle);
+            });
+        }
+        searchInput.addEventListener('input', e => applyFilter(e.target.value));
+        searchInput.addEventListener('keydown', e => {
+            if (e.key === 'Escape') {
+                e.target.value = '';
+                applyFilter('');
+                e.target.blur();
+            } else if (e.key === 'Enter') {
+                // Primer match → ir a sus Comentarios
+                const firstMatch = propDetails.find(d => !d.classList.contains('is-filtered-out'));
+                if (firstMatch) {
+                    const firstLink = firstMatch.querySelector('.prop__sub a');
+                    if (firstLink) window.location.href = firstLink.href;
+                }
+            }
+        });
+
+        // Cmd+K / Ctrl+K global → foco al search
+        document.addEventListener('keydown', e => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+                e.preventDefault();
+                searchInput.focus();
+                searchInput.select();
+            }
+        });
+    }
+
+    // ─── H4: Toggle Navegador interno ──────────
+    const internalBtn = document.getElementById('tp-sidebar-internal-toggle');
+    if (internalBtn) {
+        internalBtn.addEventListener('click', function() {
+            const on = document.cookie.split(';').some(c => c.trim().startsWith('tp_internal=1'));
+            if (on) {
+                document.cookie = 'tp_internal=; Path=/; Max-Age=0; SameSite=Lax';
+            } else {
+                document.cookie = 'tp_internal=1; Path=/; Max-Age=31536000; SameSite=Lax';
+            }
+            // Reload para que el estado se refleje en toda la app (dashboard KPIs, analytics, etc.)
+            location.reload();
+        });
+    }
+
+    // ─── H9: refrescar sidebar al archivar desde dashboard (sin reload completo) ──────────
+    // Exponemos una función que admin.php puede llamar tras archivar/reactivar una propuesta
+    window.tpSidebarRefresh = function() {
+        // Reload del sidebar con fetch a la misma URL y swap del <aside>
+        fetch(window.location.href, { credentials: 'same-origin' })
+            .then(r => r.text())
+            .then(html => {
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+                const newAside = doc.querySelector('.admin-sidebar');
+                const oldAside = document.querySelector('.admin-sidebar');
+                if (newAside && oldAside) {
+                    oldAside.replaceWith(newAside);
+                    if (window.lucide) lucide.createIcons();
+                }
+            })
+            .catch(() => location.reload());
+    };
 })();
 </script>

@@ -106,27 +106,64 @@ Branch `main` = espejo de producción.
 - ✅ **Login identidad upfront** — `/p/` y `/s/` piden nombre+email+PIN, sesión con `visitor_identity_*`, tracking persiste `visitor_name/visitor_email/is_internal`, admin filtra internos automáticamente (deploy 2026-04-23 commit `8735685`)
 - ✅ **Beta badge** en sidebar cliente/proveedor (deploy 2026-04-24 commit `01a56af`)
 - ✅ **Feedback form simplificado** — al estar identificado, el drawer/modal de comentario ya no pide nombre/email, solo textarea (deploy 2026-04-24 commit `d3269b3`)
+- ✅ **Dashboard refactor · `refactoring-ui` fixes 9/10** — paleta chips 7→3 tiers (urgente/interesante/info), tabla 9 columnas→5 fusionadas (Cliente · Documento · Estado · Tráfico · Acciones), jerarquía celda cliente (nombre 16px semibold + chips stacked + metadata), dot pulsante rojo en lugar de chip "EN VIVO", KPIs con pulse solo en dot, toggle switches w-9 h-5 (de 7×4), labels tracking-widest font-bold → tracking-wider font-semibold (menos gritonas), elevation hierarchy distinta entre KPIs y tabla. Revertido Fix 4 (featured col-span-2) por feedback de Jordi. Deploy `03eb1f7` en prod 2026-04-24.
 
-### En rama trabajando ahora
+### 🔧 En rama local pendiente de merge (NO en prod)
 
-- 🔧 **`feat/dashboard-refactor`** — aplicando los 10 fixes de la auditoría `refactoring-ui` sobre `admin.php` (paleta chips 7→3 tiers, 9 columnas→5, jerarquía cliente, KPIs con emphasis variada, toggles más grandes, labels menos gritonas, etc.). Rama local, merge a main bajo orden explícita de Jordi tras validar en local.
+**Rama**: `feat/sidebar-refactor` (último commit: `5825aeb`)
 
-### Referencia de auditorías UX/UI
+Cambios acumulados en esta rama (10 fixes `ux-heuristics` + feedback iterativo + bugfix iconos):
 
-La auditoría completa `refactoring-ui` del dashboard admin (fecha 2026-04-24) está en el chat del proyecto. Puntuación actual del dashboard: **5/10**. Objetivo con los 10 fixes: **8-9/10**. Los 3 primeros fixes (chips, columnas, jerarquía cliente) mueven de 5→7; el resto es pulido.
+- **Sidebar reorganizado** (`master/admin-sidebar.php`):
+  - Top-level: **solo Dashboard + Proveedores** (revertidos Bandeja + Analytics globales por feedback de Jordi — redundantes con los per-propuesta)
+  - Search input `⌘K` con filtro instantáneo de propuestas por nombre (normalizado sin tildes)
+  - Botones de acción junto al label "PROPUESTAS · N": `⇅` colapsa todas · `+` nueva propuesta
+  - Nuevo sub-item **"Editar documento"** por propuesta → abre `admin.php?edit_id=X`
+  - Grupos del submenu renombrados: **Gestión** (Editar · Comentarios · Analytics) · **Proveedores** · **Documento** (Abrir documento · Preview como cliente)
+  - Badges de propuesta con iconos Lucide (`message-circle` + `hard-hat`) en lugar de dots de color → sin leyenda
+  - Toggle "Navegador interno ON/OFF" **movido al footer del sidebar** (antes solo estaba en admin.php header)
+  - Visual aligerado: iconos 13-14px, font-weight 450, active state con barra mint lateral + bg sutil (antes fill verde entero)
+  - Safety net CSS con `svg.lucide` + `!important` porque Lucide reemplaza `<i>` por `<svg>` al cargar y los selectores antiguos no aplicaban (iconos salían a 24px default)
 
-La auditoría `ux-heuristics` sobre flujo proveedor está pendiente — se hará después de dashboard.
+- **Nuevo `master/admin-breadcrumb.php`** reusable:
+  - Breadcrumb estándar `Dashboard › Cliente › Vista` clicable en las 4 vistas admin
+  - Nav ←/→ entre propuestas + dropdown "Ir a propuesta" cuando la vista es detalle (comentarios/analytics/proveedores)
+
+- **Directorio global de proveedores** (`admin_providers.php` sin `propuesta_id`):
+  - Antes: mensaje inútil "Elige una propuesta en el sidebar"
+  - Ahora: grid de cards con TODOS los proveedores invitados across propuestas
+  - Cada card: avatar inicial + nombre + empresa + estado activo/revocado + email + propuesta a la que pertenece + último acceso + stats (presupuestos / mensajes / accesos)
+  - Search en vivo por nombre/empresa/email/propuesta
+  - Hint al final anunciando próximo sprint con perfil completo (contratos, docs, fiscal)
+
+- **Hook de sincronización** `tpSidebarRefresh()` → `admin.php toggleStatus` lo llama tras archivar una propuesta para actualizar el sidebar sin full page reload (fetch + DOM swap del `<aside>`)
+
+- **Bugfix colateral** en `admin_analytics.php`: `$includeInternal` faltaba en el `use()` de `render_layout` → 5 warnings PHP eliminados
+
+### 📋 Pendiente para el siguiente sprint
+
+- **Perfil completo del proveedor** (idea conversada, no implementada): tabla nueva `proveedor_documentos` + UI de upload de contratos/NDAs + datos fiscales (IBAN, CIF, dirección) + tags. Estimado ~3h. Decidir si arrancamos después del merge de `feat/sidebar-refactor`.
+- **Auditorías UX pendientes**: cuando haya cambios grandes, considerar `design:accessibility-review` (WCAG 2.1 AA — contraste mint dark/light, keyboard nav) y `design:ux-copy` (calibrar copy de error messages).
+- **Tech debt**: `view.php` ~3200 líneas, `admin.php` ~2350. Extracción de componentes es deseable pero no urgente.
 
 ### Skills disponibles relevantes para este proyecto
 
-Inventario completo en `/TRESPUNTOS-LAB/Skills/SKILLS-INVENTARIO.md`. Top skills para trabajar aquí:
+Inventario completo en `/TRESPUNTOS-LAB/Skills/SKILLS-INVENTARIO.md`. Las que hemos usado o vamos a usar:
 
-- `refactoring-ui` ⭐ — auditor visual (spacing, color, jerarquía, dark/light theming). Activada hoy.
-- `ux-heuristics` ⭐ — Nielsen 10 + Krug usability. Pendiente aplicar al flujo proveedor.
-- `engineering:deploy-checklist` — check pre-deploy (7 pasos de CLAUDE.md ya formalizados aquí)
-- `design:accessibility-review` — WCAG 2.1 AA (contraste mint sobre dark/light, keyboard nav)
-- `design:ux-copy` — calibrar copy de error messages + pantalla "modo borrador" cuando la implementemos
-- `engineering:tech-debt` — `view.php` ~3200 líneas y `admin.php` ~2350, merece extracción de componentes
+- ✅ `refactoring-ui` — auditoría visual del dashboard admin (2026-04-24). 9 de 10 fixes aplicados y en prod, 1 revertido (featured KPI col-span-2) por feedback.
+- ✅ `ux-heuristics` — auditoría Nielsen + Krug del sidebar/navegación (2026-04-24). 10 hallazgos identificados, feedback iterativo de Jordi resultó en revertir los 2 top-level globales innecesarios (Bandeja + Analytics).
+- ⏳ `engineering:deploy-checklist` — los 7 pasos ya están formalizados en la sección "PROCESO OBLIGATORIO · Deploy a prod" de este CLAUDE.md.
+- 📋 `design:accessibility-review` — reservado para cuando haya refactor visual grande.
+- 📋 `design:ux-copy` — reservado para calibrar error messages y copy de modo borrador.
+- 📋 `engineering:tech-debt` — reservado para cuando view.php/admin.php se vuelvan inmanejables.
+
+### Lecciones aprendidas esta sesión (2026-04-24)
+
+1. **No sobre-diseñar navegación global cuando el usuario maneja 4 propuestas** — añadir Bandeja/Analytics top-level fue over-engineering de Nielsen H1. Para volúmenes pequeños, la navegación per-propuesta es suficiente.
+2. **Lucide CSS gotcha**: `<i data-lucide>` se reemplaza por `<svg class="lucide">` al cargar. Selectores `i[data-lucide]` dejan de aplicar. SIEMPRE targetear ambos con `i[data-lucide], svg.lucide` + considerar `!important` o max-width como safety net.
+3. **Emojis unicode rompen la consistencia visual** en dark admin UI. Sustituir todos por Lucide (había quedado `🏗️`/`📄` en celda Colaboradores del dashboard).
+4. **Featured KPI con col-span-2** creó asimetría indeseada (la 4ª tarjeta caía a una 2ª fila huérfana). Preferible 4 KPIs uniformes + borde/color diferenciado en la accionable.
+5. **Validación en local con el usuario antes del merge** funciona: identificó los 2 items globales sobrantes, el bug de empty state, y el bug de iconos — cosas que las auditorías automatizadas no capturaron.
 
 ---
 

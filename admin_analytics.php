@@ -240,6 +240,24 @@ function render_layout(string $title, callable $body): void {
     <div class="admin-layout">
     <?php include __DIR__ . '/master/admin-sidebar.php'; ?>
     <main class="admin-main">
+        <?php
+        // H3 + H5: breadcrumb + nav prev/next
+        if ($propuestaId > 0) {
+            $adminBreadcrumbItems = [
+                ['label' => 'Dashboard', 'href' => 'admin.php'],
+                ['label' => htmlspecialchars($title), 'href' => null],
+                ['label' => 'Analytics', 'href' => null],
+            ];
+            $adminBreadcrumbPropNav = ['current_id' => $propuestaId, 'view' => 'analytics'];
+        } else {
+            $adminBreadcrumbItems = [
+                ['label' => 'Dashboard', 'href' => 'admin.php'],
+                ['label' => 'Analytics', 'href' => null],
+            ];
+            $adminBreadcrumbPropNav = null;
+        }
+        include __DIR__ . '/master/admin-breadcrumb.php';
+        ?>
         <div class="admin-main-header">
             <h1 class="admin-main-title">
                 <i data-lucide="bar-chart-3"></i>
@@ -278,7 +296,7 @@ function format_session_duration($started, $ended): string {
 // --- Render ---
 render_layout($prop['client_name'] . ' (' . $prop['slug'] . ')', function() use (
     $prop, $propuestaId, $dwellBySection, $sesiones, $totalSesiones, $totalDwellMs, $maxDwell, $visitantesUnicos,
-    $drillSesion, $drillEvents, $identitiesByHash
+    $drillSesion, $drillEvents, $identitiesByHash, $includeInternal
 ) {
     ?>
     <div class="kpi-row">
