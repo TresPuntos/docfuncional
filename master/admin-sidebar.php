@@ -103,13 +103,12 @@ $archivedProps = array_values(array_filter($allProps, fn($p) => (int)$p['status'
 .admin-sidebar__brand {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 2px 8px 14px;
+    gap: 8px;
+    padding: 2px 8px 12px;
     margin-bottom: 2px;
-    border-bottom: 1px solid var(--border-base, #1f1f1f);
 }
 .admin-sidebar__brand-mark {
-    width: 22px; height: 22px;
+    width: 18px; height: 18px;
     flex-shrink: 0;
     color: var(--mint, #5dffbf);
 }
@@ -120,18 +119,19 @@ $archivedProps = array_values(array_filter($allProps, fn($p) => (int)$p['status'
 }
 .admin-sidebar__brand-name {
     font-family: var(--font-heading, 'Plus Jakarta Sans', sans-serif);
-    font-size: 13px;
-    font-weight: 700;
+    font-size: 12px;
+    font-weight: 600;
     color: var(--text-primary, #f5f5f5);
     letter-spacing: -0.01em;
 }
 .admin-sidebar__brand-sub {
-    font-size: 10px;
+    font-size: 9px;
     font-weight: 500;
     color: var(--text-muted, #8a8a8a);
-    letter-spacing: 0.04em;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
     margin-top: 1px;
+    opacity: 0.7;
 }
 
 /* ----- Section label (PROPOSALS ACTIVE 4) ----- */
@@ -360,12 +360,12 @@ $archivedProps = array_values(array_filter($allProps, fn($p) => (int)$p['status'
 .nav-item {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 6px 8px;
-    border-radius: 6px;
+    gap: 9px;
+    padding: 5px 8px;
+    border-radius: 5px;
     color: var(--text-secondary, #b3b3b3);
-    font-size: 13px;
-    font-weight: 500;
+    font-size: 12.5px;
+    font-weight: 450;
     text-decoration: none;
     position: relative;
     transition: background-color .12s ease, color .12s ease;
@@ -376,7 +376,7 @@ $archivedProps = array_values(array_filter($allProps, fn($p) => (int)$p['status'
     color: var(--text-primary, #f5f5f5);
 }
 .nav-item i[data-lucide] {
-    width: 15px; height: 15px;
+    width: 13px; height: 13px;
     stroke-width: 1.75;
     flex-shrink: 0;
     color: var(--text-muted, #8a8a8a);
@@ -384,8 +384,9 @@ $archivedProps = array_values(array_filter($allProps, fn($p) => (int)$p['status'
 }
 .nav-item:hover i[data-lucide] { color: var(--text-secondary, #b3b3b3); }
 .nav-item.is-active {
-    color: var(--mint, #5dffbf);
-    background: rgba(var(--mint-rgb, 93, 255, 191), 0.06);
+    color: var(--text-primary, #f5f5f5);
+    background: rgba(255, 255, 255, 0.04);
+    font-weight: 500;
 }
 .nav-item.is-active i[data-lucide] { color: var(--mint, #5dffbf); }
 .nav-item.is-active::before {
@@ -395,7 +396,7 @@ $archivedProps = array_values(array_filter($allProps, fn($p) => (int)$p['status'
     top: 50%;
     transform: translateY(-50%);
     width: 2px;
-    height: 16px;
+    height: 14px;
     background: var(--mint, #5dffbf);
     border-radius: 0 2px 2px 0;
 }
@@ -841,23 +842,12 @@ $archivedProps = array_values(array_filter($allProps, fn($p) => (int)$p['status'
             <kbd class="sidebar-search__kbd">⌘K</kbd>
         </div>
 
-        <!-- H1: Top-level nav global (4 vistas) -->
+        <!-- Top-level nav: solo Dashboard + Proveedores (global directory) -->
         <a href="admin.php" class="nav-item <?= $active === 'dashboard' ? 'is-active' : '' ?>">
             <i data-lucide="layout-dashboard"></i>
             Dashboard
         </a>
-        <a href="admin_feedback.php" class="nav-item <?= ($active === 'comentarios' && !$activePropId) ? 'is-active' : '' ?>" title="Bandeja global de comentarios de todas las propuestas">
-            <i data-lucide="inbox"></i>
-            <span>Bandeja</span>
-            <?php if ($globalCommentsOpen > 0): ?>
-                <span class="nav-item__badge"><?= $globalCommentsOpen ?></span>
-            <?php endif; ?>
-        </a>
-        <a href="admin_analytics.php" class="nav-item <?= ($active === 'analytics' && !$activePropId) ? 'is-active' : '' ?>" title="Actividad en vivo y sesiones de todas las propuestas">
-            <i data-lucide="bar-chart-3"></i>
-            Analytics
-        </a>
-        <a href="admin_providers.php" class="nav-item <?= ($active === 'proveedores' && !$activePropId) ? 'is-active' : '' ?>" title="Listado global de proveedores invitados">
+        <a href="admin_providers.php" class="nav-item <?= ($active === 'proveedores' && !$activePropId) ? 'is-active' : '' ?>" title="Directorio de todos los proveedores con sus contactos y documentos">
             <i data-lucide="hard-hat"></i>
             <span>Proveedores</span>
             <?php if ($globalProvidersTotal > 0): ?>
@@ -912,6 +902,10 @@ $archivedProps = array_values(array_filter($allProps, fn($p) => (int)$p['status'
                     <div class="prop__sub">
                         <!-- GRUPO 1 · Gestión (acciones internas) -->
                         <div class="prop__sub-group">Gestión</div>
+                        <a href="admin.php?edit_id=<?= $pid ?>" title="Editar contenido HTML de la propuesta">
+                            <i data-lucide="edit-3"></i>
+                            <span>Editar documento</span>
+                        </a>
                         <a href="admin_feedback.php?propuesta_id=<?= $pid ?>" class="<?= $isActivePid && $active === 'comentarios' ? 'is-active' : '' ?>">
                             <i data-lucide="message-square-text"></i>
                             <span>Comentarios</span>
