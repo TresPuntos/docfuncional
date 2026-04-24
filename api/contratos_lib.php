@@ -145,6 +145,46 @@ function contrato_send_otp_email(string $email, string $nombre, string $codigo, 
     return $code >= 200 && $code < 300;
 }
 
+/**
+ * Email al firmante cuando el admin envía el contrato.
+ * Incluye link a sign.php?token=XXX para firmar.
+ */
+function contrato_send_invite_email(string $email, string $nombre, string $titulo, string $signUrl): bool
+{
+    if (!defined('RESEND_API_KEY') || !RESEND_API_KEY) return false;
+    $tpRazon = defined('TP_RAZON_SOCIAL') ? TP_RAZON_SOCIAL : 'Tres Puntos';
+    $html = '<!DOCTYPE html><html><body style="font-family:Inter,sans-serif;background:#f5f5f5;padding:40px 0;margin:0">'
+        . '<div style="max-width:560px;margin:0 auto;background:#fff;border-radius:12px;padding:32px;box-shadow:0 1px 3px rgba(0,0,0,.08)">'
+        . '<div style="font-size:12px;letter-spacing:.2em;color:#0FA36C;font-weight:700;margin-bottom:20px">TRES PUNTOS</div>'
+        . '<h2 style="margin:0 0 8px 0;color:#141414;font-size:22px">Tienes un contrato para firmar</h2>'
+        . '<p style="color:#3a3a3a;line-height:1.6;margin:0 0 16px 0">Hola ' . htmlspecialchars($nombre ?: 'firmante', ENT_QUOTES, 'UTF-8') . ',</p>'
+        . '<p style="color:#3a3a3a;line-height:1.6;margin:0 0 24px 0">' . htmlspecialchars($tpRazon, ENT_QUOTES, 'UTF-8') . ' te ha enviado para firma electrónica:</p>'
+        . '<div style="background:#F7F6F3;border-left:3px solid #0FA36C;padding:14px 18px;border-radius:6px;margin:0 0 24px 0;font-weight:600;color:#141414">' . htmlspecialchars($titulo, ENT_QUOTES, 'UTF-8') . '</div>'
+        . '<p style="color:#3a3a3a;line-height:1.6;margin:0 0 24px 0">Haz clic en el botón, lee el documento completo y firma al final. Tardarás menos de 2 minutos.</p>'
+        . '<p style="text-align:center;margin:0 0 28px 0"><a href="' . htmlspecialchars($signUrl, ENT_QUOTES, 'UTF-8') . '" style="display:inline-block;background:#0FA36C;color:#fff;text-decoration:none;padding:14px 28px;border-radius:10px;font-weight:700;font-size:15px">Firmar contrato →</a></p>'
+        . '<p style="color:#8a8a8a;font-size:13px;line-height:1.55;margin:0 0 8px 0">Si el botón no funciona, copia y pega esta URL en tu navegador:<br><span style="word-break:break-all">' . htmlspecialchars($signUrl, ENT_QUOTES, 'UTF-8') . '</span></p>'
+        . '<hr style="border:none;border-top:1px solid #e5e5e5;margin:24px 0">'
+        . '<p style="color:#8a8a8a;font-size:12px;line-height:1.55;margin:0">Este documento se firma electrónicamente conforme al Reglamento (UE) 910/2014 (eIDAS). La firma tendrá plena validez jurídica entre las partes.</p>'
+        . '</div></body></html>';
+    $payload = [
+        'from' => RESEND_FROM,
+        'to' => [$email],
+        'reply_to' => RESEND_REPLY_TO,
+        'subject' => 'Firma pendiente · ' . $titulo,
+        'html' => $html,
+    ];
+    $ch = curl_init('https://api.resend.com/emails');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true, CURLOPT_POST => true,
+        CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . RESEND_API_KEY, 'Content-Type: application/json'],
+        CURLOPT_POSTFIELDS => json_encode($payload), CURLOPT_TIMEOUT => 10,
+    ]);
+    curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    return $code >= 200 && $code < 300;
+}
+
 function contrato_store_otp(PDO $pdo, int $firmaId, string $codigo): void
 {
     $ttlMin = SIGN_OTP_TTL_MINUTES;

@@ -244,37 +244,100 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
     if ($action === 'send_to_signer') {
         $id = (int)($_POST['contrato_id'] ?? 0);
+        $forceEmail = trim($_POST['force_email'] ?? '');
         $stmt = $pdo->prepare("SELECT * FROM contratos WHERE id = ?");
         $stmt->execute([$id]);
         $ctr = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$ctr) { echo json_encode(['success' => false, 'error' => 'No existe']); exit; }
 
-        // CASO A · PDF directo (plantilla_id NULL): el PDF ya está subido, solo cambiamos estado
+        // Asegurar signing_token (por si el contrato se creó antes de la migración)
+        if (empty($ctr['signing_token'])) {
+            $tok = bin2hex(random_bytes(16));
+            $pdo->prepare("UPDATE contratos SET signing_token = ? WHERE id = ?")->execute([$tok, $id]);
+            $ctr['signing_token'] = $tok;
+        }
+
+        // CASO A · PDF directo: no regenera v0
         if (empty($ctr['plantilla_id'])) {
             $pdo->prepare("UPDATE contratos SET estado = 'enviado', enviado_at = datetime('now') WHERE id = ?")->execute([$id]);
             contrato_log_evento($pdo, $id, 'enviado', 'admin', ['modo' => 'pdf_direct']);
-            echo json_encode(['success' => true, 'pdf_path' => $ctr['pdf_sin_firmar_path']]);
-            exit;
+        } else {
+            // CASO B · Plantilla HTML: generamos v0 sin firmas
+            $plant = $pdo->prepare("SELECT * FROM contratos_plantillas WHERE id = ?");
+            $plant->execute([$ctr['plantilla_id']]);
+            $plant = $plant->fetch(PDO::FETCH_ASSOC);
+            $datos = json_decode($ctr['datos_json'], true) ?: [];
+            $html = contrato_render_template($plant['html_content'], $datos);
+            $dir = __DIR__ . '/uploads/contratos/' . $id;
+            if (!is_dir($dir)) mkdir($dir, 0755, true);
+            $pdfPath = $dir . '/v0_sin_firmar.pdf';
+            contrato_generate_pdf($html, [], ['titulo' => $ctr['titulo'], 'tipo' => $plant['tipo'], 'hash_documento' => $ctr['hash_documento']], $pdfPath);
+            $relPath = 'uploads/contratos/' . $id . '/v0_sin_firmar.pdf';
+            $pdo->prepare("UPDATE contratos SET pdf_sin_firmar_path = ?, estado = 'enviado', enviado_at = datetime('now') WHERE id = ?")
+                ->execute([$relPath, $id]);
+            contrato_log_evento($pdo, $id, 'enviado', 'admin');
         }
 
-        // CASO B · Plantilla HTML: generamos v0 sin firmas
-        $plant = $pdo->prepare("SELECT * FROM contratos_plantillas WHERE id = ?");
-        $plant->execute([$ctr['plantilla_id']]);
-        $plant = $plant->fetch(PDO::FETCH_ASSOC);
-        $datos = json_decode($ctr['datos_json'], true) ?: [];
-        $html = contrato_render_template($plant['html_content'], $datos);
+        // Enviar email al firmante destinatario (si tenemos email)
+        $emailSent = false; $emailTo = null; $emailError = null;
+        $slotStmt = $pdo->prepare("SELECT firmante_nombre, firmante_email FROM contratos_firmas WHERE contrato_id = ? AND rol = ? LIMIT 1");
+        $slotStmt->execute([$id, $ctr['destinatario_tipo']]);
+        $slot = $slotStmt->fetch(PDO::FETCH_ASSOC);
+        $emailTo = $forceEmail ?: ($slot['firmante_email'] ?? '');
+        if ($emailTo && filter_var($emailTo, FILTER_VALIDATE_EMAIL)) {
+            // Actualizar el email en la firma si vino "forzado" (cliente sin email pre-seteado)
+            if ($forceEmail && $slot && (empty($slot['firmante_email']) || $slot['firmante_email'] !== $forceEmail)) {
+                $pdo->prepare("UPDATE contratos_firmas SET firmante_email = ? WHERE contrato_id = ? AND rol = ?")
+                    ->execute([$forceEmail, $id, $ctr['destinatario_tipo']]);
+            }
+            $host = $_SERVER['HTTP_HOST'] ?? 'doc.trespuntos-lab.com';
+            $scheme = (($_SERVER['HTTPS'] ?? '') === 'on' || strpos($host, 'localhost') === false) ? 'https' : 'http';
+            $signUrl = $scheme . '://' . $host . '/sign.php?token=' . urlencode($ctr['signing_token']);
+            $emailSent = contrato_send_invite_email($emailTo, $slot['firmante_nombre'] ?? '', $ctr['titulo'], $signUrl);
+            contrato_log_evento($pdo, $id, $emailSent ? 'email_invite_enviado' : 'email_invite_fallido', 'admin', ['to' => $emailTo]);
+        } else {
+            $emailError = 'Sin email del firmante · copia el link manualmente';
+        }
 
-        $dir = __DIR__ . '/uploads/contratos/' . $id;
-        if (!is_dir($dir)) mkdir($dir, 0755, true);
-        $pdfPath = $dir . '/v0_sin_firmar.pdf';
-        contrato_generate_pdf($html, [], ['titulo' => $ctr['titulo'], 'tipo' => $plant['tipo'], 'hash_documento' => $ctr['hash_documento']], $pdfPath);
-        $relPath = 'uploads/contratos/' . $id . '/v0_sin_firmar.pdf';
+        $host = $_SERVER['HTTP_HOST'] ?? 'doc.trespuntos-lab.com';
+        $scheme = (($_SERVER['HTTPS'] ?? '') === 'on' || strpos($host, 'localhost') === false) ? 'https' : 'http';
+        $signUrl = $scheme . '://' . $host . '/sign.php?token=' . urlencode($ctr['signing_token']);
 
-        $pdo->prepare("UPDATE contratos SET pdf_sin_firmar_path = ?, estado = 'enviado', enviado_at = datetime('now') WHERE id = ?")
-            ->execute([$relPath, $id]);
-        contrato_log_evento($pdo, $id, 'enviado', 'admin');
+        echo json_encode([
+            'success' => true,
+            'email_sent' => $emailSent,
+            'email_to' => $emailTo,
+            'email_error' => $emailError,
+            'sign_url' => $signUrl,
+        ]);
+        exit;
+    }
 
-        echo json_encode(['success' => true, 'pdf_path' => $relPath]);
+    if ($action === 'resend_email') {
+        $id = (int)($_POST['contrato_id'] ?? 0);
+        $email = trim($_POST['email'] ?? '');
+        if (!$email || !filter_var($email, FILTER_VALIDATE_EMAIL)) { echo json_encode(['success' => false, 'error' => 'Email inválido']); exit; }
+        $ctr = $pdo->prepare("SELECT * FROM contratos WHERE id = ?");
+        $ctr->execute([$id]);
+        $ctr = $ctr->fetch(PDO::FETCH_ASSOC);
+        if (!$ctr) { echo json_encode(['success' => false, 'error' => 'No existe']); exit; }
+        // Asegurar signing_token
+        if (empty($ctr['signing_token'])) {
+            $tok = bin2hex(random_bytes(16));
+            $pdo->prepare("UPDATE contratos SET signing_token = ? WHERE id = ?")->execute([$tok, $id]);
+            $ctr['signing_token'] = $tok;
+        }
+        $pdo->prepare("UPDATE contratos_firmas SET firmante_email = ? WHERE contrato_id = ? AND rol = ?")
+            ->execute([$email, $id, $ctr['destinatario_tipo']]);
+        $slot = $pdo->prepare("SELECT firmante_nombre FROM contratos_firmas WHERE contrato_id = ? AND rol = ? LIMIT 1");
+        $slot->execute([$id, $ctr['destinatario_tipo']]);
+        $nombre = $slot->fetchColumn() ?: '';
+        $host = $_SERVER['HTTP_HOST'] ?? 'doc.trespuntos-lab.com';
+        $scheme = (($_SERVER['HTTPS'] ?? '') === 'on' || strpos($host, 'localhost') === false) ? 'https' : 'http';
+        $signUrl = $scheme . '://' . $host . '/sign.php?token=' . urlencode($ctr['signing_token']);
+        $ok = contrato_send_invite_email($email, $nombre, $ctr['titulo'], $signUrl);
+        contrato_log_evento($pdo, $id, $ok ? 'email_invite_reenviado' : 'email_invite_reenvio_fallido', 'admin', ['to' => $email]);
+        echo json_encode(['success' => $ok, 'sign_url' => $signUrl]);
         exit;
     }
 
@@ -768,20 +831,47 @@ if ($contratoIdView && $contratoView) {
                 <?php if ($contratoView['firmado_at']): ?><div><strong>Firmado:</strong> <?=fecha($contratoView['firmado_at'])?></div><?php endif; ?>
                 <?php if ($contratoView['expira_at']): ?><div><strong>Expira:</strong> <?=fecha($contratoView['expira_at'])?></div><?php endif; ?>
             </div>
+            <?php
+            // Link público de firma (válido para cualquier destinatario)
+            $signUrl = '/sign.php?token=' . urlencode($contratoView['signing_token'] ?? '');
+            $destSlotEmail = '';
+            $destSlotName = '';
+            foreach ($firmasView as $fv) {
+                if ($fv['rol'] === $contratoView['destinatario_tipo']) {
+                    $destSlotEmail = $fv['firmante_email'] ?? '';
+                    $destSlotName = $fv['firmante_nombre'] ?? '';
+                    break;
+                }
+            }
+            ?>
+
             <?php if ($contratoView['estado'] === 'borrador'): ?>
-            <div style="margin-top:1rem;display:flex;gap:.5rem">
+            <div style="margin-top:1rem;background:var(--bg-subtle);padding:1rem;border-radius:10px">
+                <div style="font-size:.78rem;color:var(--text-muted);margin-bottom:.55rem">Al enviar, se genera el PDF borrador y (si hay email) se notifica al firmante con el link de firma.</div>
+                <div class="field" style="margin-bottom:.6rem">
+                    <label style="font-size:.7rem">Email del firmante (destinatario <strong><?=e($contratoView['destinatario_tipo'])?></strong>)</label>
+                    <input type="email" id="signerEmailInput" value="<?=e($destSlotEmail)?>" placeholder="<?= $contratoView['destinatario_tipo'] === 'cliente' ? 'persona@cliente.com' : 'persona@proveedor.com' ?>" style="width:100%;background:var(--bg-muted);border:1px solid var(--border-base);color:var(--text-primary);padding:.5rem .7rem;border-radius:6px;font-size:.85rem">
+                </div>
                 <button class="btn btn-primary" onclick="sendToSigner(<?=$contratoView['id']?>)">
                     <i data-lucide="send" style="width:14px;height:14px"></i> Enviar al firmante
                 </button>
             </div>
             <?php endif; ?>
-            <?php if ($contratoView['destinatario_tipo'] === 'proveedor' && $contratoView['estado'] !== 'borrador'):
-                $tk = $pdo->prepare("SELECT token FROM propuesta_proveedores WHERE id = ?");
-                $tk->execute([$contratoView['destinatario_id']]);
-                $tok = $tk->fetchColumn();
-            ?>
-            <div style="margin-top:1rem;background:var(--bg-subtle);padding:.75rem 1rem;border-radius:8px;font-size:.78rem">
-                Link al firmante (proveedor): <a href="/s/<?=e($tok)?>" target="_blank" style="color:var(--mint)">/s/<?=e(substr($tok,0,8))?>…</a>
+
+            <?php if ($contratoView['estado'] !== 'borrador' && !empty($contratoView['signing_token'])): ?>
+            <div style="margin-top:1rem;background:var(--bg-subtle);padding:1rem;border-radius:10px">
+                <div style="font-size:.7rem;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);font-weight:600;margin-bottom:.45rem">Link público de firma</div>
+                <div style="display:flex;gap:.4rem;align-items:center;margin-bottom:.6rem">
+                    <input type="text" readonly value="<?=e($signUrl)?>" id="signUrlCopy" style="flex:1;background:var(--bg-muted);border:1px solid var(--border-base);color:var(--text-primary);padding:.5rem .7rem;border-radius:6px;font-size:.78rem;font-family:'JetBrains Mono',monospace">
+                    <button class="btn" onclick="copySignUrl()"><i data-lucide="copy" style="width:14px;height:14px"></i></button>
+                    <a class="btn" href="<?=e($signUrl)?>" target="_blank"><i data-lucide="external-link" style="width:14px;height:14px"></i></a>
+                </div>
+                <div style="display:flex;gap:.4rem;align-items:center">
+                    <input type="email" id="resendEmailInput" value="<?=e($destSlotEmail)?>" placeholder="email del firmante" style="flex:1;background:var(--bg-muted);border:1px solid var(--border-base);color:var(--text-primary);padding:.5rem .7rem;border-radius:6px;font-size:.78rem">
+                    <button class="btn" onclick="resendEmail(<?=$contratoView['id']?>)" title="Enviar email con link de firma">
+                        <i data-lucide="mail" style="width:14px;height:14px"></i> Enviar email
+                    </button>
+                </div>
             </div>
             <?php endif; ?>
         </div>
@@ -1111,13 +1201,47 @@ async function submitCreate(ev){
 }
 
 async function sendToSigner(id){
-    if (!confirm('¿Enviar contrato al firmante? Se generará el PDF v0 y quedará accesible.')) return;
+    const emailInput = document.getElementById('signerEmailInput');
+    const email = emailInput ? emailInput.value.trim() : '';
+    if (!email) {
+        if (!confirm('No has puesto email del firmante. Se enviará sin email (tendrás que pasarle el link a mano). ¿Continuar?')) return;
+    }
     const fd = new FormData();
     fd.append('action', 'send_to_signer');
     fd.append('contrato_id', id);
+    if (email) fd.append('force_email', email);
     const res = await fetch('admin_contratos.php', { method:'POST', body:fd });
     const data = await res.json();
-    if (data.success) location.reload(); else alert('Error: ' + (data.error || 'desconocido'));
+    if (data.success) {
+        let msg = 'Contrato enviado.\n\n';
+        if (data.email_sent) msg += '✓ Email enviado a: ' + data.email_to + '\n';
+        else if (data.email_to) msg += '⚠ Email no se pudo enviar a ' + data.email_to + ' (revisa Resend).\n';
+        else msg += '⚠ ' + (data.email_error || 'Sin email configurado') + '\n';
+        msg += '\nLink de firma:\n' + data.sign_url;
+        alert(msg);
+        location.reload();
+    } else alert('Error: ' + (data.error || 'desconocido'));
+}
+
+function copySignUrl(){
+    const inp = document.getElementById('signUrlCopy');
+    inp.select(); inp.setSelectionRange(0, 99999);
+    navigator.clipboard.writeText(inp.value);
+    const btn = event.target.closest('button');
+    if (btn) { const orig = btn.innerHTML; btn.innerHTML = '✓'; setTimeout(()=> btn.innerHTML = orig, 1200); }
+}
+
+async function resendEmail(id){
+    const email = document.getElementById('resendEmailInput').value.trim();
+    if (!email) { alert('Escribe el email primero'); return; }
+    const fd = new FormData();
+    fd.append('action', 'resend_email');
+    fd.append('contrato_id', id);
+    fd.append('email', email);
+    const res = await fetch('admin_contratos.php', { method:'POST', body:fd });
+    const data = await res.json();
+    if (data.success) alert('✓ Email enviado a ' + email);
+    else alert('Error: ' + (data.error || 'No se pudo enviar. Revisa Resend.'));
 }
 
 // Sign modal
