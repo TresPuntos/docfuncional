@@ -185,15 +185,26 @@ Caso de uso: "Contrato subcontratación · Truman Digital · Cardalis" (mantenim
 - `propuesta_proveedores #5` · prop Aula Clinic (recomendado para test)
 
 **Flujo del test cuando se ejecute**:
-1. `admin_contratos.php` → Nuevo contrato → tab "Subir PDF directo"
-2. Subir el PDF de `~/Downloads/`, propuesta Aula Clinic, contraparte Dani #5
-3. Firmantes: Contraparte (1º) + TP (2º)
-4. Crear → Enviar al firmante (`dani@truman.es`)
-5. Dani recibe email Resend con CTA "Firmar contrato →"
-6. Dani firma en `/sign.php?token=` (rellena DNI/NIE validado server-side)
-7. Estado → `firmado_parcial` + Telegram alert al grupo Mesa 3P
-8. Jordi firma como TP en `admin_contratos.php?contrato_id=N` → "Firmar como TP" inline
-9. Estado → `firmado` + PDF final con audit trail + sello tiempo Freetsa
+1. https://doc.trespuntos-lab.com/admin_contratos.php → Nuevo contrato → tab **"Subir PDF directo"**
+2. Subir el PDF de `~/Downloads/Contrato-Subcontratacion-Truman-Cardalis-tarifa30.pdf`
+3. Título: `Contrato subcontratación · Truman Digital · Cardalis`
+4. Tipo: `NDA` · Requiere OTP: `No`
+5. Vinculado a propuesta: **Aula Clinic** (NO H2B — Eloi activo)
+6. Contraparte: **Dani · Truman** (#5)
+7. Firmantes: Contraparte (1º) + TP (2º)
+8. Crear → entra al detalle del contrato (anotar el `contrato_id`)
+9. Panel "Enviar al firmante" → confirmar `dani@truman.es` → click **Enviar al firmante**
+10. Dani recibe email Resend con CTA "Firmar contrato →"
+11. Dani firma en `/sign.php?token=` — modo PDF directo: ve el PDF en iframe, espera 5s tras carga (no se puede medir scroll dentro de iframe), rellena nombre + email + DNI/NIE (validado server-side) + cargo, dibuja firma, acepta cláusula eIDAS
+12. Estado → `firmado_parcial` + Telegram alert al grupo Mesa 3P
+13. Jordi firma como TP en `admin_contratos.php?contrato_id=N` → botón **"Firmar como TP"** inline (canvas + cláusula)
+14. Estado → `firmado` + PDF final con FPDI: PDF original + hoja audit trail eIDAS al final (14 campos firmados con SHA-256 + sello tiempo Freetsa)
+15. Ambos descargan el PDF firmado desde sus respectivos paneles
+
+**Diferencias modo PDF directo vs plantilla**:
+- Cuerpo del contrato: se mantiene EXACTO como el PDF que subes (FPDI apila páginas tal cual). La hoja de audit trail eIDAS se añade SOLO al final.
+- Validación scroll: client-side desbloquea a los 5s tras carga del iframe (no se puede medir scroll cross-origin). La validación server-side `signing_duration_ms ≥ 3000` sigue activa.
+- DNI representante en cuerpo: si el PDF subido dice `[DNI pendiente]`, el cuerpo lo conserva así. El DNI real lo capta el certificado eIDAS adjunto. Para deja DNI en cuerpo: regenerar el PDF con su valor antes de subir.
 
 ---
 
