@@ -208,41 +208,98 @@ Caso de uso: "Contrato subcontratación · Truman Digital · Cardalis" (mantenim
 
 ---
 
-## 🧩 Estado de archivos en otras sesiones (NO TOCAR sin coordinar)
+## ✅ DESPLEGADO 2026-04-25 (segunda tanda) · Tasks · UX fixes · Autocomplete proveedores · Gibobs v1.8
 
-Hay sesiones paralelas trabajando en cosas distintas. Esta sección lista qué archivos están "en juego" para evitar pisarse.
+> Misma fecha que el sistema de contratos pero deploy posterior (~12:50–13:30). Todo LIVE, smoke 5/5 OK, main sincronizado en `9190326`.
 
-### Sesión "tasks accionables del cliente" (untracked en feat/contratos-firma)
+### Bundle 1 · Tasks accionables del cliente
+**Commit `92c9223`** (en feat/contratos-firma) → merge a main `bbf4e64`
 
-Archivos creados pero NO commiteados, NO desplegados:
-- `database/migrate_tasks.php` (1.6KB) — migración nueva tabla
-- `master/doc-tasks.php` (22KB) — UI tareas accionables con notificación Telegram
+- **`database/migrate_tasks.php`** · tabla `propuesta_tasks` (key, titulo, asignado, completado, signer, comentario · UNIQUE(propuesta_id, task_key)).
+- **`master/doc-tasks.php`** · UI cards con barra progreso + modal "Marcar completada" con compact identity (no pide nombre/email si hay sesión PIN).
+- **`view.php`** · 2 endpoints nuevos:
+  - `tasks_sync` · UPSERT idempotente de tareas declaradas en HTML
+  - `task_complete` · transacción atómica + Telegram alert al grupo Mesa 3P
+- **Markup que el admin pone en html_content de la propuesta**:
+  ```html
+  <div class="tp-tasks">
+    <div class="tp-task" data-task-key="acceso-ga4"
+         data-task-title="Acceso a Google Analytics 4"
+         data-task-assigned="Equipo de marketing">
+      <h3>Acceso a Google Analytics 4</h3>
+      <p>Necesitamos acceso de Lectura...</p>
+    </div>
+  </div>
+  ```
 
-Esto es la skill `tp-tasks` (mencionada en `create-functional-doc`). Si tocas alguna de estas piezas, **pregunta al user** antes de subirlas — no han pasado por la auditoría previa que hicimos para contratos.
+### Bundle 2 · Sidebar fix
+**Mismo commit `92c9223`**
 
-### `view.php` con cambios uncommitted (101 líneas añadidas)
+- `view.php` línea 3182: cambio de `low === 'documento funcional'` a `low.startsWith('documento funcional')` para skipping del título del doc en la nav.
+- Antes "Documento Funcional · v1.X" salía como entrada navegable. Ahora oculto.
 
-Working tree de `feat/contratos-firma` tiene `view.php` modificado pero NO commiteado. Origen no validado en la sesión actual de contratos. **NO subir a prod** sin auditoría previa — el `view.php` actual en prod (commit `d9a560b`) sigue funcionando para los 5 clientes activos.
+### Bundle 3 · Comentarios sin apellidos (login solo captura nombre+email)
+**Mismo commit `92c9223`**
 
-Si una futura sesión necesita actualizar `view.php`:
-1. Releer las 101 líneas añadidas para validar
-2. Probar local con las 5 propuestas activas (Gibobs, Aula, H2B, B2B, Nextica)
-3. Solo entonces planificar deploy con ventana baja
+Server (`view.php`):
+- `$readSigner` ahora cae a identidad de sesión (`$visitorIdentity` / `$__provider`) si no hay POST.
+- Nueva flag `valid_lite` (nombre+email) para comentarios y tareas.
+- Firma legal sigue requiriendo `valid` (nombre+apellidos).
+- Verificación autoría en edit/delete/resolve usa **email match** (más fiable que nombre+apellidos).
 
-### Refactor sidebar admin (rama `feat/sidebar-refactor` original)
+Front (`master/doc-feedback.php`):
+- Quitados los inputs `apellidos` del modal y drawer.
+- Fix bug `.row { display: grid }` que pisaba el atributo HTML `hidden` → ahora se usa `style.display = 'none'`.
 
-Cambios en `admin.php`, `admin_providers.php`, `admin_analytics.php`, `admin_feedback.php` que iban a ser "Fase A" del deploy original. **NO se subieron** en este deploy (no son del sistema de contratos). Siguen sin desplegar.
+### Bundle 4 · Autocomplete proveedores existentes
+**Commit `9190326`** (directo en main · post-merge)
 
-Si se quiere subir el refactor sidebar, va en deploy aparte. Lo único del sidebar que SÍ se subió fue `master/admin-sidebar.php` (entradas Contratos/Plantillas) — backwards compatible.
+- Nuevo endpoint `GET admin_providers.php?action=search&q=X&propuesta_id=Y`:
+  - Devuelve proveedores únicos por email (DISTINCT email) con su último nombre/empresa
+  - Por cada email: `num_propuestas`, `in_current`, `revoked_in_current`
+  - LIKE en nombre/empresa/email · LIMIT 8
+- Form "Invitar proveedor" con caja de búsqueda arriba del form:
+  - Debounce 220ms · dropdown con resultados
+  - Click pre-rellena nombre/empresa/email
+  - Chip lateral: "en N propuestas" / "ya en esta propuesta" (rojo, bloquea submit) / "revocado en esta" (amarillo)
+  - Validación on-blur del email manual contra duplicados
+- Modelo BD intacto (una fila por propuesta+email, mantiene tokens scoped per-propuesta para revocación granular).
+
+### Bundle 5 · Gibobs v1.8 enriquecido vía API REST (no en código)
+- **A1.1 Situación actual** → 4 stats numéricos (84 URLs / 24 a revisar / 3 subdominios / ⚠ Core Web Vitals) + bloque "Otras señales".
+- **A8.2 Flujo del lead** → `tp-mermaid` flowchart Usuario→Form→API→Token→Plataforma.
+- **A4.1 Simuladores** → 2 feature cards (Simulador hipotecas / Simulador préstamo promotor) con animaciones scoped (`gb-anim-stagger` IntersectionObserver entrada + `gb-card-hover` lift al pasar el ratón).
+- v1.6 → v1.7 → v1.8 archivadas en `propuestas_history`. Restaurable con `restore_version`.
+
+### Backups disponibles (rollback)
+- `/tmp/tp-prod-backup-20260425-114425/` (pre-contratos)
+- `/tmp/tp-prod-backup-20260425-124334-tasks/` (pre-tasks)
+- `/tmp/tp-prod-backup-20260425-125644-comments-fix/` (pre-comments fix)
+- `/tmp/tp-prod-backup-20260425-133037-providers-search/` (pre-autocomplete)
+- v1.6/v1.7 Gibobs en `propuestas_history` (revertible vía API)
+
+### Patrón de animaciones reutilizable (para cualquier propuesta)
+Scoped al namespace `gb-*` para no chocar con doc-library global. Inline en el html_content de la propuesta:
+- `.gb-anim-stagger > *` con IntersectionObserver añadiendo `.is-visible` al entrar viewport (transition delay escalonado)
+- `.gb-card-hover` con `transform: translateY(-4px)` + borde mint en hover
+- `__gbAnimInit` window guard para idempotencia
+- Compatible con dark/light themes (overrides `[data-theme="light"]`)
+
+### Próximos enriquecidos pendientes para Gibobs (cuando vuelvas a darle)
+- **A8.1** Puntos de captación (1004b prosa) → `tp-grid` cards con touchpoints
+- **A9.1** Schema markup (1194b prosa) → `tp-comparison` o cards Organization/Service/FAQ/Article
+- **A7.1** Área funcional/app/newsletter (2004b prosa) → `tp-tabs` 3 pestañas
 
 ---
 
 ## 📦 Próximos pasos (orden recomendado para retomar)
 
 1. **Ejecutar test E2E con Dani** (sin tocar código nuevo) — validar end-to-end del sistema de contratos en prod
-2. **Push `feat/contratos-firma` → `main`** una vez confirmado que test E2E va bien (requisito CLAUDE.md: main = espejo prod)
-3. **Decidir qué hacer con `view.php` y archivos `tasks`** — sesiones paralelas pendientes
+2. ~~Push `feat/contratos-firma` → `main`~~ ✅ HECHO 2026-04-25 (`bbf4e64`)
+3. ~~Decidir qué hacer con `view.php` y archivos `tasks`~~ ✅ HECHO — desplegados en `92c9223`
 4. **Refactor sidebar admin** (Fase A original sin contratos) — deploy aparte cuando haya ventana
+5. **Enriquecer Gibobs A8.1 / A9.1 / A7.1** (cuando Jordi quiera) — vía API REST con save_version
+6. **Aprovechar autocomplete proveedores** para invitar Dani a más propuestas sin recrear datos
 
 ---
 
