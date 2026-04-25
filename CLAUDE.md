@@ -96,11 +96,150 @@ Branch `main` = espejo de producción.
 
 ---
 
-## 🔒 PENDIENTE DE DEPLOY · Sistema de contratos + cambios main acumulados (congelado 2026-04-24)
+## ✅ DESPLEGADO 2026-04-25 · Sistema de contratos firma electrónica eIDAS
 
-> **Estado**: TODO EN LOCAL, NO DESPLEGADO. Hay clientes revisando propuestas en prod (H2B Hipotecas v1.5, Eloi activo), y queremos evitar cualquier riesgo. Jordi decidió esperar una ventana de bajo tráfico.
+> **Estado**: LIVE en `https://doc.trespuntos-lab.com/`. Deploy ejecutado sábado 2026-04-25 ~11:50 con ventana baja (sin clientes activos mirando). Smoke test 17/17 OK · 5 propuestas activas (Gibobs, Aula, H2B v1.5, B2B, Nextica) siguen 200 sin errores PHP.
+>
+> **Rama**: `feat/contratos-firma` (último commit `2a65457`). PENDIENTE merge a `main` (debe ser espejo de prod — el usuario tiene que aprobar push).
 
-### Rama donde vive todo
+### Lo que SE desplegó (bundle aislado)
+
+**Archivos NUEVOS en prod**:
+- `api/contratos_lib.php` (923+ líneas · core lib + helpers seguridad)
+- `sign.php` (URL pública `/sign.php?token=` para firmantes)
+- `admin_contratos.php` · `admin_plantillas.php` · `provider_contrato.php`
+- `master/admin-breadcrumb.php` · `master/brand/logo-print.{svg,png}`
+- `vendor/` (mPDF 8.3.1 + FPDI · 819 archivos · subido como zip + extract via PHP one-shot)
+- `composer.json` · `composer.lock`
+- `uploads/contratos/.htaccess` · `uploads/contratos_plantillas/.htaccess` (Deny all)
+
+**Archivos MODIFICADOS en prod**:
+- `provider.php` — gate try/catch para contratos pendientes + `session_regenerate_id`
+- `config.php` — defaults defensivos para constantes TP_* y SIGN_*
+- `master/admin-sidebar.php` — entradas Contratos / Plantillas
+
+**Migraciones BD aplicadas** (en orden, desde `database/`):
+1. `migrate_contratos.php` — 4 tablas base
+2. `migrate_contratos_signing_token.php` — col `signing_token`
+3. `migrate_contratos_hardening.php` — `otp_hash`, `otp_attempts`, `otp_last_attempt_at`, `signing_token_expires_at`
+4. `seed_contratos.php` — 5 plantillas
+5. `update_nda_fiscal.php` — bloque "Identificación de las partes" en NDA
+
+**`config.local.php` del server** se editó añadiendo 16 constantes TP_* y SIGN_* (datos legales TP + política firma).
+
+### Estado BD post-deploy
+- `contratos_plantillas`: 5 (NDA, MSA, SOW, DPA, Change Order)
+- `contratos`: 0 · `contratos_firmas`: 0 · `contratos_eventos`: 0
+
+### Hardening incluido (auditoría previa al deploy)
+
+**8 BLOCKERS arreglados** (ver commit `36304b5`):
+1. OTP plaintext → SHA256 + invalidación post-uso + rate-limit 5 intentos / 30s cooldown
+2. Race condition firma → transacción atómica en `sign.php` y `provider_contrato.php`
+3. XSS stored vía plantilla HTML → `tp_sanitize_template_html()` strip script/iframe/on*/javascript:
+4. CSRF ausente → tokens scope per-página en `admin_contratos` + `admin_plantillas`
+5. Regex token inconsistente → unificado `{24,48}` en `provider_contrato.php`
+6. Modificadores template `|upper|lower|money|date` no escapaban → ahora siempre `htmlspecialchars`
+7. `exec()` TSA con `$hash` no validado → `ctype_xdigit + strlen===64` previo
+8. Scroll/5s bypass client-side → validación server-side: `signing_duration_ms ≥ 3000` + `scroll_depth_pct ≥ 70`
+
+**10 WARNINGS arreglados**:
+- IP real: `REMOTE_ADDR` por defecto, headers proxy solo si `SIGN_TRUST_PROXY_HEADERS` (no activada en Hostinger)
+- `signing_token` con expiry validado al firmar
+- PDF upload: `finfo_file` + magic bytes `%PDF-`
+- Trazo base64: tamaño + magic bytes PNG validados
+- Máquina de estados contratos (`send_to_signer`/`delete_contrato` bloquean según estado)
+- `session_regenerate_id` tras PIN proveedor
+- mPDF tempDir explícito (`uploads/mpdf_tmp/`)
+- `update_nda_fiscal.php` idempotente + guard por proveedor_cif/título Truman
+- `migrate_contratos_signing_token.php` guard SQL (avisa si tabla no existe)
+- FPDI declarado explícito en `composer.json` (era transitivo)
+
+### Scripts de deploy en `scripts/deploy/` (reusables para futuros deploys)
+- `backup-prod.sh` · descarga FTP los archivos a sobreescribir + BD
+- `deploy-contratos.sh` · pre-checks PHP + vendor.zip + bundle + migraciones + smoke
+- `update-config-local.sh` · descarga config.local, añade constantes idempotentemente, valida sintaxis, sube
+- `rollback.sh` · restaura backup + borra archivos NUEVOS (BD aditiva no se toca por defecto)
+- `smoke-test.sh` · 17 checks (regresión sistema viejo + URLs nuevas de contratos)
+
+### Backup pre-deploy
+`/tmp/tp-prod-backup-20260425-114425/` (provider.php, config.php, master/admin-sidebar.php, database.sqlite 2.5MB con 7 propuestas).
+
+### Test E2E con Dani (Truman) · EN CURSO
+
+Caso de uso: "Contrato subcontratación · Truman Digital · Cardalis" (mantenimiento aplicación Cardalis cliente final Emotion Gallery).
+
+**Datos del contrato**:
+- TP: jordi@trespuntoscomunicacion.es / 52407613C / Founder & DXM
+- Truman: B13750906 / Calle Pintor Renau 17, Torrent (Valencia) / dani@truman.es
+- Representante Truman: **Dani Marquina** (Apoderado) · DNI lo introduce al firmar (queda en certificado eIDAS)
+- Tarifa: básico 450€ / avanzado 750€ / hora adicional **30€** (subido de 25€ original)
+- Plan: 6h básico / 12h avanzado · IVA aparte
+
+**PDF preview generado** en `~/Downloads/Contrato-Subcontratacion-Truman-Cardalis-tarifa30.pdf` (90KB · paleta light TP + logo mint #0FA36C).
+
+**Modo de envío elegido**: PDF directo (NO desde plantilla) — el user prefiere subir el PDF ya hecho. El sistema añade hoja de audit trail eIDAS al final con FPDI.
+
+**Dani existe como proveedor en BD prod**:
+- `propuesta_proveedores #4` · prop H2B Hipotecas (no usar — Eloi activo)
+- `propuesta_proveedores #5` · prop Aula Clinic (recomendado para test)
+
+**Flujo del test cuando se ejecute**:
+1. `admin_contratos.php` → Nuevo contrato → tab "Subir PDF directo"
+2. Subir el PDF de `~/Downloads/`, propuesta Aula Clinic, contraparte Dani #5
+3. Firmantes: Contraparte (1º) + TP (2º)
+4. Crear → Enviar al firmante (`dani@truman.es`)
+5. Dani recibe email Resend con CTA "Firmar contrato →"
+6. Dani firma en `/sign.php?token=` (rellena DNI/NIE validado server-side)
+7. Estado → `firmado_parcial` + Telegram alert al grupo Mesa 3P
+8. Jordi firma como TP en `admin_contratos.php?contrato_id=N` → "Firmar como TP" inline
+9. Estado → `firmado` + PDF final con audit trail + sello tiempo Freetsa
+
+---
+
+## 🧩 Estado de archivos en otras sesiones (NO TOCAR sin coordinar)
+
+Hay sesiones paralelas trabajando en cosas distintas. Esta sección lista qué archivos están "en juego" para evitar pisarse.
+
+### Sesión "tasks accionables del cliente" (untracked en feat/contratos-firma)
+
+Archivos creados pero NO commiteados, NO desplegados:
+- `database/migrate_tasks.php` (1.6KB) — migración nueva tabla
+- `master/doc-tasks.php` (22KB) — UI tareas accionables con notificación Telegram
+
+Esto es la skill `tp-tasks` (mencionada en `create-functional-doc`). Si tocas alguna de estas piezas, **pregunta al user** antes de subirlas — no han pasado por la auditoría previa que hicimos para contratos.
+
+### `view.php` con cambios uncommitted (101 líneas añadidas)
+
+Working tree de `feat/contratos-firma` tiene `view.php` modificado pero NO commiteado. Origen no validado en la sesión actual de contratos. **NO subir a prod** sin auditoría previa — el `view.php` actual en prod (commit `d9a560b`) sigue funcionando para los 5 clientes activos.
+
+Si una futura sesión necesita actualizar `view.php`:
+1. Releer las 101 líneas añadidas para validar
+2. Probar local con las 5 propuestas activas (Gibobs, Aula, H2B, B2B, Nextica)
+3. Solo entonces planificar deploy con ventana baja
+
+### Refactor sidebar admin (rama `feat/sidebar-refactor` original)
+
+Cambios en `admin.php`, `admin_providers.php`, `admin_analytics.php`, `admin_feedback.php` que iban a ser "Fase A" del deploy original. **NO se subieron** en este deploy (no son del sistema de contratos). Siguen sin desplegar.
+
+Si se quiere subir el refactor sidebar, va en deploy aparte. Lo único del sidebar que SÍ se subió fue `master/admin-sidebar.php` (entradas Contratos/Plantillas) — backwards compatible.
+
+---
+
+## 📦 Próximos pasos (orden recomendado para retomar)
+
+1. **Ejecutar test E2E con Dani** (sin tocar código nuevo) — validar end-to-end del sistema de contratos en prod
+2. **Push `feat/contratos-firma` → `main`** una vez confirmado que test E2E va bien (requisito CLAUDE.md: main = espejo prod)
+3. **Decidir qué hacer con `view.php` y archivos `tasks`** — sesiones paralelas pendientes
+4. **Refactor sidebar admin** (Fase A original sin contratos) — deploy aparte cuando haya ventana
+
+---
+
+## 📚 Histórico · Plan de deploy original (archivado)
+
+> Esta sección se mantiene como referencia histórica del plan que se ejecutó parcialmente. Toda la parte "PENDIENTE" ya está en prod (ver sección ✅ DESPLEGADO arriba).
+
+**Rama original**: `feat/contratos-firma` desde `main` commit `03eb1f7` (dashboard refactor 2026-04-24).
 
 - `feat/contratos-firma` (último commit: `07f7500`)
 - Basada en `main` (actualmente `main` está 7 commits por delante de lo desplegado en prod)
@@ -171,151 +310,13 @@ Tres Puntos Comunicación S.L. · B66018490 · Calle Sant Josep 22, Barcelona
 
 - **TRUMAN DIGITAL S.L.** · CIF `B13750906`
 - Calle Pintor Renau 17, Esc. 1 · 4º 7ª, 46900 Torrent (Valencia)
-- Web: `wearetruman.es`
-- Email y representante legal: pendientes de rellenar (en Holded no figuran)
-- Contrato ya creado en BD local (id=1) con estos datos fiscales rellenados
-
----
-
-## 🚨 PLAN DE DEPLOY EN 2 FASES (cuando Jordi dé luz verde)
-
-### 📋 Pre-requisitos antes de deploy
-
-- [ ] **FTP password renovado** — el de `~/.claude/settings.json` (`HOSTINGER_FTP_PASS`) devuelve `530 Login incorrect`. Actualizar en settings o pasarlo al arrancar la sesión.
-- [ ] **Hostinger MCP token válido** — actualmente responde `Unauthenticated`. Alternativa viable si FTP falla.
-- [ ] **Ventana temporal de bajo tráfico** — idealmente noche (22h+) o fin de semana.
-- [ ] **Descargar backup completo de `/doc/`** a `/tmp/tp-prod-backup-YYYYMMDD-HHMMSS/` antes de cada fase.
-
-### 🟢 Fase A — Cambios seguros (admin + WAL + sidebar)
-
-**NO toca view.php. NO toca cosas de clientes.** Bajo riesgo.
-
-Archivos a subir (subset de lo pendiente en main, ya commiteado en main):
-```
-config.php                    # WAL mode + constantes TP_* defensivas
-master/admin-sidebar.php      # Refactor Linear-style + entradas Contratos/Plantillas
-master/admin-breadcrumb.php   # NUEVO · breadcrumb reusable
-admin.php                     # Adaptado al sidebar refactor
-admin_providers.php           # Directorio global + avatar
-admin_analytics.php           # Fix includeInternal warnings + sidebar
-admin_feedback.php            # Sidebar refactor
-```
-
-**Smoke tests post-deploy (5 min):**
-- `https://doc.trespuntos-lab.com/p/h2bhipotecas` → debe renderizar IGUAL que antes (view.php sigue siendo el viejo)
-- `/admin.php` → sidebar nuevo con Dashboard + Proveedores top-level + lista propuestas accordion
-- `/admin_providers.php` → directorio global con cards de proveedores
-- `/admin_feedback.php?propuesta_id=21` → filtros "Abiertos · Todos · Cerrados"
-- `/s/{token}` Diego → PIN gate → redirige a `/p/{slug}?__provider={token}` normal
-
-Si algo falla: rollback del archivo concreto desde backup (< 2 min).
-
-### 🟡 Fase B — view.php + Contratos (horario bajo tráfico)
-
-**Orden estricto (muy importante):**
-
-1. **Crear backup completo:**
-   ```bash
-   mkdir /tmp/tp-prod-backup-YYYYMMDD-HHMMSS-faseB
-   # Descargar todos los archivos que se van a tocar + database.sqlite
-   ```
-
-2. **Ejecutar migración de contratos en prod** (subir `database/migrate_contratos.php` a `/doc/`, ejecutar vía HTTPS, borrar inmediatamente):
-   ```
-   https://doc.trespuntos-lab.com/migrate_contratos.php
-   → debe responder "Migración contratos aplicada: + 4 tablas + 2 carpetas uploads"
-   ```
-
-3. **Ejecutar seed plantillas** (mismo patrón):
-   ```
-   https://doc.trespuntos-lab.com/seed_contratos.php
-   → 5 plantillas creadas
-   ```
-
-4. **Actualizar plantilla NDA con bloque fiscal** (si se subió la seed original con bloque sin fiscales):
-   ```
-   https://doc.trespuntos-lab.com/update_nda_fiscal.php
-   → plantilla nda-subcontratacion-tp actualizada con bloque "Identificación de las partes"
-   ```
-
-5. **Subir archivos (en este orden):**
-   ```
-   config.php                  # si no se subió en fase A
-   api/contratos_lib.php       # NUEVO
-   composer.json               # NUEVO
-   composer.lock               # NUEVO
-   vendor/                     # NUEVO · ~15 MB, subida larga (mPDF + FPDI + deps)
-   uploads/contratos/.htaccess # NUEVO (Deny all)
-   uploads/contratos_plantillas/.htaccess # NUEVO
-   provider.php                # Gate contratos con try/catch defensivo
-   provider_contrato.php       # NUEVO
-   admin_contratos.php         # NUEVO
-   admin_plantillas.php        # NUEVO
-   view.php                    # ⚠️ ALTO RIESGO · Mermaid + journey + tp-tabs + tp-bar-chart
-   ```
-
-6. **Añadir constantes TP a `config.local.php` del server** (NO se sube por gitignore):
-   ```php
-   define('TP_RAZON_SOCIAL', 'Tres Puntos Comunicación S.L.');
-   define('TP_CIF', 'B66018490');
-   define('TP_DIRECCION', 'Calle Sant Josep 22, Barcelona');
-   define('TP_EMAIL_CONTACTO', 'jordi@trespuntoscomunicacion.es');
-   define('TP_EMAIL_LOPD', 'jordi@trespuntoscomunicacion.es');
-   define('TP_WEB', 'trespuntoscomunicacion.es');
-   define('TP_FIRMANTE_NOMBRE', 'Jordi Expósito Lozano');
-   define('TP_FIRMANTE_DNI', '52407613C');
-   define('TP_FIRMANTE_CARGO', 'Founder & Digital Experience Manager');
-   define('TP_FIRMANTE_EMAIL', 'jordi@trespuntoscomunicacion.es');
-   define('SIGN_OTP_THRESHOLD_EUR', 3000);
-   define('SIGN_OTP_TTL_MINUTES', 10);
-   define('SIGN_TSA_ENABLED', true);
-   define('SIGN_TSA_URL', 'https://freetsa.org/tsr');
-   define('SIGN_RETENTION_YEARS', 6);
-   define('SIGN_CONTRACT_EXPIRES_DAYS', 30);
-   ```
-
-**Smoke tests post-deploy (15 min, EN ORDEN):**
-- `https://doc.trespuntos-lab.com/p/h2bhipotecas` → renderiza TODO bien (especialmente journey component, tp-bar-chart si los hay)
-- Otras propuestas en vivo → mismo check visual
-- `/admin_contratos.php` → lista vacía + KPIs + 5 plantillas disponibles abajo
-- `/admin_plantillas.php` → 5 plantillas con preview accesible
-- Click preview de nda-subcontratacion-tp → se abre PDF con bloque "Identificación de las partes"
-- `/s/{token}` Diego → PIN + accede a propuesta (sin contrato pendiente, gate silencioso)
-- Crear contrato test para Diego → enviar → firmar como proveedor → firmar como TP → descargar PDF final firmado
-
-**Rollback plan por si view.php rompe:**
-- Re-subir `view.php` desde backup faseB
-- Si también rompió BD → restaurar `database.sqlite` desde backup (⚠️ perdería cualquier tracking/comentario recibido entre backup y rollback, avisar al cliente)
-
-### 🔴 Lo que NO se despliega hasta confirmación explícita
-
-- **view.php** — cambios de Mermaid/journey/tp-bar-chart/tp-tabs (353 líneas). Vienen de sesiones previas (`99892f3` + `d9a560b`). Claudio (yo) no los he tocado en esta sesión, no puedo vouch por ellos. Antes de Fase B releer y testar en local con propuestas actuales.
-- **config.local.php del server** — hay que editarlo manualmente SSH/panel, no se sube por gitignore.
-
-### 📦 Resumen commits en feat/contratos-firma
-
-```
-07f7500 fix(contratos): try/catch defensivo en gate contratos de provider.php
-94b2891 feat(contratos): añade bloque "Identificación de las partes" con datos fiscales
-37bdaaf feat(contratos): subir PDF directo one-off + editor visual de plantillas
-06a3e5c feat(contratos): admin panel + provider gate + UI firma (Sprints 1+2+3)
-e5499d0 feat(contratos): librería core (mPDF + audit + OTP + TSA) + 5 plantillas seed
-700fe4e feat(contratos): migración BD + mPDF setup + estructura uploads
-d9a560b feat(view): journey reemplazado por componente custom + tp-bar-chart refined      ← HEREDADO DE MAIN
-a930bb7 fix(db): SQLite WAL mode + busy_timeout                                           ← HEREDADO DE MAIN
-99892f3 feat(view): integrar Mermaid + tp-tabs + tp-bar-chart en visor                   ← HEREDADO DE MAIN
-```
-
-### 📋 TODO para retomar (orden recomendado)
-
-1. Conseguir FTP password nuevo (o arreglar Hostinger MCP token)
-2. Elegir ventana temporal de deploy (noche/weekend)
-3. Antes de Fase B: **leer view.php con detalle** y validar que Mermaid/journey/tp-bar-chart no rompen render con HTMLs existentes en prod
-4. Hacer Fase A primero (sin riesgo para clientes)
-5. Dejar Fase A 24h en prod para ver si algo cae
-6. Hacer Fase B con ventana de mantenimiento
-7. Tras Fase B: invitar a Dani como proveedor, crear contrato mantenimiento (plantilla NDA), firmar end-to-end en prod
-8. Merge `feat/contratos-firma` → `main` y push
+- Web original `wearetruman.es` está squat (cogió el dominio caducado un sitio SEO de juegos móviles "CCTV Rush Hour"). Web operativa: **`truman.es`**
+- Email contacto: **`dani@truman.es`** (confirmado por Jordi 2026-04-25)
+- Representante legal: **Dani Marquina** (Apoderado) — DNI no en Holded (Holded `email='', contactPersons=[]`)
+- DNI del representante: lo introduce Dani al firmar electrónicamente (queda en certificado eIDAS adjunto)
+- Tarifa hora actualizada: **30€/h + IVA** (subida de 25€ original)
+- PDF preview generado en `~/Downloads/Contrato-Subcontratacion-Truman-Cardalis-tarifa30.pdf` listo para subir vía "PDF directo" en `admin_contratos.php`
+- Dani existe ya como proveedor en BD prod: `propuesta_proveedores #5` (Aula Clinic, recomendado para test) y `#4` (H2B, no usar)
 
 ---
 
