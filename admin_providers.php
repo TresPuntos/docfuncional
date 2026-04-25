@@ -40,6 +40,49 @@ if (!function_exists('fecha')) {
     function fecha($d){ return $d ? date('d/m/Y H:i', strtotime($d)) : '—'; }
 }
 
+// ---- GET: búsqueda autocompletado de proveedores existentes (cross-propuesta) ----
+if (($_GET['action'] ?? '') === 'search') {
+    header('Content-Type: application/json; charset=utf-8');
+    $q = trim($_GET['q'] ?? '');
+    $propId = (int)($_GET['propuesta_id'] ?? 0);
+    if (mb_strlen($q) < 2) { echo json_encode(['success' => true, 'results' => []]); exit; }
+
+    $like = '%' . mb_strtolower($q) . '%';
+    // DISTINCT por email · último nombre/empresa por invited_at · count propuestas · marca si está en propuesta actual
+    $sql = "SELECT
+              email,
+              MAX(invited_at) AS last_invited_at,
+              COUNT(*) AS num_propuestas,
+              SUM(CASE WHEN propuesta_id = :propId THEN 1 ELSE 0 END) AS in_current,
+              SUM(CASE WHEN propuesta_id = :propId AND activo = 0 THEN 1 ELSE 0 END) AS revoked_in_current
+            FROM propuesta_proveedores
+            WHERE LOWER(email) LIKE :q1 OR LOWER(nombre) LIKE :q2 OR LOWER(IFNULL(empresa,'')) LIKE :q3
+            GROUP BY email
+            ORDER BY num_propuestas DESC, last_invited_at DESC
+            LIMIT 8";
+    $st = $pdo->prepare($sql);
+    $st->execute([':propId' => $propId, ':q1' => $like, ':q2' => $like, ':q3' => $like]);
+    $rows = $st->fetchAll(PDO::FETCH_ASSOC);
+
+    // Para cada email, traer el último nombre+empresa (latest by invited_at)
+    $latest = $pdo->prepare("SELECT nombre, empresa FROM propuesta_proveedores WHERE email = ? ORDER BY invited_at DESC LIMIT 1");
+    $results = [];
+    foreach ($rows as $r) {
+        $latest->execute([$r['email']]);
+        $info = $latest->fetch(PDO::FETCH_ASSOC) ?: ['nombre' => '', 'empresa' => ''];
+        $results[] = [
+            'email' => $r['email'],
+            'nombre' => $info['nombre'],
+            'empresa' => $info['empresa'],
+            'num_propuestas' => (int)$r['num_propuestas'],
+            'in_current' => (int)$r['in_current'] > 0,
+            'revoked_in_current' => (int)$r['revoked_in_current'] > 0,
+        ];
+    }
+    echo json_encode(['success' => true, 'results' => $results]);
+    exit;
+}
+
 // ---- Download de archivo presupuesto ----
 if (isset($_GET['download']) && is_numeric($_GET['download'])) {
     $id = (int)$_GET['download'];
@@ -852,8 +895,14 @@ $adminSidebarPropuestas = $propuestas;
 
 <h2>Invitar proveedor a <?=e($currentProp['client_name'])?></h2>
 <div class="invite-form">
-    <form id="invite-form" onsubmit="return inviteProvider(event)">
+    <form id="invite-form" onsubmit="return inviteProvider(event)" autocomplete="off">
         <input type="hidden" name="propuesta_id" value="<?=$filterProp?>">
+        <div class="provider-search-wrap" style="position:relative;margin-bottom:.85rem;">
+            <input type="text" id="provider-search" placeholder="🔍  Buscar proveedor existente (escribe nombre, empresa o email)…" autocomplete="off"
+                   style="width:100%;padding:.7rem .9rem;background:var(--bg-subtle);border:1px solid var(--border-base);border-radius:var(--radius-sm,8px);color:var(--text-primary);font-family:inherit;font-size:.9rem;">
+            <div id="provider-search-results" style="display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:30;background:var(--bg-surface);border:1px solid var(--border-strong);border-radius:var(--radius-sm,8px);max-height:280px;overflow-y:auto;box-shadow:0 8px 28px rgba(0,0,0,.45);"></div>
+            <div id="provider-search-warning" style="display:none;margin-top:.5rem;padding:.55rem .75rem;background:rgba(255,165,0,.1);border:1px solid rgba(255,165,0,.3);border-radius:6px;color:#ffb766;font-size:.78rem;"></div>
+        </div>
         <div class="row">
             <input type="text" name="nombre" placeholder="Nombre del contacto" required>
             <input type="text" name="empresa" placeholder="Empresa (opcional)">
@@ -864,7 +913,7 @@ $adminSidebarPropuestas = $propuestas;
                 <label class="chk"><input type="checkbox" name="ver_comentarios" checked> Puede ver comentarios del cliente</label>
                 <label class="chk"><input type="checkbox" name="send_email" checked> Enviar email de invitación</label>
             </div>
-            <button type="submit" class="btn">Generar acceso</button>
+            <button type="submit" class="btn" id="invite-submit">Generar acceso</button>
         </div>
     </form>
 </div>
@@ -992,6 +1041,102 @@ if (!$roots): ?>
 
 <script>
 if (window.lucide) lucide.createIcons();
+
+// ---- Autocomplete proveedores existentes ----
+(function(){
+    const searchEl = document.getElementById('provider-search');
+    const resultsEl = document.getElementById('provider-search-results');
+    const warningEl = document.getElementById('provider-search-warning');
+    const form = document.getElementById('invite-form');
+    const submitBtn = document.getElementById('invite-submit');
+    if (!searchEl) return;
+    const propId = form.querySelector('[name=propuesta_id]').value;
+    const nombreInp = form.querySelector('[name=nombre]');
+    const empresaInp = form.querySelector('[name=empresa]');
+    const emailInp = form.querySelector('[name=email]');
+
+    let timer = null;
+    let lastQuery = '';
+
+    const escape = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+    function clearResults() { resultsEl.style.display = 'none'; resultsEl.innerHTML = ''; }
+    function clearWarning() { warningEl.style.display = 'none'; warningEl.innerHTML = ''; submitBtn.disabled = false; }
+
+    function showWarning(msg, blocking) {
+        warningEl.innerHTML = msg;
+        warningEl.style.display = 'block';
+        submitBtn.disabled = !!blocking;
+    }
+
+    async function search(q) {
+        if (q.length < 2) { clearResults(); return; }
+        try {
+            const r = await fetch(`admin_providers.php?action=search&q=${encodeURIComponent(q)}&propuesta_id=${propId}`).then(r => r.json());
+            if (!r.success || !Array.isArray(r.results)) { clearResults(); return; }
+            if (r.results.length === 0) {
+                resultsEl.innerHTML = '<div style="padding:.65rem .85rem;color:var(--text-muted);font-size:.82rem;">Sin coincidencias · será un nuevo proveedor</div>';
+                resultsEl.style.display = 'block';
+                return;
+            }
+            resultsEl.innerHTML = r.results.map(p => {
+                const tag = p.in_current
+                    ? (p.revoked_in_current
+                        ? '<span style="margin-left:.5rem;font-size:.68rem;background:rgba(255,165,0,.15);color:#ffb766;padding:.15rem .4rem;border-radius:4px;">revocado en esta</span>'
+                        : '<span style="margin-left:.5rem;font-size:.68rem;background:rgba(255,107,107,.15);color:#ff8585;padding:.15rem .4rem;border-radius:4px;">ya en esta propuesta</span>')
+                    : `<span style="margin-left:.5rem;font-size:.68rem;color:var(--text-muted);">en ${p.num_propuestas} propuesta${p.num_propuestas>1?'s':''}</span>`;
+                const empresa = p.empresa ? ` · ${escape(p.empresa)}` : '';
+                return `<div class="prov-result" data-nombre="${escape(p.nombre)}" data-empresa="${escape(p.empresa)}" data-email="${escape(p.email)}" data-in-current="${p.in_current?1:0}" style="padding:.6rem .85rem;border-bottom:1px solid var(--border-subtle,#1a1a1a);cursor:pointer;font-size:.85rem;">
+                    <div style="font-weight:500;color:var(--text-primary);">${escape(p.nombre)}${empresa}${tag}</div>
+                    <div style="font-size:.74rem;color:var(--text-muted);margin-top:.15rem;">${escape(p.email)}</div>
+                </div>`;
+            }).join('');
+            resultsEl.style.display = 'block';
+        } catch (e) { clearResults(); }
+    }
+
+    searchEl.addEventListener('input', (e) => {
+        const q = e.target.value.trim();
+        lastQuery = q;
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => { if (q === lastQuery) search(q); }, 220);
+    });
+
+    searchEl.addEventListener('focus', () => { if (searchEl.value.trim().length >= 2) search(searchEl.value.trim()); });
+    document.addEventListener('click', (e) => {
+        if (!resultsEl.contains(e.target) && e.target !== searchEl) clearResults();
+    });
+
+    resultsEl.addEventListener('click', (e) => {
+        const item = e.target.closest('.prov-result');
+        if (!item) return;
+        nombreInp.value = item.dataset.nombre || '';
+        empresaInp.value = item.dataset.empresa || '';
+        emailInp.value = item.dataset.email || '';
+        searchEl.value = item.dataset.nombre + (item.dataset.empresa ? ' · ' + item.dataset.empresa : '');
+        clearResults();
+        clearWarning();
+        if (item.dataset.inCurrent === '1') {
+            showWarning('⚠️ Este proveedor <strong>ya está en esta propuesta</strong>. Si continúas, se creará un acceso duplicado. Mejor revoca/reactiva el existente desde la lista de abajo.', true);
+        }
+    });
+
+    // Si el usuario edita email manualmente, validar que no sea duplicado
+    emailInp.addEventListener('blur', () => {
+        const email = emailInp.value.trim().toLowerCase();
+        if (!email) { clearWarning(); return; }
+        fetch(`admin_providers.php?action=search&q=${encodeURIComponent(email)}&propuesta_id=${propId}`).then(r => r.json()).then(r => {
+            if (!r.success) return;
+            const exact = (r.results || []).find(p => p.email.toLowerCase() === email);
+            if (exact && exact.in_current && !exact.revoked_in_current) {
+                showWarning('⚠️ Ya hay un proveedor con este email en esta propuesta. Revisa la lista de abajo antes de continuar.', true);
+            } else {
+                clearWarning();
+            }
+        });
+    });
+})();
+
 async function inviteProvider(e) {
     e.preventDefault();
     const form = e.target;
