@@ -5,6 +5,25 @@ Inicio: 2026-04-14 · Primer caso real: `h2bhipotecas-1`.
 
 ---
 
+## 🟢 Estado actual (2026-04-25)
+
+**Para el estado vivo del proyecto y qué hay desplegado en prod, ver `CLAUDE.md`** (sección "✅ DESPLEGADO 2026-04-25 · Sistema de contratos firma electrónica eIDAS").
+
+Resumen express:
+
+- **Sistema de contratos eIDAS LIVE** en `doc.trespuntos-lab.com` desde 2026-04-25 (rama `feat/contratos-firma`, último commit `2a65457`, pendiente merge a `main`).
+- **5 propuestas activas funcionando**: Gibobs, Aula Clinic, H2B Hipotecas v1.5 (Eloi), 100%100 Chef B2B, Nextica Law & Tax.
+- **Test E2E pendiente**: contrato Truman Digital · Cardalis con Dani Marquina como proveedor de prueba (PDF preview en `~/Downloads/Contrato-Subcontratacion-Truman-Cardalis-tarifa30.pdf`).
+- **NO se subió en este deploy** (decisión consciente para proteger clientes activos):
+  - `view.php` con cambios heredados de Mermaid/journey/tp-bar-chart sin validar
+  - Refactor sidebar admin (`admin.php`, `admin_providers`, `admin_analytics`, `admin_feedback`)
+  - Archivos untracked de "tasks accionables del cliente" (`database/migrate_tasks.php`, `master/doc-tasks.php`)
+- **Scripts de deploy** reusables en `scripts/deploy/` para futuros despliegues con backup/rollback/smoke-test automatizado.
+
+El roadmap original de mejora UX/UI sigue válido, pero este sprint se centró en el sistema de contratos. Las tareas marcadas pendientes (P1, P2, ideas futuras) siguen vigentes.
+
+---
+
 ## 🔥 Sprint activo (2026-04-20) · Loop de feedback cliente ↔ Tres Puntos
 
 **Contexto**: H2B Hipotecas (Jennifer/Eloi/Eduard) ha dejado comentarios en la propuesta live y espera respuesta. Hoy el admin no ve avisos en el dashboard y no puede responder desde ninguna UI. Hay que cerrar el loop **ya** y además sorprender con un paso por delante (borrador pre-redactado, visibilidad de aperturas, hilos).

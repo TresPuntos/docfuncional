@@ -334,10 +334,8 @@ h2:hover > .tp-sec-btn, h3:hover > .tp-sec-btn { opacity: 1; }
             <span>Firmas como <strong id="tp-modal-identity-name">—</strong></span>
             <a id="tp-modal-identity-change">cambiar</a>
         </div>
-        <div class="row" id="tp-modal-identity-fields">
-            <input type="text" id="tp-modal-nombre" placeholder="Nombre" autocomplete="given-name" required>
-            <input type="text" id="tp-modal-apellidos" placeholder="Apellidos" autocomplete="family-name" required>
-        </div>
+        <input type="text" id="tp-modal-nombre" placeholder="Nombre" autocomplete="given-name" required>
+        <input type="text" id="tp-modal-apellidos" autocomplete="family-name" hidden value="">
         <input type="email" id="tp-modal-email" placeholder="Email — para avisarte de respuestas" autocomplete="email" required>
         <textarea id="tp-modal-texto" placeholder="Escribe tu comentario sobre esta sección…" required></textarea>
         <div class="tp-modal-hint">
@@ -373,10 +371,8 @@ h2:hover > .tp-sec-btn, h3:hover > .tp-sec-btn { opacity: 1; }
             <span>Firmas como <strong id="tp-identity-name">—</strong></span>
             <a id="tp-identity-change">cambiar</a>
         </div>
-        <div class="row" id="tp-identity-fields">
-            <input type="text" id="tp-drawer-nombre" placeholder="Nombre" autocomplete="given-name" required>
-            <input type="text" id="tp-drawer-apellidos" placeholder="Apellidos" autocomplete="family-name" required>
-        </div>
+        <input type="text" id="tp-drawer-nombre" placeholder="Nombre" autocomplete="given-name" required>
+        <input type="text" id="tp-drawer-apellidos" autocomplete="family-name" hidden value="">
         <input type="email" id="tp-drawer-email" placeholder="Email — para avisarte de respuestas" autocomplete="email" required style="background: var(--bg-subtle); border: 1px solid var(--border-base); color: var(--text-primary); padding: .55rem .7rem; border-radius: var(--radius-sm, 6px); font-family: inherit; font-size: .85rem; width: 100%; box-sizing: border-box;">
         <textarea id="tp-drawer-texto" placeholder="Escribe tu comentario sobre esta sección…" required></textarea>
         <button type="submit" class="tp-drawer-submit" id="tp-drawer-submit">
@@ -795,21 +791,23 @@ window.TP_INITIAL_SIGNER = <?= json_encode($__initialSigner, JSON_UNESCAPED_UNIC
 
     function refreshIdentityUI() {
         const compact = document.getElementById('tp-identity-compact');
-        const fields = document.getElementById('tp-identity-fields');
+        const nombreEl = document.getElementById('tp-drawer-nombre');
         const emailEl = document.getElementById('tp-drawer-email');
         if (state.signer && state.signer.nombre && state.signer.email) {
             document.getElementById('tp-identity-name').textContent = state.signer.nombre + (state.signer.apellidos ? ' ' + state.signer.apellidos : '');
-            compact.hidden = false; fields.hidden = true;
-            document.getElementById('tp-drawer-nombre').value = state.signer.nombre;
+            compact.hidden = false;
+            nombreEl.value = state.signer.nombre;
+            nombreEl.style.display = 'none';
+            nombreEl.required = false;
             document.getElementById('tp-drawer-apellidos').value = state.signer.apellidos || '';
-            document.getElementById('tp-drawer-apellidos').required = false;
-            // Identidad ya capturada en el login — ocultamos el email pero guardamos su value
             emailEl.value = state.signer.email;
-            emailEl.hidden = true;
+            emailEl.style.display = 'none';
             emailEl.required = false;
         } else {
-            compact.hidden = true; fields.hidden = false;
-            emailEl.hidden = false;
+            compact.hidden = true;
+            nombreEl.style.display = '';
+            nombreEl.required = true;
+            emailEl.style.display = '';
             emailEl.required = true;
         }
     }
@@ -992,20 +990,23 @@ window.TP_INITIAL_SIGNER = <?= json_encode($__initialSigner, JSON_UNESCAPED_UNIC
 
     function refreshModalIdentityUI() {
         const compact = document.getElementById('tp-modal-identity-compact');
-        const fields = document.getElementById('tp-modal-identity-fields');
+        const nombreEl = document.getElementById('tp-modal-nombre');
         const emailEl = document.getElementById('tp-modal-email');
         if (state.signer && state.signer.nombre && state.signer.email) {
             document.getElementById('tp-modal-identity-name').textContent = state.signer.nombre + (state.signer.apellidos ? ' ' + state.signer.apellidos : '');
-            compact.hidden = false; fields.hidden = true;
-            document.getElementById('tp-modal-nombre').value = state.signer.nombre;
+            compact.hidden = false;
+            nombreEl.value = state.signer.nombre;
+            nombreEl.style.display = 'none';
+            nombreEl.required = false;
             document.getElementById('tp-modal-apellidos').value = state.signer.apellidos || '';
-            document.getElementById('tp-modal-apellidos').required = false;
             emailEl.value = state.signer.email;
-            emailEl.hidden = true;
+            emailEl.style.display = 'none';
             emailEl.required = false;
         } else {
-            compact.hidden = true; fields.hidden = false;
-            emailEl.hidden = false;
+            compact.hidden = true;
+            nombreEl.style.display = '';
+            nombreEl.required = true;
+            emailEl.style.display = '';
             emailEl.required = true;
         }
     }
@@ -1050,7 +1051,11 @@ window.TP_INITIAL_SIGNER = <?= json_encode($__initialSigner, JSON_UNESCAPED_UNIC
         document.getElementById('tp-drawer-form').addEventListener('submit', submit);
         document.getElementById('tp-identity-change').addEventListener('click', () => {
             document.getElementById('tp-identity-compact').hidden = true;
-            document.getElementById('tp-identity-fields').hidden = false;
+            const n = document.getElementById('tp-drawer-nombre');
+            const em = document.getElementById('tp-drawer-email');
+            n.style.display = ''; n.required = true; n.value = '';
+            em.style.display = ''; em.required = true; em.value = '';
+            n.focus();
         });
 
         // Modal central wire-up
@@ -1059,7 +1064,11 @@ window.TP_INITIAL_SIGNER = <?= json_encode($__initialSigner, JSON_UNESCAPED_UNIC
         document.getElementById('tp-modal-form').addEventListener('submit', submitModal);
         document.getElementById('tp-modal-identity-change').addEventListener('click', () => {
             document.getElementById('tp-modal-identity-compact').hidden = true;
-            document.getElementById('tp-modal-identity-fields').hidden = false;
+            const n = document.getElementById('tp-modal-nombre');
+            const em = document.getElementById('tp-modal-email');
+            n.style.display = ''; n.required = true; n.value = '';
+            em.style.display = ''; em.required = true; em.value = '';
+            n.focus();
         });
         // Ctrl+Enter en el textarea del modal = submit
         document.getElementById('tp-modal-texto').addEventListener('keydown', (e) => {

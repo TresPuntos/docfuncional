@@ -96,6 +96,298 @@ Branch `main` = espejo de producción.
 
 ---
 
+## ✅ DESPLEGADO 2026-04-25 · Sistema de contratos firma electrónica eIDAS
+
+> **Estado**: LIVE en `https://doc.trespuntos-lab.com/`. Deploy ejecutado sábado 2026-04-25 ~11:50 con ventana baja (sin clientes activos mirando). Smoke test 17/17 OK · 5 propuestas activas (Gibobs, Aula, H2B v1.5, B2B, Nextica) siguen 200 sin errores PHP.
+>
+> **Rama**: `feat/contratos-firma` (último commit `2a65457`). PENDIENTE merge a `main` (debe ser espejo de prod — el usuario tiene que aprobar push).
+
+### Lo que SE desplegó (bundle aislado)
+
+**Archivos NUEVOS en prod**:
+- `api/contratos_lib.php` (923+ líneas · core lib + helpers seguridad)
+- `sign.php` (URL pública `/sign.php?token=` para firmantes)
+- `admin_contratos.php` · `admin_plantillas.php` · `provider_contrato.php`
+- `master/admin-breadcrumb.php` · `master/brand/logo-print.{svg,png}`
+- `vendor/` (mPDF 8.3.1 + FPDI · 819 archivos · subido como zip + extract via PHP one-shot)
+- `composer.json` · `composer.lock`
+- `uploads/contratos/.htaccess` · `uploads/contratos_plantillas/.htaccess` (Deny all)
+
+**Archivos MODIFICADOS en prod**:
+- `provider.php` — gate try/catch para contratos pendientes + `session_regenerate_id`
+- `config.php` — defaults defensivos para constantes TP_* y SIGN_*
+- `master/admin-sidebar.php` — entradas Contratos / Plantillas
+
+**Migraciones BD aplicadas** (en orden, desde `database/`):
+1. `migrate_contratos.php` — 4 tablas base
+2. `migrate_contratos_signing_token.php` — col `signing_token`
+3. `migrate_contratos_hardening.php` — `otp_hash`, `otp_attempts`, `otp_last_attempt_at`, `signing_token_expires_at`
+4. `seed_contratos.php` — 5 plantillas
+5. `update_nda_fiscal.php` — bloque "Identificación de las partes" en NDA
+
+**`config.local.php` del server** se editó añadiendo 16 constantes TP_* y SIGN_* (datos legales TP + política firma).
+
+### Estado BD post-deploy
+- `contratos_plantillas`: 5 (NDA, MSA, SOW, DPA, Change Order)
+- `contratos`: 0 · `contratos_firmas`: 0 · `contratos_eventos`: 0
+
+### Hardening incluido (auditoría previa al deploy)
+
+**8 BLOCKERS arreglados** (ver commit `36304b5`):
+1. OTP plaintext → SHA256 + invalidación post-uso + rate-limit 5 intentos / 30s cooldown
+2. Race condition firma → transacción atómica en `sign.php` y `provider_contrato.php`
+3. XSS stored vía plantilla HTML → `tp_sanitize_template_html()` strip script/iframe/on*/javascript:
+4. CSRF ausente → tokens scope per-página en `admin_contratos` + `admin_plantillas`
+5. Regex token inconsistente → unificado `{24,48}` en `provider_contrato.php`
+6. Modificadores template `|upper|lower|money|date` no escapaban → ahora siempre `htmlspecialchars`
+7. `exec()` TSA con `$hash` no validado → `ctype_xdigit + strlen===64` previo
+8. Scroll/5s bypass client-side → validación server-side: `signing_duration_ms ≥ 3000` + `scroll_depth_pct ≥ 70`
+
+**10 WARNINGS arreglados**:
+- IP real: `REMOTE_ADDR` por defecto, headers proxy solo si `SIGN_TRUST_PROXY_HEADERS` (no activada en Hostinger)
+- `signing_token` con expiry validado al firmar
+- PDF upload: `finfo_file` + magic bytes `%PDF-`
+- Trazo base64: tamaño + magic bytes PNG validados
+- Máquina de estados contratos (`send_to_signer`/`delete_contrato` bloquean según estado)
+- `session_regenerate_id` tras PIN proveedor
+- mPDF tempDir explícito (`uploads/mpdf_tmp/`)
+- `update_nda_fiscal.php` idempotente + guard por proveedor_cif/título Truman
+- `migrate_contratos_signing_token.php` guard SQL (avisa si tabla no existe)
+- FPDI declarado explícito en `composer.json` (era transitivo)
+
+### Scripts de deploy en `scripts/deploy/` (reusables para futuros deploys)
+- `backup-prod.sh` · descarga FTP los archivos a sobreescribir + BD
+- `deploy-contratos.sh` · pre-checks PHP + vendor.zip + bundle + migraciones + smoke
+- `update-config-local.sh` · descarga config.local, añade constantes idempotentemente, valida sintaxis, sube
+- `rollback.sh` · restaura backup + borra archivos NUEVOS (BD aditiva no se toca por defecto)
+- `smoke-test.sh` · 17 checks (regresión sistema viejo + URLs nuevas de contratos)
+
+### Backup pre-deploy
+`/tmp/tp-prod-backup-20260425-114425/` (provider.php, config.php, master/admin-sidebar.php, database.sqlite 2.5MB con 7 propuestas).
+
+### Test E2E con Dani (Truman) · EN CURSO
+
+Caso de uso: "Contrato subcontratación · Truman Digital · Cardalis" (mantenimiento aplicación Cardalis cliente final Emotion Gallery).
+
+**Datos del contrato**:
+- TP: jordi@trespuntoscomunicacion.es / 52407613C / Founder & DXM
+- Truman: B13750906 / Calle Pintor Renau 17, Torrent (Valencia) / dani@truman.es
+- Representante Truman: **Dani Marquina** (Apoderado) · DNI lo introduce al firmar (queda en certificado eIDAS)
+- Tarifa: básico 450€ / avanzado 750€ / hora adicional **30€** (subido de 25€ original)
+- Plan: 6h básico / 12h avanzado · IVA aparte
+
+**PDF preview generado** en `~/Downloads/Contrato-Subcontratacion-Truman-Cardalis-tarifa30.pdf` (90KB · paleta light TP + logo mint #0FA36C).
+
+**Modo de envío elegido**: PDF directo (NO desde plantilla) — el user prefiere subir el PDF ya hecho. El sistema añade hoja de audit trail eIDAS al final con FPDI.
+
+**Dani existe como proveedor en BD prod**:
+- `propuesta_proveedores #4` · prop H2B Hipotecas (no usar — Eloi activo)
+- `propuesta_proveedores #5` · prop Aula Clinic (recomendado para test)
+
+**Flujo del test cuando se ejecute**:
+1. `admin_contratos.php` → Nuevo contrato → tab "Subir PDF directo"
+2. Subir el PDF de `~/Downloads/`, propuesta Aula Clinic, contraparte Dani #5
+3. Firmantes: Contraparte (1º) + TP (2º)
+4. Crear → Enviar al firmante (`dani@truman.es`)
+5. Dani recibe email Resend con CTA "Firmar contrato →"
+6. Dani firma en `/sign.php?token=` (rellena DNI/NIE validado server-side)
+7. Estado → `firmado_parcial` + Telegram alert al grupo Mesa 3P
+8. Jordi firma como TP en `admin_contratos.php?contrato_id=N` → "Firmar como TP" inline
+9. Estado → `firmado` + PDF final con audit trail + sello tiempo Freetsa
+
+---
+
+## 🧩 Estado de archivos en otras sesiones (NO TOCAR sin coordinar)
+
+Hay sesiones paralelas trabajando en cosas distintas. Esta sección lista qué archivos están "en juego" para evitar pisarse.
+
+### Sesión "tasks accionables del cliente" (untracked en feat/contratos-firma)
+
+Archivos creados pero NO commiteados, NO desplegados:
+- `database/migrate_tasks.php` (1.6KB) — migración nueva tabla
+- `master/doc-tasks.php` (22KB) — UI tareas accionables con notificación Telegram
+
+Esto es la skill `tp-tasks` (mencionada en `create-functional-doc`). Si tocas alguna de estas piezas, **pregunta al user** antes de subirlas — no han pasado por la auditoría previa que hicimos para contratos.
+
+### `view.php` con cambios uncommitted (101 líneas añadidas)
+
+Working tree de `feat/contratos-firma` tiene `view.php` modificado pero NO commiteado. Origen no validado en la sesión actual de contratos. **NO subir a prod** sin auditoría previa — el `view.php` actual en prod (commit `d9a560b`) sigue funcionando para los 5 clientes activos.
+
+Si una futura sesión necesita actualizar `view.php`:
+1. Releer las 101 líneas añadidas para validar
+2. Probar local con las 5 propuestas activas (Gibobs, Aula, H2B, B2B, Nextica)
+3. Solo entonces planificar deploy con ventana baja
+
+### Refactor sidebar admin (rama `feat/sidebar-refactor` original)
+
+Cambios en `admin.php`, `admin_providers.php`, `admin_analytics.php`, `admin_feedback.php` que iban a ser "Fase A" del deploy original. **NO se subieron** en este deploy (no son del sistema de contratos). Siguen sin desplegar.
+
+Si se quiere subir el refactor sidebar, va en deploy aparte. Lo único del sidebar que SÍ se subió fue `master/admin-sidebar.php` (entradas Contratos/Plantillas) — backwards compatible.
+
+---
+
+## 📦 Próximos pasos (orden recomendado para retomar)
+
+1. **Ejecutar test E2E con Dani** (sin tocar código nuevo) — validar end-to-end del sistema de contratos en prod
+2. **Push `feat/contratos-firma` → `main`** una vez confirmado que test E2E va bien (requisito CLAUDE.md: main = espejo prod)
+3. **Decidir qué hacer con `view.php` y archivos `tasks`** — sesiones paralelas pendientes
+4. **Refactor sidebar admin** (Fase A original sin contratos) — deploy aparte cuando haya ventana
+
+---
+
+## 📚 Histórico · Plan de deploy original (archivado)
+
+> Esta sección se mantiene como referencia histórica del plan que se ejecutó parcialmente. Toda la parte "PENDIENTE" ya está en prod (ver sección ✅ DESPLEGADO arriba).
+
+**Rama original**: `feat/contratos-firma` desde `main` commit `03eb1f7` (dashboard refactor 2026-04-24).
+
+- `feat/contratos-firma` (último commit: `07f7500`)
+- Basada en `main` (actualmente `main` está 7 commits por delante de lo desplegado en prod)
+- Último commit desplegado en prod: **`03eb1f7`** (dashboard refactor · 2026-04-24)
+
+### Qué se construyó (sistema completo de contratos con firma eIDAS)
+
+**Base de datos** (4 tablas nuevas, migración idempotente `database/migrate_contratos.php`):
+- `contratos_plantillas` · `contratos` · `contratos_firmas` · `contratos_eventos`
+
+**Librería core** (`api/contratos_lib.php` · 633 líneas):
+- Template engine Mustache-lite con modificadores `|money|date|upper|lower`
+- Generación PDF con mPDF 8.3.1 (vía composer) + hoja audit trail (14 campos eIDAS)
+- FPDI para apilar PDFs subidos + audit trail (feature "PDF directo")
+- OTP por email vía Resend (código 6 dígitos, TTL 10min)
+- Sello tiempo cualificado RFC 3161 (Freetsa, opcional)
+- SHA256 hashing + helpers IP/UA/GeoIP
+
+**5 plantillas seed** (`database/seed_contratos.php`):
+1. `nda-subcontratacion-tp` — NDA + subcontratación proveedor (texto íntegro 10 cláusulas del PDF Truman)
+   - Actualizado 2026-04-24 con bloque "Identificación de las partes" (razón social + CIF + domicilio + representante legal)
+   - 18 variables nuevas incluidas (tp_cif, tp_direccion, proveedor_cif, etc.)
+2. `msa-cliente` · Acuerdo marco con cliente
+3. `sow-cliente` · Statement of Work
+4. `dpa-cliente` · RGPD art. 28
+5. `change-order` · Modificación de alcance
+
+**Admin** (`admin_contratos.php` · 1180 líneas):
+- Lista con filtros estado + KPIs (total / pendientes / firmados / plantillas)
+- Modal "Nuevo contrato" con 2 tabs:
+  - **Desde plantilla** — pick plantilla → variables auto-detectadas → asignar contraparte
+  - **Subir PDF directo** — upload PDF existente (contratos one-off redactados ad-hoc)
+- Vista detalle: firmantes + audit trail cronológico + botón "Firmar como TP" inline con canvas
+- Descargas: PDF borrador (v0) y PDF firmado (v_final)
+
+**Editor visual de plantillas** (`admin_plantillas.php` · 628 líneas):
+- Lista con: tipo, destinatario, firmantes, variables count, usos, estado
+- Editor: textarea HTML + auto-detección de variables `{{xxx}}` con UI config (label, tipo, default)
+- Preview PDF con datos ejemplo (icono ojo)
+- Actions: editar, duplicar, archivar, borrar (solo si usos=0)
+- Bump de versión automático en cada update
+
+**Portal proveedor** (`provider_contrato.php` · 593 líneas + `provider.php` modificado):
+- Gate en `/s/{token}` — antes de redirigir a `/p/{slug}` comprueba contratos pendientes
+- **try/catch defensivo** (commit `07f7500`) — si las tablas no existen en prod, gate falla silenciosamente y el proveedor accede como siempre. **SEGURO para deploy antes de migrar BD.**
+- Pantalla firma: renderiza HTML plantilla o PDF en iframe, scroll obligatorio 95%, canvas firma, consent eIDAS, OTP opcional
+- Captura completa de los 14 campos audit
+- Pantalla intermedia "✓ Tu firma registrada, esperando TP" cuando es firmado_parcial
+- Generación PDF final consolidado al completar todas las firmas
+
+**Sidebar admin** — entradas nuevas: "Contratos" (badge con pendientes) + "Plantillas"
+
+**Datos firmante TP** (en `config.local.php` + defaults defensivos en `config.php`):
+```
+Jordi Expósito Lozano · 52407613C · Founder & Digital Experience Manager
+Tres Puntos Comunicación S.L. · B66018490 · Calle Sant Josep 22, Barcelona
+```
+
+### Decisiones tomadas
+
+- Solo Jordi contra-firma por TP (Jordan sin poderes notariales)
+- OTP opcional por plantilla (activado cuando importe > 3.000€ según `SIGN_OTP_THRESHOLD_EUR`)
+- Freetsa TSA **activado por defecto** (`SIGN_TSA_ENABLED = true`)
+- Retención contratos: 6 años (Código Comercio)
+- **Sin revisión legal previa** — plantillas redactadas por Jordi + Claude, no abogado
+
+### Datos Truman ya sacados de Holded (2026-04-24)
+
+- **TRUMAN DIGITAL S.L.** · CIF `B13750906`
+- Calle Pintor Renau 17, Esc. 1 · 4º 7ª, 46900 Torrent (Valencia)
+- Web original `wearetruman.es` está squat (cogió el dominio caducado un sitio SEO de juegos móviles "CCTV Rush Hour"). Web operativa: **`truman.es`**
+- Email contacto: **`dani@truman.es`** (confirmado por Jordi 2026-04-25)
+- Representante legal: **Dani Marquina** (Apoderado) — DNI no en Holded (Holded `email='', contactPersons=[]`)
+- DNI del representante: lo introduce Dani al firmar electrónicamente (queda en certificado eIDAS adjunto)
+- Tarifa hora actualizada: **30€/h + IVA** (subida de 25€ original)
+- PDF preview generado en `~/Downloads/Contrato-Subcontratacion-Truman-Cardalis-tarifa30.pdf` listo para subir vía "PDF directo" en `admin_contratos.php`
+- Dani existe ya como proveedor en BD prod: `propuesta_proveedores #5` (Aula Clinic, recomendado para test) y `#4` (H2B, no usar)
+
+---
+
+## ✉️ ESTÁNDAR OBLIGATORIO · Plantilla de email transaccional
+
+**Regla**: TODOS los emails que salgan de la web (cliente, proveedor, notificaciones internas, OTPs, alertas, marketing transaccional, reminders) deben renderizarse con `tp_render_email_layout()` definida en `api/contratos_lib.php`.
+
+**Nunca escribir HTML de email a pelo.** Si añades un nuevo flujo de email, lo envías con `tp_send_email()` pasando los opts del layout. Si el caso no encaja (p.ej. código OTP), pasas el bloque custom en `body_html` pero **mantienes el layout (header brand + card + footer)**.
+
+### API
+
+```php
+// Render puro (devuelve string HTML)
+$html = tp_render_email_layout([
+    'preheader'    => 'Texto invisible que aparece como preview en el inbox',
+    'title'        => 'Título grande en la card',
+    'intro'        => 'Párrafo intro opcional (acepta HTML)',
+    'highlight'    => 'Texto destacado en callout mint (ej. título doc)',
+    'body_html'    => 'Cuerpo opcional con HTML libre',
+    'cta_label'    => 'Firmar contrato →',
+    'cta_url'      => 'https://...',
+    'fallback_url' => 'https://...',  // se muestra en caja gris si el botón falla
+    'footer_note'  => 'Pie legal / disclaimer',
+]);
+
+// Envío end-to-end (Resend)
+tp_send_email($to, $subject, [...opts...], $replyTo = null);
+```
+
+### Reglas de diseño del layout (NO tocar)
+
+- **Paleta**: mint print `#0FA36C` (nunca `#5DFFBF`), texto `#141414`, bg `#F7F6F3`, cards `#ffffff`
+- **Ancho fijo 600px** (compatibilidad Outlook)
+- **Tables + inline styles** en todo el HTML (clientes corporativos strippean `<style>`)
+- **CTA bulletproof** con VML fallback Outlook + `mso-padding-alt`
+- **Preheader invisible** para que el preview del inbox sea útil
+- **Brand header**: "TRES PUNTOS" en mint con letter-spacing `.25em`
+- **Accent stripe mint** arriba de la card (4px)
+- **Firma** Jordan · Tres Puntos (asistente IA · partner cercano)
+- **Footer corporativo**: razón social + domicilio + email + web, en gris
+
+### Qué hay que migrar (TODO)
+
+| Archivo | Email actual | Migrar a tp_send_email |
+|---|---|---|
+| `admin_providers.php` | `sendProviderInviteEmail()` (invita proveedor) | pendiente |
+| `admin_feedback.php` | `sendClientCommentNotification()`, `sendStaffReplyNotification()`, `sendVersionAnnouncement()` | pendiente |
+| `provider.php` | invite email proveedor | pendiente |
+| `api/jordan-doc.php` | — (no envía) | N/A |
+| `api/contratos_lib.php` | `contrato_send_invite_email`, `contrato_send_otp_email` | ✅ ya usan el layout |
+
+Cuando toques cualquier email de los "pendientes", migra al layout estándar en la misma sesión. No dejes nada en HTML a pelo.
+
+### Cómo añadir un nuevo email
+
+1. En el módulo correspondiente, construye `$opts` según el tipo de email.
+2. Llama `tp_send_email($to, $subject, $opts, $replyTo)`.
+3. Usa `preheader` siempre (mejora apertura ~20%).
+4. Si es un email con código/token (tipo OTP), mete la "caja especial" como HTML en `body_html` y **omite `cta_label`**.
+5. Para alertas de pago, deadline, etc., añade icono de contexto dentro de `highlight`.
+
+### Testing del layout
+
+```bash
+# Previsualizar el layout con datos de ejemplo:
+php -r "require 'api/contratos_lib.php'; echo tp_render_email_layout(['title'=>'Prueba','intro'=>'Hola','cta_label'=>'Click','cta_url'=>'http://x']);" > /tmp/email.html
+open /tmp/email.html
+```
+
+---
+
 ## 🧭 Estado actual del repo (actualizado 2026-04-24)
 
 ### En producción (main → doc.trespuntos-lab.com)

@@ -1,0 +1,43 @@
+# Bundle aislado · sistema de contratos
+# Lista canonica de archivos a subir en el deploy.
+# NO incluye view.php ni cambios heredados de Mermaid/journey.
+# Lo que NO esté aquí, NO se sube.
+#
+# Convención: paths relativos al root del proyecto.
+# Carpetas terminan en /
+
+# === CORE LIBRERÍA + DEPENDENCIAS ===
+api/contratos_lib.php
+composer.json
+composer.lock
+vendor/
+
+# === ENDPOINTS NUEVOS ===
+sign.php
+admin_contratos.php
+admin_plantillas.php
+provider_contrato.php
+
+# === MIGRACIONES BD (se suben temporalmente, ejecutan via HTTPS, se borran) ===
+database/migrate_contratos.php
+database/migrate_contratos_signing_token.php
+database/migrate_contratos_hardening.php
+database/seed_contratos.php
+database/update_nda_fiscal.php
+
+# === ASSETS ===
+master/brand/logo-print.svg
+master/brand/logo-print.png
+master/admin-breadcrumb.php
+
+# === HTACCESS UPLOADS (deny all) ===
+uploads/contratos/.htaccess
+uploads/contratos_plantillas/.htaccess
+
+# === ARCHIVOS MODIFICADOS (REQUIEREN BACKUP PREVIO) ===
+# provider.php · gate try/catch contratos pendientes + session_regenerate_id
+# config.php · constantes TP_* y SIGN_* defensivas
+# master/admin-sidebar.php · entradas Contratos / Plantillas
+provider.php
+config.php
+master/admin-sidebar.php

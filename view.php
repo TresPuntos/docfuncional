@@ -182,16 +182,35 @@ if ($is_unlocked) {
         header('Content-Type: application/json');
         $clientName = $proposal['client_name'] ?? '';
 
-        // --- Helpers de firma ligera (nombre + apellidos) ---
-        $readSigner = function () {
+        // --- Helpers de firma ligera ---
+        // POST tiene prioridad (firma legal explícita con nombre+apellidos).
+        // Si no hay POST, cae a la identidad de sesión (PIN gate o proveedor).
+        // 'valid' = nombre+apellidos (firma legal). 'valid_lite' = nombre+email (comentarios, tareas).
+        $readSigner = function () use ($visitorIdentity, $__provider) {
             $n = trim($_POST['firmante_nombre'] ?? '');
             $a = trim($_POST['firmante_apellidos'] ?? '');
             $e = trim($_POST['firmante_email'] ?? '');
+
+            if ($n === '' && $e === '') {
+                if (!empty($visitorIdentity['email'])) {
+                    $parts = explode(' ', trim($visitorIdentity['nombre'] ?? ''), 2);
+                    $n = $parts[0] ?? '';
+                    $a = $parts[1] ?? '';
+                    $e = $visitorIdentity['email'];
+                } elseif (!empty($__provider['email'])) {
+                    $parts = explode(' ', trim($__provider['nombre'] ?? ''), 2);
+                    $n = $parts[0] ?? '';
+                    $a = $parts[1] ?? '';
+                    $e = $__provider['email'];
+                }
+            }
+
             return [
                 'nombre' => mb_substr($n, 0, 80),
                 'apellidos' => mb_substr($a, 0, 120),
                 'email' => mb_substr($e, 0, 160),
                 'valid' => ($n !== '' && $a !== ''),
+                'valid_lite' => ($n !== '' && $e !== ''),
             ];
         };
         $buildHash = function ($propId, $tipo, $signer, $version) {
@@ -273,7 +292,7 @@ if ($is_unlocked) {
             $title = trim($_POST['section_title'] ?? '');
             $texto = trim($_POST['texto'] ?? '');
             $parentId = isset($_POST['parent_id']) && $_POST['parent_id'] !== '' ? (int)$_POST['parent_id'] : null;
-            if (!$signer['valid']) { echo json_encode(['success' => false, 'error' => 'Indica tu nombre y apellidos.']); exit; }
+            if (!$signer['valid_lite']) { echo json_encode(['success' => false, 'error' => 'Identifícate antes de comentar.']); exit; }
             if ($anchor === '' || $texto === '') { echo json_encode(['success' => false, 'error' => 'Faltan datos.']); exit; }
             if (mb_strlen($texto) > 4000) { echo json_encode(['success' => false, 'error' => 'Comentario demasiado largo.']); exit; }
 
@@ -320,14 +339,17 @@ if ($is_unlocked) {
         if ($_POST['api_action'] === 'toggle_resolved_comment') {
             $id = (int)($_POST['id'] ?? 0);
             $signer = $readSigner();
-            if (!$id || !$signer['valid']) { echo json_encode(['success' => false, 'error' => 'Faltan datos.']); exit; }
+            if (!$id || !$signer['valid_lite']) { echo json_encode(['success' => false, 'error' => 'Faltan datos.']); exit; }
 
-            $stmt = $pdo->prepare("SELECT autor_nombre, autor_apellidos, resuelto, parent_id, section_title, section_anchor FROM comentarios_seccion WHERE id = ? AND propuesta_id = ?");
+            $stmt = $pdo->prepare("SELECT autor_nombre, autor_apellidos, autor_email, resuelto, parent_id, section_title, section_anchor FROM comentarios_seccion WHERE id = ? AND propuesta_id = ?");
             $stmt->execute([$id, $proposal['id']]);
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$row) { echo json_encode(['success' => false, 'error' => 'Comentario no encontrado.']); exit; }
             if ($row['parent_id']) { echo json_encode(['success' => false, 'error' => 'Solo se cierran los comentarios raíz.']); exit; }
-            if (mb_strtolower($row['autor_nombre']) !== mb_strtolower($signer['nombre']) || mb_strtolower($row['autor_apellidos']) !== mb_strtolower($signer['apellidos'])) {
+            // Autoría: email match (más fiable que nombre cuando el login solo guarda nombre+email)
+            $emailMatch = !empty($row['autor_email']) && mb_strtolower($row['autor_email']) === mb_strtolower($signer['email']);
+            $nameMatch = mb_strtolower($row['autor_nombre']) === mb_strtolower($signer['nombre']) && mb_strtolower($row['autor_apellidos']) === mb_strtolower($signer['apellidos']);
+            if (!$emailMatch && !$nameMatch) {
                 echo json_encode(['success' => false, 'error' => 'Solo el autor puede cerrar o reabrir su comentario.']);
                 exit;
             }
@@ -354,14 +376,16 @@ if ($is_unlocked) {
         if ($_POST['api_action'] === 'edit_section_comment' || $_POST['api_action'] === 'delete_section_comment') {
             $id = (int)($_POST['id'] ?? 0);
             $signer = $readSigner();
-            if (!$id || !$signer['valid']) { echo json_encode(['success' => false, 'error' => 'Faltan datos para editar/eliminar.']); exit; }
+            if (!$id || !$signer['valid_lite']) { echo json_encode(['success' => false, 'error' => 'Faltan datos para editar/eliminar.']); exit; }
 
-            // Verificación de autoría (nombre + apellidos)
-            $stmt = $pdo->prepare("SELECT autor_nombre, autor_apellidos, created_at FROM comentarios_seccion WHERE id = ? AND propuesta_id = ?");
+            // Verificación de autoría (email match preferred; fallback nombre+apellidos)
+            $stmt = $pdo->prepare("SELECT autor_nombre, autor_apellidos, autor_email, created_at FROM comentarios_seccion WHERE id = ? AND propuesta_id = ?");
             $stmt->execute([$id, $proposal['id']]);
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$row) { echo json_encode(['success' => false, 'error' => 'Comentario no encontrado.']); exit; }
-            if (mb_strtolower($row['autor_nombre']) !== mb_strtolower($signer['nombre']) || mb_strtolower($row['autor_apellidos']) !== mb_strtolower($signer['apellidos'])) {
+            $emailMatch = !empty($row['autor_email']) && mb_strtolower($row['autor_email']) === mb_strtolower($signer['email']);
+            $nameMatch = mb_strtolower($row['autor_nombre']) === mb_strtolower($signer['nombre']) && mb_strtolower($row['autor_apellidos']) === mb_strtolower($signer['apellidos']);
+            if (!$emailMatch && !$nameMatch) {
                 echo json_encode(['success' => false, 'error' => 'Solo el autor puede editar o eliminar este comentario.']);
                 exit;
             }
@@ -388,6 +412,106 @@ if ($is_unlocked) {
                 . " · " . htmlspecialchars($signer['nombre'], ENT_QUOTES, 'UTF-8')
             );
             echo json_encode(['success' => true]);
+            exit;
+        }
+
+        // --- TAREAS DEL CLIENTE ---
+        // tasks_sync: recibe la lista de tareas declaradas en el HTML del documento
+        //             y hace UPSERT. Devuelve el estado actual de cada una.
+        if ($_POST['api_action'] === 'tasks_sync') {
+            $tasks = json_decode($_POST['tasks'] ?? '[]', true);
+            if (!is_array($tasks)) $tasks = [];
+
+            $pdo->beginTransaction();
+            try {
+                $upsert = $pdo->prepare("
+                    INSERT INTO propuesta_tasks (propuesta_id, task_key, titulo, descripcion, asignado_a, orden)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(propuesta_id, task_key) DO UPDATE SET
+                        titulo = excluded.titulo,
+                        descripcion = excluded.descripcion,
+                        asignado_a = excluded.asignado_a,
+                        orden = excluded.orden
+                ");
+                foreach ($tasks as $t) {
+                    $key = trim($t['key'] ?? '');
+                    if ($key === '') continue;
+                    $upsert->execute([
+                        $proposal['id'],
+                        mb_substr($key, 0, 100),
+                        mb_substr(trim($t['titulo'] ?? ''), 0, 300),
+                        mb_substr(trim($t['descripcion'] ?? ''), 0, 4000),
+                        mb_substr(trim($t['asignado_a'] ?? ''), 0, 200),
+                        (int)($t['orden'] ?? 0),
+                    ]);
+                }
+                $pdo->commit();
+            } catch (Throwable $e) {
+                $pdo->rollBack();
+                echo json_encode(['success' => false, 'error' => 'No se pudieron sincronizar las tareas.']);
+                exit;
+            }
+
+            $stmt = $pdo->prepare("SELECT task_key, completado, completado_at, completado_por_nombre, completado_por_email, comentario_completado
+                                   FROM propuesta_tasks WHERE propuesta_id = ?");
+            $stmt->execute([$proposal['id']]);
+            $state = [];
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $state[$row['task_key']] = [
+                    'completado' => (int)$row['completado'] === 1,
+                    'completado_at' => $row['completado_at'],
+                    'completado_por' => trim((string)$row['completado_por_nombre']),
+                    'completado_por_email' => $row['completado_por_email'],
+                    'comentario' => $row['comentario_completado'],
+                ];
+            }
+            echo json_encode(['success' => true, 'state' => $state]);
+            exit;
+        }
+
+        if ($_POST['api_action'] === 'task_complete') {
+            $key = trim($_POST['task_key'] ?? '');
+            $comentario = trim($_POST['comentario'] ?? '');
+            $signer = $readSigner();
+            if ($key === '') { echo json_encode(['success' => false, 'error' => 'Falta el identificador de la tarea.']); exit; }
+            if (!$signer['valid_lite']) {
+                echo json_encode(['success' => false, 'error' => 'Identifícate antes de marcar la tarea como completada.']);
+                exit;
+            }
+            if (mb_strlen($comentario) > 4000) { echo json_encode(['success' => false, 'error' => 'Comentario demasiado largo.']); exit; }
+
+            $stmt = $pdo->prepare("SELECT id, titulo, asignado_a, completado FROM propuesta_tasks WHERE propuesta_id = ? AND task_key = ?");
+            $stmt->execute([$proposal['id'], $key]);
+            $task = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$task) { echo json_encode(['success' => false, 'error' => 'Tarea no encontrada.']); exit; }
+            if ((int)$task['completado'] === 1) {
+                echo json_encode(['success' => false, 'error' => 'Esta tarea ya estaba marcada como completada.']);
+                exit;
+            }
+
+            $nombreCompleto = trim($signer['nombre'] . ' ' . $signer['apellidos']);
+            $pdo->prepare("UPDATE propuesta_tasks
+                           SET completado = 1, completado_at = CURRENT_TIMESTAMP,
+                               completado_por_nombre = ?, completado_por_email = ?, comentario_completado = ?
+                           WHERE id = ?")
+                ->execute([$nombreCompleto, $signer['email'], $comentario !== '' ? $comentario : null, $task['id']]);
+
+            $resumenComentario = $comentario !== '' ? "\n<i>" . htmlspecialchars(mb_substr($comentario, 0, 240), ENT_QUOTES, 'UTF-8') . (mb_strlen($comentario) > 240 ? '…' : '') . "</i>" : '';
+            sendTelegramNotification(
+                "✅ <b>Tarea completada</b> · <b>" . htmlspecialchars($clientName, ENT_QUOTES, 'UTF-8') . "</b>"
+                . "\n<b>" . htmlspecialchars($task['titulo'], ENT_QUOTES, 'UTF-8') . "</b>"
+                . "\nPor: " . htmlspecialchars($nombreCompleto, ENT_QUOTES, 'UTF-8') . " · " . htmlspecialchars($signer['email'], ENT_QUOTES, 'UTF-8')
+                . $resumenComentario
+                . "\n<a href=\"" . htmlspecialchars($viewUrl, ENT_QUOTES) . "#tareas-cliente\">Ver propuesta</a>"
+            );
+
+            echo json_encode([
+                'success' => true,
+                'completado_at' => date('c'),
+                'completado_por' => $nombreCompleto,
+                'completado_por_email' => $signer['email'],
+                'comentario' => $comentario,
+            ]);
             exit;
         }
 
@@ -3079,7 +3203,7 @@ if ($is_unlocked) {
                 const tag = el.tagName.toLowerCase();
 
                 // Skips: titulo del doc y estados CTA
-                if (tag === 'h2' && (low === 'documento funcional' || low === 'documentación funcional' || low.includes('proyecto web'))) {
+                if (tag === 'h2' && (low.startsWith('documento funcional') || low.startsWith('documentación funcional') || low.includes('proyecto web'))) {
                     el.style.display = 'none';
                     return;
                 }
@@ -3580,6 +3704,7 @@ if ($is_unlocked) {
         <?php include __DIR__ . '/master/doc-feedback-provider.php'; ?>
     <?php else: ?>
         <?php include __DIR__ . '/master/doc-feedback.php'; ?>
+        <?php include __DIR__ . '/master/doc-tasks.php'; ?>
     <?php endif; ?>
 
     <!-- Onboarding primera visita: apunta al FAB de comentarios -->

@@ -7,10 +7,19 @@ database/*.sqlite
 uploads/presupuestos/*
 uploads/equipo/*
 uploads/proveedores/*
+uploads/contratos/*
+uploads/contratos_plantillas/*
 !uploads/presupuestos/.gitkeep
 !uploads/equipo/.gitkeep
 !uploads/proveedores/.gitkeep
 !uploads/proveedores/.htaccess
+!uploads/contratos/.htaccess
+!uploads/contratos/.gitkeep
+!uploads/contratos_plantillas/.htaccess
+!uploads/contratos_plantillas/.gitkeep
+
+# Composer dependencies
+/vendor/
 
 # Dev fixtures locales (seed scripts con data de prueba)
 dev-fixtures/
