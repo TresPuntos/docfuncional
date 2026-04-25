@@ -4,7 +4,7 @@
 #
 # Variables requeridas:
 #   TP_FTP_HOST  (default ftp.trespuntos-lab.com)
-#   TP_FTP_USER  (default u296656791.claude3)
+#   TP_FTP_USER  (default u296656791.jorditrespuntos)
 #   TP_FTP_PASS  (obligatoria)
 #
 # Uso: TP_FTP_PASS='xxx' ./scripts/deploy/backup-prod.sh
@@ -12,7 +12,7 @@
 set -euo pipefail
 
 FTP_HOST="${TP_FTP_HOST:-ftp.trespuntos-lab.com}"
-FTP_USER="${TP_FTP_USER:-u296656791.claude3}"
+FTP_USER="${TP_FTP_USER:-u296656791.jorditrespuntos}"
 FTP_PASS="${TP_FTP_PASS:-}"
 
 if [ -z "$FTP_PASS" ]; then

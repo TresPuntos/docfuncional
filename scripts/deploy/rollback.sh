@@ -15,7 +15,7 @@
 set -euo pipefail
 
 FTP_HOST="${TP_FTP_HOST:-ftp.trespuntos-lab.com}"
-FTP_USER="${TP_FTP_USER:-u296656791.claude3}"
+FTP_USER="${TP_FTP_USER:-u296656791.jorditrespuntos}"
 FTP_PASS="${TP_FTP_PASS:-}"
 BACKUP_DIR="${TP_BACKUP_DIR:-}"
 

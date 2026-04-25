@@ -125,6 +125,6 @@ TP_BACKUP_DIR=/tmp/tp-prod-backup-XXXX TP_FTP_PASS='xxx' ./scripts/deploy/rollba
 
 # Solo restaurar BD (las migraciones son aditivas, no urgente)
 curl -T /tmp/tp-prod-backup-XXXX/database/database.sqlite \
-  --user 'u296656791.claude3:xxx' \
+  --user 'u296656791.jorditrespuntos:xxx' \
   ftp://ftp.trespuntos-lab.com/doc/database/database.sqlite
 ```
