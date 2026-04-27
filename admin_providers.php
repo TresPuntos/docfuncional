@@ -661,6 +661,24 @@ if ($detailProv > 0) {
                     Invitado <?=fecha($pv['invited_at'])?>
                     <?=$pv['last_accessed_at'] ? ' · Último acceso ' . fecha($pv['last_accessed_at']) : ' · Aún sin entrar'?>
                 </div>
+
+                <div class="pv-perm-row">
+                    <div class="pv-perm-row__label">
+                        <i data-lucide="shield-check" style="width:13px;height:13px;"></i>
+                        <span>Permisos en <strong><?=e($pv['client_name'])?></strong></span>
+                    </div>
+                    <button type="button"
+                            class="pv-vc-toggle <?=((int)$pv['ver_comentarios']===1?'on':'off')?>"
+                            data-id="<?=(int)$pv['id']?>"
+                            onclick="toggleVerComentarios(this)"
+                            title="<?=((int)$pv['ver_comentarios']===1?'Puede ver los comentarios del cliente — click para ocultar':'No ve los comentarios del cliente — click para permitir')?>">
+                        <i data-lucide="<?=((int)$pv['ver_comentarios']===1?'eye':'eye-off')?>" style="width:11px;height:11px;"></i>
+                        <span class="pv-vc-label"><?=((int)$pv['ver_comentarios']===1?'Ve comentarios del cliente':'No ve comentarios del cliente')?></span>
+                    </button>
+                    <div class="pv-perm-row__hint">
+                        Solo aplica a esta propuesta. Cada propuesta tiene su propio permiso independiente.
+                    </div>
+                </div>
             </section>
 
             <section class="card">
@@ -1055,6 +1073,12 @@ tr:last-child td{border-bottom:0;} tr.inactive{opacity:.4;}
 .pv-vc-toggle.off:hover{color:var(--text-secondary);border-color:var(--border-strong);}
 .pv-vc-toggle:disabled{opacity:.5;cursor:wait;}
 .pv-vc-toggle i[data-lucide],.pv-vc-toggle svg.lucide{width:10px !important;height:10px !important;flex-shrink:0;}
+.pv-perm-row{margin-top:1rem;padding-top:.85rem;border-top:1px dashed var(--border-base);display:flex;flex-direction:column;gap:.45rem;}
+.pv-perm-row__label{display:flex;align-items:center;gap:.4rem;font-size:.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;font-weight:600;}
+.pv-perm-row__label i[data-lucide],.pv-perm-row__label svg.lucide{color:var(--text-muted);}
+.pv-perm-row__label strong{color:var(--text-secondary);text-transform:none;letter-spacing:0;font-weight:600;}
+.pv-perm-row__hint{font-size:.7rem;color:var(--text-muted);line-height:1.4;}
+.pv-perm-row .pv-vc-toggle{align-self:flex-start;margin-top:0;}
 
 /* Card cuando acabas de crear uno */
 .access-card{background:linear-gradient(135deg,rgba(var(--mint-rgb),.14),rgba(var(--mint-rgb),.03));border:1px solid rgba(var(--mint-rgb),.4);border-radius:12px;padding:1.5rem;margin-bottom:2rem;display:none;}
