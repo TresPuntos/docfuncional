@@ -587,6 +587,19 @@ if ($detailProv > 0) {
     .modal-close{background:transparent;border:none;color:var(--text-muted);cursor:pointer;padding:.3rem;}
     .modal-body{padding:1rem 1.25rem;overflow-y:auto;}
     .modal>footer{padding:.85rem 1.25rem;border-top:1px solid var(--border-base);display:flex;justify-content:flex-end;gap:.5rem;}
+    .pv-vc-toggle{display:inline-flex;align-items:center;gap:.35rem;padding:.3rem .7rem;border-radius:999px;font-size:.78rem;font-weight:600;cursor:pointer;border:1px solid transparent;font-family:inherit;line-height:1.4;transition:all .12s ease;}
+    .pv-vc-toggle.on{background:rgba(var(--mint-rgb),.14);color:var(--mint);border-color:rgba(var(--mint-rgb),.35);}
+    .pv-vc-toggle.on:hover{background:rgba(var(--mint-rgb),.22);}
+    .pv-vc-toggle.off{background:var(--bg-muted);color:var(--text-muted);border-color:var(--border-base);}
+    .pv-vc-toggle.off:hover{color:var(--text-secondary);border-color:var(--border-strong);}
+    .pv-vc-toggle:disabled{opacity:.5;cursor:wait;}
+    .pv-vc-toggle i[data-lucide],.pv-vc-toggle svg.lucide{width:11px !important;height:11px !important;flex-shrink:0;}
+    .pv-perm-row{margin-top:1rem;padding-top:.85rem;border-top:1px dashed var(--border-base);display:flex;flex-direction:column;gap:.5rem;}
+    .pv-perm-row__label{display:flex;align-items:center;gap:.4rem;font-size:.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;font-weight:600;}
+    .pv-perm-row__label i[data-lucide],.pv-perm-row__label svg.lucide{color:var(--text-muted);width:13px !important;height:13px !important;}
+    .pv-perm-row__label strong{color:var(--text-secondary);text-transform:none;letter-spacing:0;font-weight:600;}
+    .pv-perm-row__hint{font-size:.72rem;color:var(--text-muted);line-height:1.45;}
+    .pv-perm-row .pv-vc-toggle{align-self:flex-start;}
     </style></head><body>
 
     <?php
@@ -896,6 +909,37 @@ if ($detailProv > 0) {
             btn.disabled = false;
             btn.innerHTML = '<i data-lucide="send" style="width:14px;height:14px;"></i> Enviar email';
             if (window.lucide) lucide.createIcons();
+        }
+    }
+    async function toggleVerComentarios(btn) {
+        const id = btn.getAttribute('data-id');
+        const wasOn = btn.classList.contains('on');
+        const next = wasOn ? 0 : 1;
+        btn.disabled = true;
+        try {
+            const r = await fetch('admin_providers.php', {
+                method: 'POST',
+                body: new URLSearchParams({ action: 'set_ver_comentarios', id, ver_comentarios: String(next) })
+            }).then(r => r.json()).catch(() => ({}));
+            if (!r.success) { alert('No se pudo actualizar el permiso.'); btn.disabled = false; return; }
+            btn.classList.toggle('on', next === 1);
+            btn.classList.toggle('off', next === 0);
+            const icon = btn.querySelector('i, svg');
+            if (icon) {
+                const placeholder = document.createElement('i');
+                placeholder.setAttribute('data-lucide', next === 1 ? 'eye' : 'eye-off');
+                placeholder.style.width = '11px';
+                placeholder.style.height = '11px';
+                icon.replaceWith(placeholder);
+                if (window.lucide) lucide.createIcons();
+            }
+            const label = btn.querySelector('.pv-vc-label');
+            if (label) label.textContent = next === 1 ? 'Ve comentarios del cliente' : 'No ve comentarios del cliente';
+            btn.title = next === 1
+                ? 'Puede ver los comentarios del cliente — click para ocultar'
+                : 'No ve los comentarios del cliente — click para permitir';
+        } finally {
+            btn.disabled = false;
         }
     }
     if (window.lucide) lucide.createIcons();
