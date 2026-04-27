@@ -905,6 +905,7 @@ if ($filterProp && $currentProp) {
 }
 
 // Directorio global de proveedores (cuando no hay propuesta_id)
+// Agrupado por email: una persona = una card, aunque esté invitada a N propuestas
 $globalProveedores = [];
 if (!$filterProp) {
     try {
@@ -914,8 +915,74 @@ if (!$filterProp) {
             (SELECT COUNT(*) FROM proveedor_mensajes WHERE proveedor_id = p.id AND is_draft = 0) AS n_mensajes
             FROM propuesta_proveedores p
             LEFT JOIN propuestas pr ON pr.id = p.propuesta_id
-            ORDER BY p.activo DESC, p.nombre ASC, p.invited_at DESC");
-        $globalProveedores = $gq->fetchAll(PDO::FETCH_ASSOC);
+            ORDER BY p.activo DESC, p.invited_at DESC");
+        $rows = $gq->fetchAll(PDO::FETCH_ASSOC);
+
+        // Agrupar por email (caso-insensitive). Cada grupo:
+        //   - datos del registro más reciente (nombre, empresa, activo global = al menos uno activo)
+        //   - sumas totales (presupuestos, mensajes, accesos)
+        //   - lista de propuestas con su proveedor_id propio
+        //   - proveedor_id "principal" = el más activo (más mensajes + presupuestos + accesos)
+        $byEmail = [];
+        foreach ($rows as $r) {
+            $key = mb_strtolower(trim($r['email'] ?? ''));
+            if ($key === '') $key = '__noemail_' . $r['id'];
+            if (!isset($byEmail[$key])) {
+                $byEmail[$key] = [
+                    'email' => $r['email'],
+                    'nombre' => $r['nombre'],
+                    'empresa' => $r['empresa'],
+                    'activo' => 0,
+                    'last_accessed_at' => null,
+                    'n_presupuestos' => 0,
+                    'n_mensajes' => 0,
+                    'accesos' => 0,
+                    'propuestas' => [],
+                    'principal_id' => (int)$r['id'],
+                    'principal_score' => -1,
+                ];
+            }
+            $g = &$byEmail[$key];
+            // Activo si al menos un registro está activo
+            if ((int)$r['activo'] === 1) $g['activo'] = 1;
+            // Último acceso entre todos
+            if (!empty($r['last_accessed_at']) && (empty($g['last_accessed_at']) || $r['last_accessed_at'] > $g['last_accessed_at'])) {
+                $g['last_accessed_at'] = $r['last_accessed_at'];
+            }
+            // Sumas
+            $g['n_presupuestos'] += (int)$r['n_presupuestos'];
+            $g['n_mensajes'] += (int)$r['n_mensajes'];
+            $g['accesos'] += (int)$r['accesos'];
+            // Propuesta
+            if (!empty($r['propuesta_id'])) {
+                $g['propuestas'][] = [
+                    'proveedor_id' => (int)$r['id'],
+                    'propuesta_id' => (int)$r['propuesta_id'],
+                    'propuesta_cliente' => $r['propuesta_cliente'],
+                    'propuesta_slug' => $r['propuesta_slug'],
+                    'n_presupuestos' => (int)$r['n_presupuestos'],
+                    'n_mensajes' => (int)$r['n_mensajes'],
+                    'accesos' => (int)$r['accesos'],
+                    'activo' => (int)$r['activo'] === 1,
+                ];
+            }
+            // Principal = el registro con más actividad
+            $score = (int)$r['n_mensajes'] * 10 + (int)$r['n_presupuestos'] * 5 + (int)$r['accesos'];
+            if ($score > $g['principal_score']) {
+                $g['principal_score'] = $score;
+                $g['principal_id'] = (int)$r['id'];
+                // El nombre y empresa los toma del registro principal
+                $g['nombre'] = $r['nombre'];
+                $g['empresa'] = $r['empresa'];
+            }
+            unset($g);
+        }
+        // Ordenar: activos primero, luego nombre
+        $globalProveedores = array_values($byEmail);
+        usort($globalProveedores, function($a, $b) {
+            if ($a['activo'] !== $b['activo']) return $b['activo'] - $a['activo'];
+            return strcmp(mb_strtolower($a['nombre'] ?? ''), mb_strtolower($b['nombre'] ?? ''));
+        });
     } catch (Exception $e) { $globalProveedores = []; }
 }
 
@@ -1075,6 +1142,9 @@ $adminSidebarPropuestas = $propuestas;
         .pv-dir-card__stat svg.lucide { width: 12px !important; height: 12px !important; flex-shrink: 0; }
         .pv-dir-hint { margin-top: 1.5rem; padding: .85rem 1rem; background: rgba(var(--mint-rgb), .06); border: 1px solid rgba(var(--mint-rgb), .18); border-radius: 8px; color: var(--text-secondary); font-size: .82rem; line-height: 1.5; }
         .pv-dir-hint strong { color: var(--mint); }
+        .pv-dir-prop-pill { display: inline-block; padding: .12rem .5rem; background: var(--bg-muted); border: 1px solid var(--border-base); border-radius: 999px; font-size: .7rem; color: var(--text-secondary); cursor: pointer; transition: all .12s ease; line-height: 1.35; }
+        .pv-dir-prop-pill:hover { background: rgba(var(--mint-rgb), .12); border-color: rgba(var(--mint-rgb), .35); color: var(--mint); }
+        .pv-dir-prop-pill.revoked { opacity: .55; text-decoration: line-through; }
     </style>
 
     <div class="pv-dir-toolbar">
@@ -1096,9 +1166,12 @@ $adminSidebarPropuestas = $propuestas;
             <?php foreach ($globalProveedores as $gp):
                 $gpInitial = mb_strtoupper(mb_substr($gp['nombre'] ?? '?', 0, 1));
                 $gpActive = (int)$gp['activo'] === 1;
-                $gpSearch = strtolower(trim(($gp['nombre'] ?? '') . ' ' . ($gp['empresa'] ?? '') . ' ' . ($gp['email'] ?? '') . ' ' . ($gp['propuesta_cliente'] ?? '')));
+                $propsList = $gp['propuestas'] ?? [];
+                $nProps = count($propsList);
+                $propsClientes = array_values(array_filter(array_map(function($p){ return $p['propuesta_cliente'] ?? ''; }, $propsList)));
+                $gpSearch = strtolower(trim(($gp['nombre'] ?? '') . ' ' . ($gp['empresa'] ?? '') . ' ' . ($gp['email'] ?? '') . ' ' . implode(' ', $propsClientes)));
             ?>
-                <a href="admin_providers.php?proveedor_id=<?= (int)$gp['id'] ?>"
+                <a href="admin_providers.php?proveedor_id=<?= (int)$gp['principal_id'] ?>"
                    class="pv-dir-card<?= $gpActive ? '' : ' inactive' ?>"
                    data-search="<?= e($gpSearch) ?>">
                     <div class="pv-dir-card__head">
@@ -1121,10 +1194,16 @@ $adminSidebarPropuestas = $propuestas;
                                 <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><?= e($gp['email']) ?></span>
                             </div>
                         <?php endif; ?>
-                        <?php if (!empty($gp['propuesta_cliente'])): ?>
-                            <div class="pv-dir-card__meta-row" title="Propuesta para la que fue invitado">
-                                <i data-lucide="briefcase"></i>
-                                <span><?= e($gp['propuesta_cliente']) ?></span>
+                        <?php if ($nProps > 0): ?>
+                            <div class="pv-dir-card__meta-row" title="Propuestas en las que participa" style="align-items:flex-start;">
+                                <i data-lucide="briefcase" style="margin-top:2px;"></i>
+                                <span style="display:flex;flex-wrap:wrap;gap:.3rem;">
+                                    <?php foreach ($propsList as $pp): ?>
+                                        <span class="pv-dir-prop-pill<?= $pp['activo'] ? '' : ' revoked' ?>"
+                                              onclick="event.stopPropagation();event.preventDefault();window.location.href='admin_providers.php?proveedor_id=<?= (int)$pp['proveedor_id'] ?>';"
+                                              title="<?= e($pp['propuesta_cliente']) ?> · <?= (int)$pp['n_mensajes'] ?> msg · <?= (int)$pp['n_presupuestos'] ?> ppto"><?= e($pp['propuesta_cliente']) ?></span>
+                                    <?php endforeach; ?>
+                                </span>
                             </div>
                         <?php endif; ?>
                         <?php if (!empty($gp['last_accessed_at'])): ?>
@@ -1141,13 +1220,13 @@ $adminSidebarPropuestas = $propuestas;
                     </div>
 
                     <div class="pv-dir-card__stats">
-                        <span class="pv-dir-card__stat" title="Presupuestos enviados">
+                        <span class="pv-dir-card__stat" title="Presupuestos enviados (sumados de todas sus propuestas)">
                             <i data-lucide="file-text"></i> <strong><?= (int)$gp['n_presupuestos'] ?></strong> presupuesto<?= (int)$gp['n_presupuestos'] === 1 ? '' : 's' ?>
                         </span>
-                        <span class="pv-dir-card__stat" title="Mensajes intercambiados">
+                        <span class="pv-dir-card__stat" title="Mensajes intercambiados (sumados)">
                             <i data-lucide="message-circle"></i> <strong><?= (int)$gp['n_mensajes'] ?></strong> mensaje<?= (int)$gp['n_mensajes'] === 1 ? '' : 's' ?>
                         </span>
-                        <span class="pv-dir-card__stat" title="Accesos al portal">
+                        <span class="pv-dir-card__stat" title="Accesos al portal (sumados)">
                             <i data-lucide="log-in"></i> <strong><?= (int)$gp['accesos'] ?></strong>
                         </span>
                     </div>

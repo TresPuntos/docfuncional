@@ -4,6 +4,61 @@
 
 ---
 
+## ⛔ REGLA ABSOLUTA · Cara-cliente: cero proveedores, mismo proceso en cualquier stack
+
+En cualquier comunicación cara-cliente (doc funcional `html_content`, emails Resend, comentarios `/p/{slug}`, presupuestos, contratos cliente, llamadas) **nunca aparece ningún proveedor externo**, ni nominal (Dani, Truman) ni genérico ("partner técnico", "partner de back-end", "partner de integración", "proveedor especialista", "el dev externo", "colaborador externo"). Cualquier fórmula tipo *partner X* es sinónimo camuflado de proveedor: prohibida.
+
+El relato cara-cliente es siempre el mismo independientemente del stack (WordPress, Angular + Laravel, Node, lo que sea): **Tres Puntos hace UX + UI + desarrollo end-to-end con su equipo**. El reparto interno entre equipo propio y subcontratas vive en CLAUDE.md, memoria de Claudio y portal proveedor — nunca se filtra al cliente.
+
+Aplica también al detallar entregables Fase 2: no decimos "entregamos UI maquetada para que la integre el partner técnico". Decimos: "el equipo construye la app desacoplada (front Angular + API Laravel)".
+
+---
+
+## ✅ DESPLEGADO 2026-04-27 (tarde) · H2B v1.7 · Stack Fase 2 cerrado (Angular + Laravel)
+
+> Sesión corta tras la del proveedor. Trasladados al doc cliente todos los acuerdos técnicos derivados de los hilos con Dani sin nombrarlo (regla cara-cliente). Solo BD, sin código. v1.6 archivada en `propuestas_history` (history_id=35).
+
+### Cambios aplicados a v1.7 (vía API REST `PUT id=21 save_version=true`)
+
+1. **Cabecera + Novedades v1.7** — nuevo callout success arriba del de v1.5 (que pasa a info, registro histórico).
+2. **Resumen ejecutivo** — frases "stack abierto" / "Fase 2 (a definir)" reemplazadas por "Angular + Laravel" en el lead, badge stat (`WordPress · Angular · Laravel`), card Fase 2 (`Angular + Laravel`), índice (`H · Stack tecnológico — WordPress (Fase 1) + Angular y Laravel (Fase 2)`).
+3. **A8.b — Reparto técnico de la integración** (NUEVO bloque + `tp-comparison` 2 col):
+   - Lo que hace la web: detección click ID → cookie → mapeo procedencia → envío al CRMGO en payload.
+   - Lo que hace el CRM: ejecuta postback a Awin/Tradedoubler. **La web no llama nunca a la API de Awin/Tradedoubler.**
+   - Mención explícita del Swagger de CRMGO documentado.
+4. **A9.5 — Multiidioma técnico de Fase 2** (NUEVO bloque dentro de SEO técnico, `tp-grid` con 6 cards):
+   - i18n nativo SPA · prioridad usuario→cookie→navegador→fallback ES.
+   - Política de fallback ES si CA/EN vacíos.
+   - 3 plantillas por evento transaccional.
+   - Widget embeddable trilingüe vía API key/param URL.
+   - Implicación de presupuesto: no ×3 desarrollo, sí ×3 contenido + QA.
+5. **H.2 — Stack cerrado · Angular + Laravel** (refundido completo):
+   - Quitada comparativa Angular vs React.
+   - Nueva `tp-comparison` Front Angular / Back Laravel con detalles técnicos.
+   - Sub-bloque "Cómo lo entrega Tres Puntos" reforzando: ciclo completo TP, único interlocutor, mismo modelo que Fase 1 con WordPress.
+6. **I.3 / I.4** — Stack Fase 2 movido de pendientes a cerrados. Añadidos: catálogo de eventos transaccionales (pendiente), multiidioma técnico Fase 2 (cerrado), reparto integración web↔CRM (cerrado).
+
+### Regla nueva guardada en CLAUDE.md (sección ⛔ arriba) y memoria
+
+Nada de fórmulas tipo "partner técnico" / "partner de back-end" en cara-cliente. **El relato es siempre el mismo en cualquier stack** (WordPress, Angular, Laravel, lo que sea): Tres Puntos hace UX + UI + desarrollo end-to-end. Inputs externos (subcontratas, especialistas) son invisibles para el cliente.
+
+### Backups disponibles (rollback)
+
+- v1.6 H2B en `propuestas_history` (id=35, archivada 2026-04-27 18:40:24) — restaurable con `restore_version`.
+- HTML local de v1.7: `/tmp/h2b-v17.html` (123 KB / 2000 líneas).
+- Payload PUT: `/tmp/h2b-v17-payload.json`.
+
+### Smoke test
+
+- `GET /p/h2bhipotecas` → HTTP 200 · 170 ms · sirve v1.7.
+- `GET /api/proposals.php?id=21` → `version: v1.7`, html length 123414.
+
+### A Dani no se le ha respondido el hilo #4
+
+Por instrucción explícita del usuario: ya ha hablado con él directamente. No se redacta borrador en `proveedor_mensajes` para `parent_msg_id=7`. El hilo queda abierto en la BD pero no requiere acción.
+
+---
+
 ## ✅ DESPLEGADO 2026-04-27 · Hilo proveedor end-to-end + H2B v1.6
 
 > Sesión completa centrada en cerrar el flujo de mensajería con proveedores (Dani · Truman) y depurar el alcance de H2B. 4 commits en `main`, 0 errores en prod. Backups en `/tmp/tp-prod-backup-20260427-*/`.
