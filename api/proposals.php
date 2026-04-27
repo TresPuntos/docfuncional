@@ -123,6 +123,29 @@ if ($method === 'POST' && $action === 'notify' && $id) {
     handleMarkNotified($pdo, $id);
 }
 
+// --- Provider messages (mismo patrón que comments, pero contra proveedor_mensajes) ---
+if ($method === 'GET' && $action === 'provider_messages' && $id) {
+    handleListProviderMessages($pdo, $id);
+}
+if ($method === 'POST' && $action === 'provider_reply_draft' && $id) {
+    handleProviderReply($pdo, $id, true);
+}
+if ($method === 'POST' && $action === 'provider_reply_publish' && $id) {
+    handleProviderReply($pdo, $id, false);
+}
+if ($method === 'POST' && $action === 'provider_publish_reply' && $id) {
+    handleProviderPublishReply($pdo, $id);
+}
+if ($method === 'POST' && $action === 'provider_discard_reply' && $id) {
+    handleProviderDiscardReply($pdo, $id);
+}
+if ($method === 'POST' && $action === 'provider_resolve' && $id) {
+    handleProviderResolve($pdo, $id);
+}
+if ($method === 'POST' && $action === 'provider_notify' && $id) {
+    handleProviderMarkNotified($pdo, $id);
+}
+
 // --- CRUD ---
 switch ($method) {
     case 'GET':
@@ -511,6 +534,41 @@ function handleSchema(): void {
                 'method' => 'POST',
                 'path' => '/api/proposals.php?id={id}&action=restore',
                 'description' => 'Restaurar una version anterior. Body: {"history_id": X} o {"version": "v1.0"}. Guarda la version actual en historial antes de restaurar.'
+            ],
+            [
+                'method' => 'GET',
+                'path' => '/api/proposals.php?id={propuesta_id}&action=provider_messages',
+                'description' => 'Lista los proveedores de la propuesta y sus hilos de mensajes. Opcionales: proveedor_id={N} para filtrar a uno, include_drafts=1 para incluir borradores staff, status=open|closed|all.'
+            ],
+            [
+                'method' => 'POST',
+                'path' => '/api/proposals.php?id={parent_msg_id}&action=provider_reply_draft',
+                'description' => 'Crea respuesta staff a un mensaje de proveedor como borrador (no visible al proveedor). Body: {"texto": "..."}'
+            ],
+            [
+                'method' => 'POST',
+                'path' => '/api/proposals.php?id={parent_msg_id}&action=provider_reply_publish',
+                'description' => 'Crea respuesta staff publicada (visible al proveedor + ping Telegram). Body: {"texto": "..."}'
+            ],
+            [
+                'method' => 'POST',
+                'path' => '/api/proposals.php?id={reply_id}&action=provider_publish_reply',
+                'description' => 'Publica un borrador staff existente. Body opcional: {"texto": "texto editado"}.'
+            ],
+            [
+                'method' => 'POST',
+                'path' => '/api/proposals.php?id={reply_id}&action=provider_discard_reply',
+                'description' => 'Borra un borrador staff de proveedor.'
+            ],
+            [
+                'method' => 'POST',
+                'path' => '/api/proposals.php?id={root_msg_id}&action=provider_resolve',
+                'description' => 'Cierra/reabre un hilo de proveedor (toggle).'
+            ],
+            [
+                'method' => 'POST',
+                'path' => '/api/proposals.php?id={propuesta_id}&action=provider_notify',
+                'description' => 'Marca como notificadas las respuestas staff publicadas (para evitar reenviar emails).'
             ]
         ],
         'create_fields' => [
@@ -734,6 +792,177 @@ function handleMarkNotified(PDO $pdo, int $propuestaId): void {
     $stmt = $pdo->prepare("UPDATE comentarios_seccion
         SET notificado_at = CURRENT_TIMESTAMP
         WHERE propuesta_id = ? AND is_staff = 1 AND (is_draft IS NULL OR is_draft = 0) AND notificado_at IS NULL");
+    $stmt->execute([$propuestaId]);
+    jsonSuccess(['updated' => $stmt->rowCount()]);
+}
+
+// ============================================================
+// PROVIDER MESSAGES (proveedor_mensajes) — paralelo a comments
+// ============================================================
+
+/**
+ * GET /api/proposals.php?id=PROPUESTA_ID&action=provider_messages[&proveedor_id=N][&include_drafts=1][&status=open|closed|all]
+ * Lista proveedores de la propuesta y sus hilos de mensajes (estructura agrupada por proveedor + hilo raíz).
+ */
+function handleListProviderMessages(PDO $pdo, int $propuestaId): void {
+    $proveedorId    = isset($_GET['proveedor_id']) ? (int)$_GET['proveedor_id'] : 0;
+    $includeDrafts  = !empty($_GET['include_drafts']);
+    $status         = $_GET['status'] ?? 'all';
+
+    // Verificar que la propuesta existe
+    $check = $pdo->prepare("SELECT id, slug, client_name FROM propuestas WHERE id = ?");
+    $check->execute([$propuestaId]);
+    $prop = $check->fetch(PDO::FETCH_ASSOC);
+    if (!$prop) jsonError('Proposal not found', 404);
+
+    // Lista de proveedores (todos o uno concreto)
+    $sqlProv = "SELECT id, nombre, empresa, email, activo, last_accessed_at, accesos
+                FROM propuesta_proveedores
+                WHERE propuesta_id = ?";
+    $params = [$propuestaId];
+    if ($proveedorId) { $sqlProv .= " AND id = ?"; $params[] = $proveedorId; }
+    $sqlProv .= " ORDER BY id ASC";
+    $pq = $pdo->prepare($sqlProv);
+    $pq->execute($params);
+    $providers = $pq->fetchAll(PDO::FETCH_ASSOC);
+    if (!$providers) {
+        jsonSuccess(['propuesta_id' => $propuestaId, 'client_name' => $prop['client_name'], 'providers' => []]);
+    }
+
+    $provIds = array_column($providers, 'id');
+    $placeholders = implode(',', array_fill(0, count($provIds), '?'));
+
+    // Mensajes de esos proveedores
+    $sqlMsg = "SELECT id, proveedor_id, section_anchor, section_title, autor_tipo, autor_nombre,
+                      texto, parent_id, resuelto, COALESCE(is_draft, 0) AS is_draft,
+                      notificado_at, created_at
+               FROM proveedor_mensajes
+               WHERE proveedor_id IN ($placeholders)";
+    if (!$includeDrafts) { $sqlMsg .= " AND (is_draft IS NULL OR is_draft = 0)"; }
+    $sqlMsg .= " ORDER BY COALESCE(parent_id, id) ASC, created_at ASC";
+    $mq = $pdo->prepare($sqlMsg);
+    $mq->execute($provIds);
+    $allMsgs = $mq->fetchAll(PDO::FETCH_ASSOC);
+
+    // Agrupar por proveedor → hilo raíz → replies
+    $byProv = [];
+    foreach ($providers as $p) {
+        $byProv[$p['id']] = $p + ['threads' => [], '_byRoot' => []];
+    }
+    foreach ($allMsgs as $m) {
+        if (empty($m['parent_id'])) {
+            $m['replies'] = [];
+            $byProv[$m['proveedor_id']]['_byRoot'][$m['id']] = $m;
+        }
+    }
+    foreach ($allMsgs as $m) {
+        if (!empty($m['parent_id']) && isset($byProv[$m['proveedor_id']]['_byRoot'][$m['parent_id']])) {
+            $byProv[$m['proveedor_id']]['_byRoot'][$m['parent_id']]['replies'][] = $m;
+        }
+    }
+    foreach ($byProv as $pid => &$p) {
+        $threads = array_values($p['_byRoot']);
+        if ($status === 'open')   $threads = array_values(array_filter($threads, fn($t) => (int)$t['resuelto'] === 0));
+        if ($status === 'closed') $threads = array_values(array_filter($threads, fn($t) => (int)$t['resuelto'] === 1));
+        $p['threads'] = $threads;
+        $p['n_threads'] = count($threads);
+        unset($p['_byRoot']);
+    }
+    unset($p);
+
+    jsonSuccess([
+        'propuesta_id' => $propuestaId,
+        'client_name'  => $prop['client_name'],
+        'providers'    => array_values($byProv),
+    ]);
+}
+
+/**
+ * POST /api/proposals.php?id=PARENT_MSG_ID&action=provider_reply_draft|provider_reply_publish
+ * Body JSON: { "texto": "..." }
+ * Crea respuesta staff. Draft → cliente/proveedor no la ve. Publish → ping a Telegram.
+ */
+function handleProviderReply(PDO $pdo, int $parentId, bool $isDraft): void {
+    $input = json_decode(file_get_contents('php://input'), true) ?: [];
+    $texto = trim($input['texto'] ?? '');
+    if ($texto === '' || mb_strlen($texto) > 4000) jsonError('Texto inválido (vacío o >4000 caracteres)', 422);
+
+    $parent = $pdo->prepare("SELECT proveedor_id, section_anchor, section_title FROM proveedor_mensajes WHERE id = ?");
+    $parent->execute([$parentId]);
+    $p = $parent->fetch(PDO::FETCH_ASSOC);
+    if (!$p) jsonError('Mensaje raíz no encontrado', 404);
+
+    $pdo->prepare("INSERT INTO proveedor_mensajes
+        (proveedor_id, section_anchor, section_title, autor_tipo, autor_nombre, texto, parent_id, is_draft)
+        VALUES (?, ?, ?, 'staff', 'Tres Puntos', ?, ?, ?)")
+        ->execute([
+            $p['proveedor_id'], $p['section_anchor'], $p['section_title'],
+            $texto, $parentId, $isDraft ? 1 : 0,
+        ]);
+    $newId = (int)$pdo->lastInsertId();
+
+    if (!$isDraft) {
+        $resumen = mb_substr($texto, 0, 120) . (mb_strlen($texto) > 120 ? '…' : '');
+        notifyTelegram("✅ Respuesta a proveedor via API · <i>" . htmlspecialchars($p['section_title'] ?: ($p['section_anchor'] ?: 'general')) . "</i>\n" . htmlspecialchars($resumen));
+    }
+
+    jsonSuccess(['id' => $newId, 'is_draft' => $isDraft, 'parent_id' => $parentId]);
+}
+
+function handleProviderPublishReply(PDO $pdo, int $replyId): void {
+    $input = json_decode(file_get_contents('php://input'), true) ?: [];
+    $texto = isset($input['texto']) ? trim($input['texto']) : null;
+
+    $row = $pdo->prepare("SELECT autor_tipo, is_draft, texto, section_anchor, section_title FROM proveedor_mensajes WHERE id = ?");
+    $row->execute([$replyId]);
+    $r = $row->fetch(PDO::FETCH_ASSOC);
+    if (!$r) jsonError('Reply no encontrado', 404);
+    if ($r['autor_tipo'] !== 'staff') jsonError('Solo se publican respuestas staff', 422);
+    if ((int)$r['is_draft'] !== 1) jsonError('La respuesta ya está publicada', 409);
+
+    $textoFinal = $texto !== null && $texto !== '' ? $texto : $r['texto'];
+    if (mb_strlen($textoFinal) > 4000) jsonError('Texto demasiado largo', 422);
+
+    $pdo->prepare("UPDATE proveedor_mensajes SET texto = ?, is_draft = 0 WHERE id = ?")->execute([$textoFinal, $replyId]);
+
+    $resumen = mb_substr($textoFinal, 0, 120) . (mb_strlen($textoFinal) > 120 ? '…' : '');
+    notifyTelegram("✅ Publicada a proveedor via API · <i>" . htmlspecialchars($r['section_title'] ?: ($r['section_anchor'] ?: 'general')) . "</i>\n" . htmlspecialchars($resumen));
+
+    jsonSuccess(['id' => $replyId, 'published' => true]);
+}
+
+function handleProviderDiscardReply(PDO $pdo, int $replyId): void {
+    $stmt = $pdo->prepare("DELETE FROM proveedor_mensajes WHERE id = ? AND autor_tipo = 'staff' AND is_draft = 1");
+    $stmt->execute([$replyId]);
+    if ($stmt->rowCount() === 0) jsonError('Solo se descartan borradores staff', 422);
+    jsonSuccess(['discarded' => true]);
+}
+
+function handleProviderResolve(PDO $pdo, int $rootId): void {
+    $row = $pdo->prepare("SELECT resuelto, parent_id, section_anchor, section_title FROM proveedor_mensajes WHERE id = ?");
+    $row->execute([$rootId]);
+    $r = $row->fetch(PDO::FETCH_ASSOC);
+    if (!$r) jsonError('Mensaje no encontrado', 404);
+    if ($r['parent_id']) jsonError('Solo se cierran mensajes raíz', 422);
+
+    $newState = (int)$r['resuelto'] === 1 ? 0 : 1;
+    if ($newState === 1) {
+        $pdo->prepare("UPDATE proveedor_mensajes SET resuelto = 1 WHERE id = ?")->execute([$rootId]);
+        notifyTelegram("✅ Hilo proveedor cerrado via API · <i>" . htmlspecialchars($r['section_title'] ?: ($r['section_anchor'] ?: 'general')) . "</i>");
+    } else {
+        $pdo->prepare("UPDATE proveedor_mensajes SET resuelto = 0 WHERE id = ?")->execute([$rootId]);
+        notifyTelegram("↩️ Hilo proveedor reabierto via API · <i>" . htmlspecialchars($r['section_title'] ?: ($r['section_anchor'] ?: 'general')) . "</i>");
+    }
+    jsonSuccess(['id' => $rootId, 'resuelto' => $newState]);
+}
+
+function handleProviderMarkNotified(PDO $pdo, int $propuestaId): void {
+    $stmt = $pdo->prepare("UPDATE proveedor_mensajes
+        SET notificado_at = CURRENT_TIMESTAMP
+        WHERE proveedor_id IN (SELECT id FROM propuesta_proveedores WHERE propuesta_id = ?)
+          AND autor_tipo = 'staff'
+          AND (is_draft IS NULL OR is_draft = 0)
+          AND notificado_at IS NULL");
     $stmt->execute([$propuestaId]);
     jsonSuccess(['updated' => $stmt->rowCount()]);
 }
