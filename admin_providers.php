@@ -219,15 +219,145 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     if ($action === 'reply_to_provider_msg') {
         $id = (int)($_POST['parent_id'] ?? 0);
         $texto = trim($_POST['texto'] ?? '');
+        $isDraft = !empty($_POST['as_draft']) ? 1 : 0;
         if (!$id || $texto === '') { echo json_encode(['success' => false, 'error' => 'Datos inválidos']); exit; }
         $parent = $pdo->prepare("SELECT proveedor_id, section_anchor, section_title FROM proveedor_mensajes WHERE id = ?");
         $parent->execute([$id]);
         $p = $parent->fetch(PDO::FETCH_ASSOC);
         if (!$p) { echo json_encode(['success' => false, 'error' => 'No existe']); exit; }
-        $pdo->prepare("INSERT INTO proveedor_mensajes (proveedor_id, section_anchor, section_title, autor_tipo, autor_nombre, texto, parent_id)
-                       VALUES (?, ?, ?, 'staff', 'Tres Puntos', ?, ?)")
-            ->execute([$p['proveedor_id'], $p['section_anchor'], $p['section_title'], $texto, $id]);
+        $pdo->prepare("INSERT INTO proveedor_mensajes (proveedor_id, section_anchor, section_title, autor_tipo, autor_nombre, texto, parent_id, is_draft)
+                       VALUES (?, ?, ?, 'staff', 'Tres Puntos', ?, ?, ?)")
+            ->execute([$p['proveedor_id'], $p['section_anchor'], $p['section_title'], $texto, $id, $isDraft]);
+        echo json_encode(['success' => true, 'id' => (int)$pdo->lastInsertId(), 'is_draft' => (bool)$isDraft]);
+        exit;
+    }
+
+    if ($action === 'update_draft_provider_msg') {
+        $id = (int)($_POST['id'] ?? 0);
+        $texto = trim($_POST['texto'] ?? '');
+        if (!$id || $texto === '' || mb_strlen($texto) > 4000) { echo json_encode(['success' => false, 'error' => 'Texto inválido']); exit; }
+        $stmt = $pdo->prepare("UPDATE proveedor_mensajes SET texto = ? WHERE id = ? AND autor_tipo = 'staff' AND is_draft = 1");
+        $stmt->execute([$texto, $id]);
+        echo json_encode(['success' => $stmt->rowCount() > 0]);
+        exit;
+    }
+
+    if ($action === 'discard_draft_provider_msg') {
+        $id = (int)($_POST['id'] ?? 0);
+        $stmt = $pdo->prepare("DELETE FROM proveedor_mensajes WHERE id = ? AND autor_tipo = 'staff' AND is_draft = 1");
+        $stmt->execute([$id]);
+        echo json_encode(['success' => $stmt->rowCount() > 0]);
+        exit;
+    }
+
+    if ($action === 'publish_draft_provider_msg') {
+        $id = (int)($_POST['id'] ?? 0);
+        $textoOpt = isset($_POST['texto']) ? trim($_POST['texto']) : null;
+        $row = $pdo->prepare("SELECT autor_tipo, is_draft, texto FROM proveedor_mensajes WHERE id = ?");
+        $row->execute([$id]);
+        $r = $row->fetch(PDO::FETCH_ASSOC);
+        if (!$r || $r['autor_tipo'] !== 'staff' || (int)$r['is_draft'] !== 1) {
+            echo json_encode(['success' => false, 'error' => 'Solo borradores staff']); exit;
+        }
+        $textoFinal = ($textoOpt !== null && $textoOpt !== '') ? $textoOpt : $r['texto'];
+        if (mb_strlen($textoFinal) > 4000) { echo json_encode(['success' => false, 'error' => 'Texto demasiado largo']); exit; }
+        $pdo->prepare("UPDATE proveedor_mensajes SET texto = ?, is_draft = 0 WHERE id = ?")->execute([$textoFinal, $id]);
         echo json_encode(['success' => true]);
+        exit;
+    }
+
+    if ($action === 'notify_provider_replies') {
+        require_once __DIR__ . '/api/contratos_lib.php';
+
+        $proveedorId = (int)($_POST['proveedor_id'] ?? 0);
+        $introExtra  = trim($_POST['intro'] ?? '');
+        if (!$proveedorId) { echo json_encode(['success' => false, 'error' => 'Falta proveedor_id']); exit; }
+
+        $pq = $pdo->prepare("SELECT pv.*, pr.slug, pr.client_name, pr.version AS prop_version
+                             FROM propuesta_proveedores pv JOIN propuestas pr ON pr.id = pv.propuesta_id
+                             WHERE pv.id = ?");
+        $pq->execute([$proveedorId]);
+        $prov = $pq->fetch(PDO::FETCH_ASSOC);
+        if (!$prov) { echo json_encode(['success' => false, 'error' => 'Proveedor no encontrado']); exit; }
+        if (empty($prov['email']) || !filter_var($prov['email'], FILTER_VALIDATE_EMAIL)) {
+            echo json_encode(['success' => false, 'error' => 'Proveedor sin email válido']); exit;
+        }
+
+        // Replies staff publicadas sin notificar (incluye contexto del hilo raíz)
+        $rq = $pdo->prepare("SELECT m.id, m.texto, m.created_at, m.section_title, m.section_anchor,
+                                    parent.texto AS root_texto, parent.section_title AS root_section_title
+                             FROM proveedor_mensajes m
+                             LEFT JOIN proveedor_mensajes parent ON parent.id = m.parent_id
+                             WHERE m.proveedor_id = ?
+                               AND m.autor_tipo = 'staff'
+                               AND (m.is_draft IS NULL OR m.is_draft = 0)
+                               AND m.notificado_at IS NULL
+                             ORDER BY m.created_at ASC");
+        $rq->execute([$proveedorId]);
+        $pending = $rq->fetchAll(PDO::FETCH_ASSOC);
+        if (!$pending) {
+            echo json_encode(['success' => false, 'error' => 'No hay respuestas pendientes de notificar']); exit;
+        }
+
+        $host = $_SERVER['HTTP_HOST'] ?? 'doc.trespuntos-lab.com';
+        $scheme = (($_SERVER['HTTPS'] ?? '') === 'on' || strpos($host, 'localhost') === false) ? 'https' : 'http';
+        $portalUrl = $scheme . '://' . $host . '/s/' . $prov['token'];
+
+        $firstName = htmlspecialchars(strtok($prov['nombre'] ?: 'equipo', ' '), ENT_QUOTES);
+        $clientNameSafe = htmlspecialchars($prov['client_name'], ENT_QUOTES);
+        $nReplies = count($pending);
+
+        $itemsHtml = '';
+        foreach ($pending as $p) {
+            $sectionLbl = htmlspecialchars($p['section_title'] ?: $p['root_section_title'] ?: 'General', ENT_QUOTES);
+            $rootExcerpt = htmlspecialchars(mb_substr($p['root_texto'] ?: '', 0, 140) . (mb_strlen($p['root_texto'] ?: '') > 140 ? '…' : ''), ENT_QUOTES);
+            $replyExcerpt = htmlspecialchars(mb_substr($p['texto'], 0, 220) . (mb_strlen($p['texto']) > 220 ? '…' : ''), ENT_QUOTES);
+            $itemsHtml .= <<<HTML
+<table cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:100%;margin:0 0 16px;border-left:3px solid #0FA36C;background:#F7F6F3;">
+  <tr><td style="padding:12px 16px;">
+    <div style="font-size:12px;color:#666;text-transform:uppercase;letter-spacing:.04em;font-weight:700;margin-bottom:6px;">{$sectionLbl}</div>
+    <div style="font-size:13px;color:#444;font-style:italic;margin-bottom:8px;">"{$rootExcerpt}"</div>
+    <div style="font-size:14px;color:#141414;line-height:1.5;">{$replyExcerpt}</div>
+  </td></tr>
+</table>
+HTML;
+        }
+
+        $introHtml = "Hemos respondido a <strong>{$nReplies}</strong> "
+            . ($nReplies === 1 ? 'comentario' : 'comentarios')
+            . " que dejaste en el portal de proveedor de <strong>{$clientNameSafe}</strong>.";
+        if ($introExtra !== '') {
+            $introHtml .= '<br><br>' . nl2br(htmlspecialchars($introExtra, ENT_QUOTES));
+        }
+
+        $bodyHtml = '<p style="font-size:13px;color:#666;margin:18px 0 8px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;">Resumen de respuestas</p>'
+            . $itemsHtml;
+
+        $opts = [
+            'preheader'    => "Tres Puntos te ha respondido en {$nReplies} " . ($nReplies === 1 ? 'comentario' : 'comentarios') . " · {$prov['client_name']}",
+            'title'        => "Hola {$firstName},",
+            'intro'        => $introHtml,
+            'body_html'    => $bodyHtml,
+            'cta_label'    => 'Revisar respuestas en el portal →',
+            'cta_url'      => $portalUrl,
+            'fallback_url' => $portalUrl,
+            'footer_note'  => 'Responder a este email te dirige a Jordi (jordi@trespuntoscomunicacion.es).',
+        ];
+
+        $subject = 'Tres Puntos te ha respondido · ' . $prov['client_name'];
+        $ok = tp_send_email($prov['email'], $subject, $opts, defined('RESEND_REPLY_TO') ? RESEND_REPLY_TO : null);
+
+        if (!$ok) {
+            echo json_encode(['success' => false, 'error' => 'Error al enviar email (revisa logs Resend)']); exit;
+        }
+
+        // Marca todas como notificadas
+        $ids = array_column($pending, 'id');
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $upd = $pdo->prepare("UPDATE proveedor_mensajes SET notificado_at = CURRENT_TIMESTAMP WHERE id IN ($placeholders)");
+        $upd->execute($ids);
+
+        echo json_encode(['success' => true, 'notified' => $upd->rowCount(), 'email' => $prov['email']]);
         exit;
     }
 
@@ -332,13 +462,21 @@ if ($detailProv > 0) {
     $bq->execute([$detailProv]);
     $budgets = $bq->fetchAll(PDO::FETCH_ASSOC);
 
-    // Mensajes del proveedor
-    $mq = $pdo->prepare("SELECT * FROM proveedor_mensajes WHERE proveedor_id = ? AND is_draft = 0 ORDER BY COALESCE(parent_id, id) ASC, created_at ASC");
+    // Mensajes del proveedor (incluye drafts staff para que admin pueda gestionarlos)
+    $mq = $pdo->prepare("SELECT * FROM proveedor_mensajes WHERE proveedor_id = ? ORDER BY COALESCE(parent_id, id) ASC, created_at ASC");
     $mq->execute([$detailProv]);
     $provMessages = $mq->fetchAll(PDO::FETCH_ASSOC);
-    $mRoots = array_filter($provMessages, fn($m) => !$m['parent_id']);
+    // Roots: solo mensajes raíz NO-staff y NO-draft (lo que escribió el proveedor). Si por alguna razón hay un draft staff sin parent, no lo mostramos como hilo.
+    $mRoots = array_filter($provMessages, fn($m) => !$m['parent_id'] && (int)($m['is_draft'] ?? 0) === 0);
     $mReplies = [];
     foreach ($provMessages as $m) { if ($m['parent_id']) $mReplies[$m['parent_id']][] = $m; }
+    // Cuenta de pendientes de notificar (staff publicadas sin notificado_at)
+    $pendingNotifyCount = 0;
+    foreach ($provMessages as $m) {
+        if (($m['autor_tipo'] ?? '') === 'staff' && (int)($m['is_draft'] ?? 0) === 0 && empty($m['notificado_at'])) {
+            $pendingNotifyCount++;
+        }
+    }
 
     $host = $_SERVER['HTTP_HOST'] ?? 'doc.trespuntos-lab.com';
     $scheme = (($_SERVER['HTTPS'] ?? '') === 'on' || strpos($host, 'localhost') === false) ? 'https' : 'http';
@@ -407,6 +545,32 @@ if ($detailProv > 0) {
     .kpi{background:var(--bg-muted);padding:.6rem .8rem;border-radius:6px;}
     .kpi-label{font-size:.65rem;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted);font-weight:600;}
     .kpi-value{font-size:1.25rem;font-weight:700;margin-top:.15rem;}
+
+    /* Banner notificación pendiente */
+    .notify-banner{display:flex;justify-content:space-between;align-items:center;gap:1rem;background:rgba(250,200,80,.08);border:1px solid rgba(250,200,80,.3);border-radius:8px;padding:.85rem 1rem;margin-bottom:1rem;flex-wrap:wrap;}
+    .notify-banner strong{color:#fac850;font-size:.88rem;}
+
+    /* Pills de estado de reply staff */
+    .pill{display:inline-block;padding:.1rem .45rem;border-radius:999px;font-size:.65rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;margin-left:.4rem;vertical-align:1px;}
+    .pill-draft{background:rgba(250,200,80,.18);color:#fac850;border:1px solid rgba(250,200,80,.3);}
+    .pill-notif{background:rgba(var(--mint-rgb),.15);color:var(--mint);border:1px solid rgba(var(--mint-rgb),.3);}
+    .pill-pending{background:rgba(255,150,150,.12);color:#ff9696;border:1px solid rgba(255,150,150,.3);}
+    .msg.reply.draft{border-left-color:#fac850;background:rgba(250,200,80,.04);}
+
+    /* Acciones de borrador */
+    .draft-actions{display:flex;gap:.4rem;margin-top:.55rem;flex-wrap:wrap;}
+    .btn-sm{font-size:.72rem;padding:.3rem .6rem;}
+    .reply-text[contenteditable="true"]{outline:1px dashed var(--mint);background:rgba(var(--mint-rgb),.06);padding:.4rem;border-radius:4px;cursor:text;}
+
+    /* Modal */
+    .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.7);display:grid;place-items:center;z-index:100;padding:1rem;}
+    .modal-backdrop[hidden]{display:none;}
+    .modal{background:var(--bg-surface);border:1px solid var(--border-base);border-radius:12px;width:100%;max-width:520px;display:flex;flex-direction:column;max-height:90vh;}
+    .modal>header{padding:1rem 1.25rem;border-bottom:1px solid var(--border-base);display:flex;justify-content:space-between;align-items:center;}
+    .modal>header h3{margin:0;font-size:1rem;}
+    .modal-close{background:transparent;border:none;color:var(--text-muted);cursor:pointer;padding:.3rem;}
+    .modal-body{padding:1rem 1.25rem;overflow-y:auto;}
+    .modal>footer{padding:.85rem 1.25rem;border-top:1px solid var(--border-base);display:flex;justify-content:flex-end;gap:.5rem;}
     </style></head><body>
 
     <?php
@@ -511,6 +675,21 @@ if ($detailProv > 0) {
         <div>
             <section class="card">
                 <h2>Mensajes (<?=count($mRoots)?>)</h2>
+
+                <?php if ($pendingNotifyCount > 0): ?>
+                <div class="notify-banner">
+                    <div>
+                        <strong><i data-lucide="mail" style="width:14px;height:14px;vertical-align:-2px;"></i> <?=$pendingNotifyCount?> <?=$pendingNotifyCount === 1 ? 'respuesta publicada sin avisar' : 'respuestas publicadas sin avisar'?></strong>
+                        <div style="font-size:.75rem;color:var(--text-muted);margin-top:.25rem;">
+                            <?=e($pv['nombre'])?> aún no ha sido notificado por email.
+                        </div>
+                    </div>
+                    <button class="btn" onclick="openNotifyModal()">
+                        <i data-lucide="megaphone" style="width:14px;height:14px;"></i> Avisar a <?=e(strtok($pv['nombre'], ' '))?> por email
+                    </button>
+                </div>
+                <?php endif; ?>
+
                 <?php if (!$mRoots): ?>
                     <p style="color:var(--text-muted);font-size:.85rem;">Sin mensajes del proveedor.</p>
                 <?php else: foreach ($mRoots as $root): $replies = $mReplies[$root['id']] ?? []; ?>
@@ -524,23 +703,57 @@ if ($detailProv > 0) {
                             <div class="msg-author"><?=e($root['autor_nombre'] ?: $pv['nombre'])?></div>
                             <div class="msg-text"><?=e($root['texto'])?></div>
                         </div>
-                        <?php foreach ($replies as $r): ?>
-                        <div class="msg reply">
+                        <?php foreach ($replies as $r): $isDraft = (int)($r['is_draft'] ?? 0) === 1; $notified = !empty($r['notificado_at']); ?>
+                        <div class="msg reply<?= $isDraft ? ' draft' : '' ?>" data-reply-id="<?=$r['id']?>">
                             <div class="msg-author <?=$r['autor_tipo']==='staff'?'staff':''?>">
                                 <?=$r['autor_tipo']==='staff' ? 'Tres Puntos' : e($r['autor_nombre'])?>
+                                <?php if ($isDraft): ?><span class="pill pill-draft">Borrador</span><?php endif; ?>
+                                <?php if ($r['autor_tipo']==='staff' && !$isDraft && $notified): ?><span class="pill pill-notif" title="Avisado por email el <?= e(fecha($r['notificado_at'])) ?>"><i data-lucide="mail-check" style="width:10px;height:10px;vertical-align:-1px;"></i> Notificado</span><?php endif; ?>
+                                <?php if ($r['autor_tipo']==='staff' && !$isDraft && !$notified): ?><span class="pill pill-pending">Sin avisar</span><?php endif; ?>
                                 <span style="color:var(--text-muted);font-weight:400;font-size:.7rem;margin-left:.4rem;"><?=fecha($r['created_at'])?></span>
                             </div>
-                            <div class="msg-text"><?=e($r['texto'])?></div>
+                            <div class="msg-text reply-text"><?=e($r['texto'])?></div>
+                            <?php if ($isDraft): ?>
+                            <div class="draft-actions">
+                                <button class="btn btn-sm" onclick="publishReply(<?=$r['id']?>)"><i data-lucide="send" style="width:12px;height:12px;"></i> Publicar</button>
+                                <button class="btn btn-outline btn-sm" onclick="editDraft(<?=$r['id']?>)"><i data-lucide="edit-3" style="width:12px;height:12px;"></i> Editar</button>
+                                <button class="btn btn-outline btn-sm" onclick="discardDraft(<?=$r['id']?>)" style="color:#ff8888;border-color:#552222;"><i data-lucide="trash-2" style="width:12px;height:12px;"></i> Descartar</button>
+                            </div>
+                            <?php endif; ?>
                         </div>
                         <?php endforeach; ?>
                     </div>
                     <form class="reply-form" onsubmit="return replyProviderMsg(event,<?=$root['id']?>)">
                         <textarea name="texto" placeholder="Responder al proveedor…" required></textarea>
-                        <div class="row"><button type="submit" class="btn">Responder</button></div>
+                        <div class="row" style="display:flex;gap:.5rem;justify-content:flex-end;">
+                            <button type="button" class="btn btn-outline" onclick="submitAsDraft(this)">Guardar borrador</button>
+                            <button type="submit" class="btn">Responder y publicar</button>
+                        </div>
                     </form>
                 </article>
                 <?php endforeach; endif; ?>
             </section>
+
+            <!-- Modal notificar a proveedor -->
+            <div class="modal-backdrop" id="notify-modal" hidden>
+                <div class="modal">
+                    <header>
+                        <h3><i data-lucide="megaphone" style="width:18px;height:18px;vertical-align:-3px;"></i> Avisar a <?=e($pv['nombre'])?> por email</h3>
+                        <button onclick="closeNotifyModal()" type="button" class="modal-close"><i data-lucide="x" style="width:18px;height:18px;"></i></button>
+                    </header>
+                    <div class="modal-body">
+                        <p style="margin:0 0 .75rem;color:var(--text-secondary);font-size:.85rem;">
+                            Se enviará un email a <code><?=e($pv['email'])?></code> con resumen de las <?=$pendingNotifyCount?> <?=$pendingNotifyCount === 1 ? 'respuesta' : 'respuestas'?> publicadas, y un CTA al portal del proveedor.
+                        </p>
+                        <label style="font-size:.75rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;font-weight:600;">Mensaje extra (opcional)</label>
+                        <textarea id="notify-intro" rows="3" placeholder="Algo personal que añadir antes del listado de respuestas (opcional)…" style="width:100%;background:var(--bg-subtle);color:var(--text-primary);border:1px solid var(--border-base);padding:.6rem;border-radius:6px;font-family:inherit;font-size:.85rem;margin-top:.3rem;"></textarea>
+                    </div>
+                    <footer>
+                        <button class="btn btn-outline" onclick="closeNotifyModal()" type="button">Cancelar</button>
+                        <button class="btn" onclick="sendNotify()" id="notify-send-btn"><i data-lucide="send" style="width:14px;height:14px;"></i> Enviar email</button>
+                    </footer>
+                </div>
+            </div>
 
             <section class="card sync-card">
                 <div class="sync-head">
@@ -574,12 +787,82 @@ if ($detailProv > 0) {
     }
     async function replyProviderMsg(e, parentId) {
         e.preventDefault();
-        const ta = e.target.querySelector('textarea');
+        const form = e.target;
+        const ta = form.querySelector('textarea');
         const texto = ta.value.trim();
         if (!texto) return false;
-        const r = await fetch('admin_providers.php', {method:'POST', body: new URLSearchParams({action:'reply_to_provider_msg', parent_id: parentId, texto})}).then(r=>r.json()).catch(()=>({}));
+        const asDraft = form.dataset.asDraft === '1' ? '1' : '';
+        const r = await fetch('admin_providers.php', {method:'POST', body: new URLSearchParams({action:'reply_to_provider_msg', parent_id: parentId, texto, as_draft: asDraft})}).then(r=>r.json()).catch(()=>({}));
+        form.dataset.asDraft = '';
         if (r.success) location.reload(); else alert(r.error || 'Error');
         return false;
+    }
+    function submitAsDraft(btn) {
+        const form = btn.closest('form');
+        form.dataset.asDraft = '1';
+        form.requestSubmit();
+    }
+    async function publishReply(id) {
+        if (!confirm('¿Publicar este borrador? El proveedor lo podrá ver en el portal.')) return;
+        const r = await fetch('admin_providers.php', {method:'POST', body: new URLSearchParams({action:'publish_draft_provider_msg', id})}).then(r=>r.json()).catch(()=>({}));
+        if (r.success) location.reload(); else alert(r.error || 'Error');
+    }
+    async function discardDraft(id) {
+        if (!confirm('¿Descartar este borrador? Se borra definitivamente.')) return;
+        const r = await fetch('admin_providers.php', {method:'POST', body: new URLSearchParams({action:'discard_draft_provider_msg', id})}).then(r=>r.json()).catch(()=>({}));
+        if (r.success) location.reload(); else alert(r.error || 'Error');
+    }
+    function editDraft(id) {
+        const wrap = document.querySelector(`.msg.reply[data-reply-id="${id}"]`);
+        if (!wrap) return;
+        const text = wrap.querySelector('.reply-text');
+        const original = text.textContent;
+        text.contentEditable = 'true';
+        text.focus();
+        // sustituir botones
+        const actions = wrap.querySelector('.draft-actions');
+        actions.innerHTML = `
+            <button class="btn btn-sm" onclick="saveEdit(${id}, this)"><i data-lucide="save" style="width:12px;height:12px;"></i> Guardar</button>
+            <button class="btn btn-outline btn-sm" onclick="cancelEdit(${id}, this, ${JSON.stringify(original)})">Cancelar</button>
+        `;
+        if (window.lucide) lucide.createIcons();
+    }
+    async function saveEdit(id, btn) {
+        const wrap = document.querySelector(`.msg.reply[data-reply-id="${id}"]`);
+        const text = wrap.querySelector('.reply-text');
+        const newTexto = text.textContent.trim();
+        if (!newTexto) { alert('Texto vacío'); return; }
+        btn.disabled = true;
+        const r = await fetch('admin_providers.php', {method:'POST', body: new URLSearchParams({action:'update_draft_provider_msg', id, texto: newTexto})}).then(r=>r.json()).catch(()=>({}));
+        if (r.success) location.reload(); else { alert(r.error || 'Error'); btn.disabled = false; }
+    }
+    function cancelEdit(id, btn, original) {
+        location.reload();
+    }
+    function openNotifyModal() {
+        document.getElementById('notify-modal').hidden = false;
+        setTimeout(() => document.getElementById('notify-intro').focus(), 50);
+    }
+    function closeNotifyModal() {
+        document.getElementById('notify-modal').hidden = true;
+        document.getElementById('notify-intro').value = '';
+    }
+    async function sendNotify() {
+        const btn = document.getElementById('notify-send-btn');
+        const intro = document.getElementById('notify-intro').value.trim();
+        const proveedorId = <?=$detailProv?>;
+        btn.disabled = true; btn.innerHTML = '<i data-lucide="loader" style="width:14px;height:14px;"></i> Enviando…';
+        if (window.lucide) lucide.createIcons();
+        const r = await fetch('admin_providers.php', {method:'POST', body: new URLSearchParams({action:'notify_provider_replies', proveedor_id: proveedorId, intro})}).then(r=>r.json()).catch(()=>({}));
+        if (r.success) {
+            alert('✓ Email enviado a ' + r.email + ' (' + r.notified + ' respuestas marcadas como notificadas).');
+            location.reload();
+        } else {
+            alert(r.error || 'Error');
+            btn.disabled = false;
+            btn.innerHTML = '<i data-lucide="send" style="width:14px;height:14px;"></i> Enviar email';
+            if (window.lucide) lucide.createIcons();
+        }
     }
     if (window.lucide) lucide.createIcons();
     </script>
