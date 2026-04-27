@@ -2,6 +2,129 @@
 
 > **Estado actual del proyecto y próximos pasos** → ver [`PLAN.md`](PLAN.md) en la raíz. Léelo al empezar sesión para entender qué está desplegado, qué cliente trabajamos y qué viene después.
 
+---
+
+## ✅ DESPLEGADO 2026-04-27 · Hilo proveedor end-to-end + H2B v1.6
+
+> Sesión completa centrada en cerrar el flujo de mensajería con proveedores (Dani · Truman) y depurar el alcance de H2B. 4 commits en `main`, 0 errores en prod. Backups en `/tmp/tp-prod-backup-20260427-*/`.
+
+### Commits live (orden cronológico)
+
+1. **`95167fa`** — `fix(proveedor): gate contratos scoped a propuesta + IDs drawer feedback`
+2. **`edca8d6`** — `feat(api): endpoints REST para gestionar mensajes de proveedores`
+3. **`3d87914`** — `feat(providers): UI de drafts staff + botón notificar a proveedor por email`
+4. **(BD)** H2B Hipotecas v1.5 → **v1.6** vía REST API (`PUT save_version=true`). v1.5 archivada en `propuestas_history`.
+
+### Bundle 1 · Aislamiento del gate de contratos por propuesta (`95167fa`)
+
+**Bug detectado**: el link al portal proveedor de Aula Clinic redirigía a Dani al contrato Truman/Cardalis (que estaba vinculado a Aula Clinic), bloqueándole el acceso al documento funcional para comentar.
+
+**Fix**: en `provider.php` (los 2 puntos del flujo, POST PIN + GET con sesión), el gate de contratos pendientes ahora filtra por `AND propuesta_id = ?`. Un contrato vinculado a propuesta X solo bloquea el acceso al token de propuesta X.
+
+**Bug colateral arreglado**: en `master/doc-feedback-provider.php` los 4 IDs del bloque "identity-compact" del drawer no llevaban el scope `-drawer-` que `applyIdentityState('drawer')` esperaba → `null.textContent` al comentar desde el modal con identidad guardada. Renombrados a `tp-pv-drawer-identity-{compact,name,change,fields}` + listener actualizado.
+
+### Bundle 2 · API REST para mensajes de proveedores (`edca8d6`)
+
+**Justificación**: hasta ahora `proveedor_mensajes` solo era accesible desde la UI admin con sesión PHP. No había forma de revisar / responder mensajes de proveedores vía API (Claude.ai vía MCP, agentes externos).
+
+**7 acciones nuevas en `api/proposals.php`** (paridad con flujo de comentarios cliente, contra `proveedor_mensajes`):
+
+| Acción | Método | `id=` | Función |
+|---|---|---|---|
+| `provider_messages` | GET | propuesta_id | Lista proveedores + sus hilos. Optional `proveedor_id=N`, `include_drafts=1`, `status=open\|closed\|all` |
+| `provider_reply_draft` | POST | parent_msg_id | Crea respuesta staff como borrador (`is_draft=1`) |
+| `provider_reply_publish` | POST | parent_msg_id | Crea respuesta staff publicada + ping Telegram |
+| `provider_publish_reply` | POST | reply_id | Publica un borrador existente. Body opcional `texto` para editar antes de publicar |
+| `provider_discard_reply` | POST | reply_id | Borra un borrador staff |
+| `provider_resolve` | POST | root_msg_id | Toggle `resuelto` 0↔1 |
+| `provider_notify` | POST | propuesta_id | Marca `notificado_at` en respuestas staff publicadas |
+
+Schema (`?action=schema`) actualizado con las 7 acciones para que los agentes IA conectados las descubran.
+
+### Bundle 3 · UI de drafts + email de notificación a proveedor (`3d87914`)
+
+**Justificación**: el flujo cliente tiene drafts visuales + botón "📢 Avisar nueva versión" con email Resend. Para proveedor faltaba paridad — cuando respondías a un proveedor no se le mandaba ningún email, solo veía la respuesta si entraba al portal `/s/{token}`.
+
+**`admin_providers.php?proveedor_id=X` ahora tiene**:
+
+- **Drafts staff visibles inline** dentro de cada hilo, con borde amarillo + badge "Borrador" + 3 botones: `Publicar` · `Editar` · `Descartar`. La query del detalle ahora incluye `is_draft=1` (antes filtraba a solo publicadas).
+- **Pills de estado** en cada respuesta staff: `Borrador` (amarillo) · `Sin avisar` (rojo) · `Notificado` (verde con tooltip de fecha).
+- **Form de respuesta con doble botón**: `Guardar borrador` y `Responder y publicar`.
+- **Banner amarillo** arriba de "Mensajes" si hay respuestas staff publicadas sin notificar → CTA "📢 Avisar a {nombre} por email".
+- **Modal de notificación** con textarea opcional para mensaje extra antes del listado.
+- **Email Resend** con `tp_render_email_layout()` (api/contratos_lib.php · paleta print mint `#0FA36C`): preheader, "Hola {firstName}", intro extra opcional, **resumen visual de las N respuestas** (sección + extracto pregunta + extracto respuesta), CTA "Revisar respuestas en el portal →" hacia `/s/{token}`. Marca todas como `notificado_at` tras envío exitoso.
+
+**5 endpoints nuevos** en `admin_providers.php` (POST):
+- `reply_to_provider_msg` (modificado · acepta `as_draft=1`)
+- `update_draft_provider_msg`
+- `discard_draft_provider_msg`
+- `publish_draft_provider_msg`
+- `notify_provider_replies`
+
+### Bundle 4 · H2B Hipotecas v1.6 — retirado el panel admin a medida
+
+**Detonante**: Dani (Truman) dejó 3 mensajes en H2B preguntando, entre otras cosas, sobre "Contenido editorial" dentro del panel admin de Fase 2. Análisis cruzado con los 12 hilos cerrados de Eloi (cliente) confirmó que **el cliente NO había pedido el panel /admin/ a medida** — fue propuesta nuestra (yo, en sesiones anteriores enriqueciendo el doc).
+
+**Análisis honesto del solapamiento**:
+- WordPress + ACF + Gutenberg + librería de bloques (Fase 1) ya da autonomía total al equipo H2B para gestionar páginas, blog, FAQ, tarifas, equipo, oficinas, agencias, productos hipotecarios.
+- CRMGO ya gestiona toda la operativa comercial de leads (asignación, estados, notas, seguimiento). Eloi confirmó en hilo #5 que NO querían duplicarlo.
+- GA4 + Search Console ya dan métricas web.
+- Construir un panel paralelo replicaba esas tres herramientas sin aportar valor diferencial.
+
+**Decisión tomada con el usuario**: retirar el bloque D entero, sin sustituto a medida. Conservar las 2 piezas que sí tenían valor propio (Euríbor automático + scoring IA), referenciadas donde corresponden.
+
+**Cambios aplicados al doc** (vía API `PUT id=21 save_version=true`):
+- Cabecera v1.5 → v1.6
+- Resumen ejecutivo: eliminada línea "Panel admin completo (15 módulos)"
+- Índice: eliminada entrada "D · Panel admin"
+- Tabla resumen Fase 2: eliminada fila "Panel de administración"
+- Sitemap: eliminado nodo `/admin/`
+- Bloque D entero (~8.500 chars de tablas con 15 módulos) sustituido por **nota explicativa** que documenta el cambio + 2 cards conservando Euríbor automático + scoring IA
+- Multiidioma: "gestión desde panel admin" → "gestión desde WordPress"
+- Bloque G: alcance Fase 2 sin "admin completo"; entregables sin "panel admin a medida"; "7 calculadoras" → "8 calculadoras"
+- Bloque H: card "Panel admin a medida" → "Administración nativa de WordPress"; eliminado bullet "el panel /admin/ absorbe y amplía"; decisión técnica Fase 2 sin mención al bloque D
+- Bloque I.4: eliminada línea "Módulos del panel admin (15 módulos a medida, sin duplicar CRM)"
+- Comentarios de scoring: "Dentro del panel de admin de la web" eliminado
+- Entregables Fase 1: "panel básico de edición" → "admin nativo de WordPress configurado a medida"
+
+**v1.5 archivada** en `propuestas_history` (history_id consultable). Restaurable con `restore_version`.
+
+### Bundle 5 · 3 borradores publicados a Dani (vía API, sin enviar)
+
+Tras la v1.6 subí 3 `provider_reply_draft` para los hilos #1, #2, #3 de Dani (ids 4, 5, 6 en `proveedor_mensajes`). Quedan en `is_draft=1` esperando que Jordi los revise en la UI nueva, los publique uno a uno (botón "Publicar") y le dé al banner "📢 Avisar a Dani por email".
+
+**Resumen de los 3 borradores** (queda referencia para futuras conversaciones):
+- **Hilo #1** (Panel admin Fase 2 / Contenido editorial) → "Buena cazada, lo hemos retirado en v1.6, te explico el reparto WP + CRMGO + GA4 + lo que sí se mantiene (Euríbor automático + scoring IA)".
+- **Hilo #2** (8.4 Flujo del lead / API CRMGO Awin) → enlaces Swagger CRMGO + tracking Awin, reparto técnico Fase 1 vs Fase 2.
+- **Hilo #3** (Resumen ejecutivo / multiidioma) → 3 idiomas en ambas fases, fallback a ES si CA/EN vacíos, implicaciones para dimensionado.
+
+### Backups disponibles (rollback)
+
+- `/tmp/tp-prod-backup-20260427-104905-prov-fix/` (pre fix gate + IDs drawer)
+- `/tmp/tp-prod-backup-20260427-115851-prov-api/` (pre API endpoints proveedor)
+- `/tmp/tp-prod-backup-20260427-130631-prov-drafts-ui/` (pre UI drafts + notify)
+- v1.5 H2B en `propuestas_history` (restore vía API con `restore_version`)
+
+### Patrón reutilizable · Email transaccional con `tp_render_email_layout`
+
+Confirmado: el flujo de notificación a Dani usa **el mismo layout estándar** que los emails de contratos (paleta print mint `#0FA36C`, ancho 600px, tables + inline styles, CTA bulletproof Outlook, preheader invisible). Esto cumple el estándar obligatorio de la sección "ESTÁNDAR OBLIGATORIO · Plantilla de email transaccional" de este CLAUDE.md.
+
+**Pendientes de migración al layout estándar** (siguen en HTML legacy):
+- `admin_providers.php` → `sendProviderInviteEmail()` (invita proveedor)
+- `admin_feedback.php` → `sendClientCommentNotification()`, `sendStaffReplyNotification()`, `sendVersionAnnouncement()`
+- `provider.php` → invite email proveedor (si aplica)
+
+Cuando se vuelva a tocar cualquiera de esos flujos, migrar a `tp_send_email()` en la misma sesión.
+
+### Lecciones aprendidas esta sesión (2026-04-27)
+
+1. **Verificar siempre quién pidió qué antes de aceptar un alcance grande**. La sección I.4 listaba "Módulos del panel admin (15 módulos)" como cerrado, pero NUNCA Eloi lo pidió en sus 12 hilos. Una regla limpia: si una pieza no aparece en comentarios cliente ni en el prototipo del cliente, es propuesta nuestra y hay que cuestionarla cuando solapa con herramientas que el cliente ya tiene operativas (CRMGO, WP, GA4).
+2. **El sitemap del propio doc tenía la respuesta**. Cada nodo en A2 lleva etiqueta "Prototipo" (= viene del cliente) o "Tres Puntos" (= recomendación nuestra). Útil para auditar procedencia rápido en futuras revisiones.
+3. **Subir el código además del cambio de BD**. Subí 3 borradores via API pero olvidé deployar la UI que los muestra → el user no veía nada. Regla: si tocas BD y código, asegúrate de deployar ambos antes de avisar.
+4. **El gate try/catch de contratos en `provider.php` salvó el deploy de v1.6 del sistema de contratos**. La defensividad pagó cuando hubo que aislar el gate por propuesta — solo añadimos un filtro AND, sin riesgo de romper el flujo si las tablas no existen.
+
+---
+
 ## 🔁 PROCESO OBLIGATORIO · Deploy a prod + commit a git
 
 **Esta sección manda en CUALQUIER sesión futura.** Es el único flujo permitido para cambios que toquen producción.
