@@ -995,10 +995,12 @@ if ($is_unlocked) {
         }
         .sidebar-brand img { display: block; }
 
-        /* Logos theme-aware: dark sobre fondo dark, light sobre fondo claro */
-        .tp-logo--light { display: none; }
-        [data-theme="light"] .tp-logo--dark { display: none; }
-        [data-theme="light"] .tp-logo--light { display: block; }
+        /* Logos theme-aware: dark sobre fondo dark, light sobre fondo claro
+           Doble clase para vencer specificity de .sidebar-brand img y .mobile-logo */
+        .tp-logo.tp-logo--light { display: none !important; }
+        .tp-logo.tp-logo--dark  { display: block !important; }
+        [data-theme="light"] .tp-logo.tp-logo--dark  { display: none !important; }
+        [data-theme="light"] .tp-logo.tp-logo--light { display: block !important; }
 
         /* Columna con pill "Beta" + subtítulo "by TresPuntos Lab" */
         .beta-stack {

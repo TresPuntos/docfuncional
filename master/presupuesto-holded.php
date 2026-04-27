@@ -51,9 +51,10 @@ $total    = (float)($holded_doc['total'] ?? 0);
 }
 .tp-invoice__logo img { display: block; width: 100%; height: auto; }
 /* Logo theme-aware: dark sobre fondo dark, light sobre fondo claro */
-.tp-invoice__logo .tp-logo--light { display: none; }
-[data-theme="light"] .tp-invoice__logo .tp-logo--dark { display: none; }
-[data-theme="light"] .tp-invoice__logo .tp-logo--light { display: block; }
+.tp-invoice__logo .tp-logo--light { display: none !important; }
+.tp-invoice__logo .tp-logo--dark  { display: block !important; }
+[data-theme="light"] .tp-invoice__logo .tp-logo--dark  { display: none !important; }
+[data-theme="light"] .tp-invoice__logo .tp-logo--light { display: block !important; }
 .tp-invoice__issuer { font-size: .78rem; color: var(--text-secondary, #b3b3b3); line-height: 1.5; }
 .tp-invoice__issuer strong { color: var(--text-primary, #f5f5f5); display: block; font-size: .9rem; margin-bottom: .25rem; }
 .tp-invoice__meta { text-align: right; }
