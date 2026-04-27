@@ -267,16 +267,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['pin'])) {
         $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
 
         // === GATE DE CONTRATOS PENDIENTES (NDA, subcontratación, etc) ===
-        // Tolera que las tablas contratos/contratos_firmas aún no estén creadas en prod:
-        // si fallan, seguimos el flujo normal (propuesta) sin romper al proveedor.
+        // Solo redirige si el contrato pertenece a la MISMA propuesta del token.
+        // Un contrato de "Cardalis" no debe bloquear el acceso al token de "Aula Clinic", etc.
+        // Tolera que las tablas contratos/contratos_firmas aún no estén creadas en prod.
         try {
             $pendiente = $pdo->prepare("
                 SELECT id FROM contratos
                 WHERE destinatario_tipo = 'proveedor' AND destinatario_id = ?
+                  AND propuesta_id = ?
                   AND estado IN ('enviado','visto','firmado_parcial')
                 ORDER BY created_at ASC LIMIT 1
             ");
-            $pendiente->execute([$provider['id']]);
+            $pendiente->execute([$provider['id'], (int)$provider['propuesta_id']]);
             $pendienteId = $pendiente->fetchColumn();
 
             if ($pendienteId) {
@@ -305,16 +307,18 @@ if ($unlocked && $_SERVER['REQUEST_METHOD'] === 'GET') {
     $scheme = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http';
     $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
 
-    // Mismo check de contratos pendientes — defensivo por si las tablas aún no existen
+    // Mismo check de contratos pendientes — scoped a la propuesta del token actual.
+    // Defensivo por si las tablas aún no existen.
     try {
         $pendiente = $pdo->prepare("
             SELECT c.id FROM contratos c
             WHERE c.destinatario_tipo = 'proveedor' AND c.destinatario_id = ?
+              AND c.propuesta_id = ?
               AND c.estado IN ('enviado','visto','firmado_parcial')
               AND EXISTS (SELECT 1 FROM contratos_firmas WHERE contrato_id = c.id AND rol = 'proveedor' AND firmado_at IS NULL)
             ORDER BY c.created_at ASC LIMIT 1
         ");
-        $pendiente->execute([$provider['id']]);
+        $pendiente->execute([$provider['id'], (int)$provider['propuesta_id']]);
         $pendienteId = $pendiente->fetchColumn();
         if ($pendienteId) {
             header('Location: ' . $scheme . '://' . $host . '/provider_contrato.php?token=' . urlencode($token) . '&contrato_id=' . (int)$pendienteId);

@@ -251,11 +251,11 @@ h2:hover > .tp-sec-btn, h3:hover > .tp-sec-btn { opacity: 1; }
     </div>
     <div class="tp-drawer-body" id="tp-pv-drawer-body"><div class="tp-drawer-empty">Cargando…</div></div>
     <form class="tp-drawer-form" id="tp-pv-drawer-form" autocomplete="on">
-        <div class="tp-identity-compact" id="tp-pv-identity-compact" hidden>
-            <span>Firmas como <strong id="tp-pv-identity-name">—</strong></span>
-            <a id="tp-pv-identity-change">cambiar</a>
+        <div class="tp-identity-compact" id="tp-pv-drawer-identity-compact" hidden>
+            <span>Firmas como <strong id="tp-pv-drawer-identity-name">—</strong></span>
+            <a id="tp-pv-drawer-identity-change">cambiar</a>
         </div>
-        <div class="row" id="tp-pv-identity-fields">
+        <div class="row" id="tp-pv-drawer-identity-fields">
             <input type="text" id="tp-pv-drawer-nombre" placeholder="Nombre" required>
             <input type="text" id="tp-pv-drawer-apellidos" placeholder="Apellidos (opcional)">
         </div>
@@ -616,9 +616,9 @@ window.TP_PV_INITIAL_SIGNER = <?= json_encode($__pvInitialSigner, JSON_UNESCAPED
         document.getElementById('tp-pv-drawer-close').addEventListener('click', closeDrawer);
         document.getElementById('tp-pv-drawer-backdrop').addEventListener('click', closeDrawer);
         document.getElementById('tp-pv-drawer-form').addEventListener('submit', submitDrawer);
-        document.getElementById('tp-pv-identity-change').addEventListener('click', () => {
-            document.getElementById('tp-pv-identity-compact').hidden = true;
-            document.getElementById('tp-pv-identity-fields').hidden = false;
+        document.getElementById('tp-pv-drawer-identity-change').addEventListener('click', () => {
+            document.getElementById('tp-pv-drawer-identity-compact').hidden = true;
+            document.getElementById('tp-pv-drawer-identity-fields').hidden = false;
             const em = document.getElementById('tp-pv-drawer-email');
             em.hidden = false; em.required = true;
             document.getElementById('tp-pv-drawer-nombre').required = true;
