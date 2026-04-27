@@ -165,6 +165,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         exit;
     }
 
+    if ($action === 'set_ver_comentarios') {
+        $id = (int)($_POST['id'] ?? 0);
+        $val = isset($_POST['ver_comentarios']) && $_POST['ver_comentarios'] === '1' ? 1 : 0;
+        if (!$id) { echo json_encode(['success' => false, 'error' => 'ID inválido']); exit; }
+        $st = $pdo->prepare("UPDATE propuesta_proveedores SET ver_comentarios = ? WHERE id = ?");
+        $st->execute([$val, $id]);
+        echo json_encode(['success' => true, 'ver_comentarios' => $val]);
+        exit;
+    }
+
     if ($action === 'delete_provider') {
         $id = (int)($_POST['id'] ?? 0);
         if (!$id) { echo json_encode(['success' => false, 'error' => 'ID inválido']); exit; }
@@ -1038,6 +1048,13 @@ tr:last-child td{border-bottom:0;} tr.inactive{opacity:.4;}
 .pill.success{background:rgba(var(--mint-rgb),.15);color:var(--mint);}
 .pill.muted{background:var(--bg-muted);color:var(--text-muted);}
 .pill.err{background:rgba(255,107,107,.14);color:#ff6b6b;}
+.pv-vc-toggle{display:inline-flex;align-items:center;gap:.3rem;padding:.18rem .55rem;border-radius:999px;font-size:.68rem;font-weight:600;cursor:pointer;border:1px solid transparent;font-family:inherit;line-height:1.4;transition:all .12s ease;margin-top:.3rem;}
+.pv-vc-toggle.on{background:rgba(var(--mint-rgb),.12);color:var(--mint);border-color:rgba(var(--mint-rgb),.3);}
+.pv-vc-toggle.on:hover{background:rgba(var(--mint-rgb),.2);}
+.pv-vc-toggle.off{background:var(--bg-muted);color:var(--text-muted);border-color:var(--border-base);}
+.pv-vc-toggle.off:hover{color:var(--text-secondary);border-color:var(--border-strong);}
+.pv-vc-toggle:disabled{opacity:.5;cursor:wait;}
+.pv-vc-toggle i[data-lucide],.pv-vc-toggle svg.lucide{width:10px !important;height:10px !important;flex-shrink:0;}
 
 /* Card cuando acabas de crear uno */
 .access-card{background:linear-gradient(135deg,rgba(var(--mint-rgb),.14),rgba(var(--mint-rgb),.03));border:1px solid rgba(var(--mint-rgb),.4);border-radius:12px;padding:1.5rem;margin-bottom:2rem;display:none;}
@@ -1313,9 +1330,14 @@ $adminSidebarPropuestas = $propuestas;
                     <?php if ($pv['empresa']): ?><div style="font-size:.75rem;color:var(--text-muted);"><?=e($pv['empresa'])?></div><?php endif; ?>
                     <div style="font-size:.72rem;color:var(--text-muted);"><?=e($pv['email'])?></div>
                 </a>
-                <?php if ((int)$pv['ver_comentarios']===1): ?>
-                    <span class="pill muted" title="Puede ver comentarios del cliente" style="display:inline-flex;align-items:center;gap:.25rem;"><i data-lucide="eye" style="width:10px;height:10px;"></i> ve cliente</span>
-                <?php endif; ?>
+                <button type="button"
+                        class="pv-vc-toggle <?=((int)$pv['ver_comentarios']===1?'on':'off')?>"
+                        data-id="<?=(int)$pv['id']?>"
+                        onclick="toggleVerComentarios(this)"
+                        title="<?=((int)$pv['ver_comentarios']===1?'Puede ver los comentarios del cliente — click para ocultar':'No ve los comentarios del cliente — click para permitir')?>">
+                    <i data-lucide="<?=((int)$pv['ver_comentarios']===1?'eye':'eye-off')?>" style="width:10px;height:10px;"></i>
+                    <span class="pv-vc-label"><?=((int)$pv['ver_comentarios']===1?'ve comentarios cliente':'sin comentarios cliente')?></span>
+                </button>
                 <?php if ((int)$pv['activo']===0): ?>
                     <span class="pill err">Revocado</span>
                 <?php endif; ?>
@@ -1553,6 +1575,40 @@ async function revoke(id) {
 async function reactivate(id) {
     await fetch('admin_providers.php', { method: 'POST', body: new URLSearchParams({action: 'reactivate_provider', id}) });
     location.reload();
+}
+
+async function toggleVerComentarios(btn) {
+    const id = btn.getAttribute('data-id');
+    const wasOn = btn.classList.contains('on');
+    const next = wasOn ? 0 : 1;
+    btn.disabled = true;
+    try {
+        const r = await fetch('admin_providers.php', {
+            method: 'POST',
+            body: new URLSearchParams({ action: 'set_ver_comentarios', id, ver_comentarios: String(next) })
+        }).then(r => r.json()).catch(() => ({}));
+        if (!r.success) { alert('No se pudo actualizar el permiso.'); btn.disabled = false; return; }
+        btn.classList.toggle('on', next === 1);
+        btn.classList.toggle('off', next === 0);
+        const icon = btn.querySelector('i, svg');
+        if (icon) {
+            const newIcon = next === 1 ? 'eye' : 'eye-off';
+            // Lucide ya reemplaza <i> por <svg>, así que recreamos el <i> y volvemos a llamar a createIcons
+            const placeholder = document.createElement('i');
+            placeholder.setAttribute('data-lucide', newIcon);
+            placeholder.style.width = '10px';
+            placeholder.style.height = '10px';
+            icon.replaceWith(placeholder);
+            if (window.lucide) lucide.createIcons();
+        }
+        const label = btn.querySelector('.pv-vc-label');
+        if (label) label.textContent = next === 1 ? 've comentarios cliente' : 'sin comentarios cliente';
+        btn.title = next === 1
+            ? 'Puede ver los comentarios del cliente — click para ocultar'
+            : 'No ve los comentarios del cliente — click para permitir';
+    } finally {
+        btn.disabled = false;
+    }
 }
 
 async function deleteProvider(id, nombre, nMensajes) {
