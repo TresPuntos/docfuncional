@@ -19,6 +19,7 @@ $allProps = [];
 $statsByProp = [];
 $globalCommentsOpen = 0;
 $globalProvidersTotal = 0;
+$globalBudgetsUnseen = 0;
 if ($pdo) {
     try {
         $allProps = $pdo->query("SELECT id, slug, client_name, status, version FROM propuestas ORDER BY status DESC, client_name ASC")->fetchAll(PDO::FETCH_ASSOC);
@@ -35,6 +36,19 @@ if ($pdo) {
         foreach ($pq as $r) {
             $statsByProp[(int)$r['propuesta_id']]['providers'] = (int)$r['n'];
             $globalProvidersTotal += (int)$r['n'];
+        }
+    } catch (Exception $e) {}
+    // Presupuestos subidos por proveedor sin ver por admin (seen_at IS NULL)
+    // try defensivo: si la columna seen_at no existe (pre-migración), simplemente no contamos
+    try {
+        $bq = $pdo->query("SELECT pv.propuesta_id, COUNT(*) AS n
+                           FROM proveedor_presupuestos pp
+                           JOIN propuesta_proveedores pv ON pv.id = pp.proveedor_id
+                           WHERE pp.seen_at IS NULL
+                           GROUP BY pv.propuesta_id");
+        foreach ($bq as $r) {
+            $statsByProp[(int)$r['propuesta_id']]['budgets_unseen'] = (int)$r['n'];
+            $globalBudgetsUnseen += (int)$r['n'];
         }
     } catch (Exception $e) {}
 
@@ -247,6 +261,23 @@ $archivedProps = array_values(array_filter($allProps, fn($p) => (int)$p['status'
     padding: 1px 7px;
     letter-spacing: 0.01em;
     line-height: 1.3;
+}
+.nav-item__badge--budgets {
+    color: #ffd84d;
+    background: rgba(255, 216, 77, .12);
+    border: 1px solid rgba(255, 216, 77, .3);
+    position: relative;
+    padding-left: 14px;
+    margin-right: 4px;
+    gap: 0;
+}
+.nav-item__badge--budgets .prop__badge-pulse {
+    position: absolute;
+    left: 5px; top: 50%; transform: translateY(-50%);
+    width: 5px; height: 5px; border-radius: 50%;
+    background: #ffd84d;
+    box-shadow: 0 0 0 0 rgba(255, 216, 77, .65);
+    animation: tpBudgetPulse 1.6s ease-in-out infinite;
 }
 .nav-item__badge--purple {
     color: #c084fc;
@@ -514,6 +545,29 @@ svg.prop__chevron.lucide {
 .prop__badge--comments .prop__badge-dot { background: var(--mint, #5dffbf); box-shadow: 0 0 6px rgba(var(--mint-rgb, 93, 255, 191), .35); }
 .prop__badge--providers { color: #c084fc; }
 .prop__badge--providers .prop__badge-dot { background: #c084fc; box-shadow: 0 0 6px rgba(192, 132, 252, .35); }
+/* Presupuestos nuevos sin ver — color print mint + pulso para llamar la atención */
+.prop__badge--budgets {
+    color: #ffd84d;
+    background: rgba(255, 216, 77, .08);
+    border: 1px solid rgba(255, 216, 77, .25);
+    padding: 1px 6px 1px 5px;
+    border-radius: 999px;
+    position: relative;
+    padding-left: 14px;
+}
+.prop__badge--budgets .prop__badge-pulse {
+    position: absolute;
+    left: 5px; top: 50%; transform: translateY(-50%);
+    width: 6px; height: 6px; border-radius: 50%;
+    background: #ffd84d;
+    box-shadow: 0 0 0 0 rgba(255, 216, 77, .65);
+    animation: tpBudgetPulse 1.6s ease-in-out infinite;
+}
+@keyframes tpBudgetPulse {
+    0%   { box-shadow: 0 0 0 0 rgba(255, 216, 77, .55); }
+    70%  { box-shadow: 0 0 0 6px rgba(255, 216, 77, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(255, 216, 77, 0); }
+}
 
 /* ----- Submenu (tree) ----- */
 .prop__sub {
@@ -860,9 +914,14 @@ svg.prop__chevron.lucide {
             <i data-lucide="layout-dashboard"></i>
             Dashboard
         </a>
-        <a href="admin_providers.php" class="nav-item <?= ($active === 'proveedores' && !$activePropId) ? 'is-active' : '' ?>" title="Directorio de todos los proveedores con sus contactos y documentos">
+        <a href="admin_providers.php" class="nav-item <?= ($active === 'proveedores' && !$activePropId) ? 'is-active' : '' ?>" title="<?= $globalBudgetsUnseen > 0 ? $globalBudgetsUnseen . ' presupuesto' . ($globalBudgetsUnseen === 1 ? '' : 's') . ' nuevo' . ($globalBudgetsUnseen === 1 ? '' : 's') . ' sin ver · ' : '' ?>Directorio de todos los proveedores con sus contactos y documentos">
             <i data-lucide="hard-hat"></i>
             <span>Proveedores</span>
+            <?php if ($globalBudgetsUnseen > 0): ?>
+                <span class="nav-item__badge nav-item__badge--budgets" title="<?= $globalBudgetsUnseen ?> presupuesto<?= $globalBudgetsUnseen === 1 ? '' : 's' ?> sin ver">
+                    <span class="prop__badge-pulse"></span><?= $globalBudgetsUnseen ?>
+                </span>
+            <?php endif; ?>
             <?php if ($globalProvidersTotal > 0): ?>
                 <span class="nav-item__badge nav-item__badge--purple"><?= $globalProvidersTotal ?></span>
             <?php endif; ?>
@@ -907,6 +966,7 @@ svg.prop__chevron.lucide {
                 $s = $statsByProp[$pid] ?? [];
                 $commentsN = $s['comments'] ?? 0;
                 $providersN = $s['providers'] ?? 0;
+                $budgetsN = $s['budgets_unseen'] ?? 0;
             ?>
                 <details class="prop <?= $isActivePid ? 'is-active' : '' ?>" <?= $isActivePid ? 'open' : '' ?>>
                     <summary>
@@ -914,8 +974,14 @@ svg.prop__chevron.lucide {
                         <span class="prop__name" title="<?= htmlspecialchars($p['client_name']) ?>">
                             <?= htmlspecialchars($p['client_name']) ?><?php if ($p['version']): ?><span class="prop__version"><?= htmlspecialchars($p['version']) ?></span><?php endif; ?>
                         </span>
-                        <?php if ($commentsN > 0 || $providersN > 0): ?>
+                        <?php if ($commentsN > 0 || $providersN > 0 || $budgetsN > 0): ?>
                             <span class="prop__badges">
+                                <?php if ($budgetsN > 0): ?>
+                                    <span class="prop__badge prop__badge--budgets" title="<?= $budgetsN ?> presupuesto<?= $budgetsN === 1 ? '' : 's' ?> nuevo<?= $budgetsN === 1 ? '' : 's' ?> sin ver">
+                                        <span class="prop__badge-pulse"></span>
+                                        <i data-lucide="file-text"></i><?= $budgetsN ?>
+                                    </span>
+                                <?php endif; ?>
                                 <?php if ($commentsN > 0): ?>
                                     <!-- H8: icono Lucide en lugar de dot -->
                                     <span class="prop__badge prop__badge--comments" title="<?= $commentsN ?> hilo<?= $commentsN === 1 ? '' : 's' ?> de comentarios sin resolver">

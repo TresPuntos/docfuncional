@@ -145,6 +145,9 @@ if ($method === 'POST' && $action === 'provider_resolve' && $id) {
 if ($method === 'POST' && $action === 'provider_notify' && $id) {
     handleProviderMarkNotified($pdo, $id);
 }
+if ($method === 'GET' && $action === 'provider_budget_download' && $id) {
+    handleProviderBudgetDownload($pdo, $id);
+}
 
 // --- CRUD ---
 switch ($method) {
@@ -569,6 +572,11 @@ function handleSchema(): void {
                 'method' => 'POST',
                 'path' => '/api/proposals.php?id={propuesta_id}&action=provider_notify',
                 'description' => 'Marca como notificadas las respuestas staff publicadas (para evitar reenviar emails).'
+            ],
+            [
+                'method' => 'GET',
+                'path' => '/api/proposals.php?id={budget_id}&action=provider_budget_download',
+                'description' => 'Descarga el PDF de un presupuesto subido por proveedor con Bearer auth. Marca seen_at automáticamente. Devuelve binary stream con Content-Type: application/pdf.'
             ]
         ],
         'create_fields' => [
@@ -832,6 +840,40 @@ function handleListProviderMessages(PDO $pdo, int $propuestaId): void {
     $provIds = array_column($providers, 'id');
     $placeholders = implode(',', array_fill(0, count($provIds), '?'));
 
+    // Presupuestos subidos por estos proveedores (todos, sin filtro)
+    // Defensivo: si seen_at no existe (pre-migración) usamos NULL.
+    $budgetsByProv = [];
+    try {
+        $bsql = "SELECT id, proveedor_id, archivo_nombre, archivo_size, archivo_mime,
+                        importe_total, plazo_dias, moneda, notas, version_num, uploaded_at,
+                        seen_at
+                 FROM proveedor_presupuestos
+                 WHERE proveedor_id IN ($placeholders)
+                 ORDER BY version_num DESC, uploaded_at DESC";
+        $bq = $pdo->prepare($bsql);
+        $bq->execute($provIds);
+        foreach ($bq->fetchAll(PDO::FETCH_ASSOC) as $b) {
+            $b['download_url'] = '/api/proposals.php?action=provider_budget_download&id=' . (int)$b['id'];
+            $budgetsByProv[(int)$b['proveedor_id']][] = $b;
+        }
+    } catch (\Throwable $_) {
+        // tabla no existe o seen_at sin migrar → array vacío
+        try {
+            $bsql2 = "SELECT id, proveedor_id, archivo_nombre, archivo_size, archivo_mime,
+                            importe_total, plazo_dias, moneda, notas, version_num, uploaded_at
+                     FROM proveedor_presupuestos
+                     WHERE proveedor_id IN ($placeholders)
+                     ORDER BY version_num DESC, uploaded_at DESC";
+            $bq2 = $pdo->prepare($bsql2);
+            $bq2->execute($provIds);
+            foreach ($bq2->fetchAll(PDO::FETCH_ASSOC) as $b) {
+                $b['seen_at'] = null;
+                $b['download_url'] = '/api/proposals.php?action=provider_budget_download&id=' . (int)$b['id'];
+                $budgetsByProv[(int)$b['proveedor_id']][] = $b;
+            }
+        } catch (\Throwable $__) { /* tabla aún no creada */ }
+    }
+
     // Mensajes de esos proveedores
     $sqlMsg = "SELECT id, proveedor_id, section_anchor, section_title, autor_tipo, autor_nombre,
                       texto, parent_id, resuelto, COALESCE(is_draft, 0) AS is_draft,
@@ -847,7 +889,7 @@ function handleListProviderMessages(PDO $pdo, int $propuestaId): void {
     // Agrupar por proveedor → hilo raíz → replies
     $byProv = [];
     foreach ($providers as $p) {
-        $byProv[$p['id']] = $p + ['threads' => [], '_byRoot' => []];
+        $byProv[$p['id']] = $p + ['threads' => [], '_byRoot' => [], 'budgets' => $budgetsByProv[(int)$p['id']] ?? []];
     }
     foreach ($allMsgs as $m) {
         if (empty($m['parent_id'])) {
@@ -965,4 +1007,44 @@ function handleProviderMarkNotified(PDO $pdo, int $propuestaId): void {
           AND notificado_at IS NULL");
     $stmt->execute([$propuestaId]);
     jsonSuccess(['updated' => $stmt->rowCount()]);
+}
+
+/**
+ * GET /api/proposals.php?id=BUDGET_ID&action=provider_budget_download
+ * Sirve el PDF del presupuesto autenticado con Bearer token.
+ * Marca seen_at si todavía es NULL (cualquier descarga cuenta como "visto").
+ */
+function handleProviderBudgetDownload(PDO $pdo, int $budgetId): void {
+    $row = $pdo->prepare("SELECT pp.archivo_path, pp.archivo_nombre, pp.archivo_mime,
+                                 pp.archivo_size, pp.proveedor_id
+                          FROM proveedor_presupuestos pp WHERE pp.id = ?");
+    $row->execute([$budgetId]);
+    $b = $row->fetch(PDO::FETCH_ASSOC);
+    if (!$b) jsonError('Budget not found', 404);
+
+    $absPath = realpath(__DIR__ . '/../' . ltrim($b['archivo_path'], '/'));
+    $uploadsRoot = realpath(__DIR__ . '/../uploads/proveedores/');
+    if (!$absPath || !$uploadsRoot || strpos($absPath, $uploadsRoot) !== 0 || !is_file($absPath)) {
+        jsonError('Archivo no encontrado en disco', 404);
+    }
+
+    // Marca seen_at (defensivo)
+    try {
+        $pdo->prepare("UPDATE proveedor_presupuestos SET seen_at = CURRENT_TIMESTAMP WHERE id = ? AND seen_at IS NULL")
+            ->execute([$budgetId]);
+    } catch (\Throwable $_) { /* col no migrada */ }
+
+    // Headers PDF + filename
+    $mime = $b['archivo_mime'] ?: 'application/pdf';
+    $filename = preg_replace('/[^a-zA-Z0-9._\-]/', '_', $b['archivo_nombre'] ?: ('budget-' . $budgetId . '.pdf'));
+    // Limpiamos cualquier output buffering previo (estábamos en application/json)
+    while (ob_get_level()) { ob_end_clean(); }
+    header_remove('Content-Type');
+    header('Content-Type: ' . $mime);
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    header('Content-Length: ' . filesize($absPath));
+    header('X-Content-Type-Options: nosniff');
+    header('Cache-Control: private, no-store');
+    readfile($absPath);
+    exit;
 }

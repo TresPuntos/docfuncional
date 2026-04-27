@@ -462,6 +462,12 @@ if ($detailProv > 0) {
     $bq->execute([$detailProv]);
     $budgets = $bq->fetchAll(PDO::FETCH_ASSOC);
 
+    // Marcar como vistos los presupuestos al entrar al detalle (defensivo si seen_at no existe)
+    try {
+        $pdo->prepare("UPDATE proveedor_presupuestos SET seen_at = CURRENT_TIMESTAMP WHERE proveedor_id = ? AND seen_at IS NULL")
+            ->execute([$detailProv]);
+    } catch (\Throwable $_) { /* col seen_at todavía no migrada — no bloquea */ }
+
     // Mensajes del proveedor (incluye drafts staff para que admin pueda gestionarlos)
     $mq = $pdo->prepare("SELECT * FROM proveedor_mensajes WHERE proveedor_id = ? ORDER BY COALESCE(parent_id, id) ASC, created_at ASC");
     $mq->execute([$detailProv]);
