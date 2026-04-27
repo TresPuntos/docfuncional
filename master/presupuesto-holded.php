@@ -46,12 +46,14 @@ $total    = (float)($holded_doc['total'] ?? 0);
 }
 .tp-invoice__brand { display: flex; align-items: center; gap: 1rem; }
 .tp-invoice__logo {
-    width: 56px; height: 56px; border-radius: 50%;
-    background: var(--mint, #5dffbf);
-    display: inline-flex; align-items: center; justify-content: center;
-    color: var(--text-inverse, #000); font-family: var(--font-heading, 'Plus Jakarta Sans');
-    font-weight: 800; font-size: 1.5rem;
+    display: inline-block;
+    width: 130px; height: auto; flex-shrink: 0;
 }
+.tp-invoice__logo img { display: block; width: 100%; height: auto; }
+/* Logo theme-aware: dark sobre fondo dark, light sobre fondo claro */
+.tp-invoice__logo .tp-logo--light { display: none; }
+[data-theme="light"] .tp-invoice__logo .tp-logo--dark { display: none; }
+[data-theme="light"] .tp-invoice__logo .tp-logo--light { display: block; }
 .tp-invoice__issuer { font-size: .78rem; color: var(--text-secondary, #b3b3b3); line-height: 1.5; }
 .tp-invoice__issuer strong { color: var(--text-primary, #f5f5f5); display: block; font-size: .9rem; margin-bottom: .25rem; }
 .tp-invoice__meta { text-align: right; }
@@ -164,7 +166,10 @@ $total    = (float)($holded_doc['total'] ?? 0);
 <section class="tp-invoice" id="sec-presupuesto-holded" aria-label="Presupuesto">
     <header class="tp-invoice__header">
         <div class="tp-invoice__brand">
-            <span class="tp-invoice__logo" aria-hidden="true">•••</span>
+            <span class="tp-invoice__logo" aria-hidden="true">
+                <img src="/master/brand/logo-dark.svg" alt="Tres Puntos" class="tp-logo--dark">
+                <img src="/master/brand/logo-light.svg" alt="Tres Puntos" class="tp-logo--light">
+            </span>
             <div class="tp-invoice__issuer">
                 <strong>Tres Puntos Comunicación, S.L.</strong>
                 B66018490<br>

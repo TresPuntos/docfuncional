@@ -768,7 +768,7 @@ if ($is_unlocked) {
 </head>
 <body>
     <div class="gate-container">
-        <div class="gate-logo"><img src="/logo.svg" alt="Tres Puntos"></div>
+        <div class="gate-logo"><img src="/master/brand/logo-dark.svg" alt="Tres Puntos"></div>
         <p class="gate-label">Acceso a propuesta</p>
         <p class="gate-client"><?= $clientNameSafe ?></p>
 
@@ -994,6 +994,11 @@ if ($is_unlocked) {
             gap: .9rem;
         }
         .sidebar-brand img { display: block; }
+
+        /* Logos theme-aware: dark sobre fondo dark, light sobre fondo claro */
+        .tp-logo--light { display: none; }
+        [data-theme="light"] .tp-logo--dark { display: none; }
+        [data-theme="light"] .tp-logo--light { display: block; }
 
         /* Columna con pill "Beta" + subtítulo "by TresPuntos Lab" */
         .beta-stack {
@@ -2653,7 +2658,8 @@ if ($is_unlocked) {
 <body>
     <div class="mobile-header">
         <div style="display:flex; align-items:center;">
-            <img src="/logo.svg" alt="Tres Puntos" class="mobile-logo">
+            <img src="/master/brand/logo-dark.svg" alt="Tres Puntos" class="mobile-logo tp-logo tp-logo--dark">
+            <img src="/master/brand/logo-light.svg" alt="Tres Puntos" class="mobile-logo tp-logo tp-logo--light">
             <span class="beta-badge" title="Entorno en desarrollo activo">Beta</span>
         </div>
         <button class="menu-toggle" onclick="toggleMobileMenu()"><i data-lucide="menu"></i></button>
@@ -2661,7 +2667,8 @@ if ($is_unlocked) {
 
     <div class="mobile-nav-overlay" id="mobileNav">
         <div class="mobile-nav-header">
-            <img src="/logo.svg" alt="Tres Puntos" style="height: 24px;">
+            <img src="/master/brand/logo-dark.svg" alt="Tres Puntos" class="tp-logo tp-logo--dark" style="height: 24px;">
+            <img src="/master/brand/logo-light.svg" alt="Tres Puntos" class="tp-logo tp-logo--light" style="height: 24px;">
             <button class="menu-toggle" onclick="toggleMobileMenu()"><i data-lucide="x"></i></button>
         </div>
         <ul class="mobile-nav-list" id="mobile-nav-container"></ul>
@@ -2673,7 +2680,8 @@ if ($is_unlocked) {
     <div class="app-container">
         <aside>
             <div class="sidebar-brand">
-                <img src="/logo.svg" alt="Tres Puntos" style="height: 38px;">
+                <img src="/master/brand/logo-dark.svg" alt="Tres Puntos" class="tp-logo tp-logo--dark" style="height: 38px;">
+                <img src="/master/brand/logo-light.svg" alt="Tres Puntos" class="tp-logo tp-logo--light" style="height: 38px;">
                 <div class="beta-stack">
                     <span class="beta-badge" title="Este entorno está en desarrollo activo. Feedback bienvenido.">Beta</span>
                     <span class="beta-badge-sub">by TresPuntos Lab</span>
