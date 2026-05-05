@@ -2830,7 +2830,6 @@ if ($is_unlocked) {
 
                     <?php if ($hasPresupuestoTab): ?>
                     <div class="doc-view" data-tab="presupuesto" hidden>
-                    <?php endif; ?>
                     <?php if ($hasHolded):
                         // El template espera $holded_doc (snake_case) → alias del arg $holdedDoc.
                         $holded_doc = $holdedDoc;
@@ -2915,7 +2914,6 @@ if ($is_unlocked) {
                     </div>
                     <?php
     endif; ?>
-                    <?php if ($hasPresupuestoTab): ?>
                     </div> <!-- /.doc-view data-tab=presupuesto -->
                     <?php endif; ?>
 
