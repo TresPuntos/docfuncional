@@ -130,13 +130,28 @@ if (!$visitorIdentity && isset($payload['provider_token'])) {
 $visitorName  = $visitorIdentity['nombre'] ?? null;
 $visitorEmail = $visitorIdentity['email'] ?? null;
 $isInternal = 0;
-if ($visitorIdentity && !empty($visitorIdentity['is_internal'])) {
+if (!empty($_SESSION['admin_logged'])) {
+    // Admin logueado SIEMPRE es interno, independientemente del email con el que haya
+    // hecho login al PIN del cliente (ej. revisión interna, auditoría).
+    $isInternal = 1;
+} elseif (!empty($providerToken)) {
+    // Token de proveedor en el payload → siempre interno (proveedores no son cliente final).
+    $isInternal = 1;
+} elseif ($visitorIdentity && !empty($visitorIdentity['is_internal'])) {
     $isInternal = 1;
 } elseif ($visitorEmail && isInternalEmail($visitorEmail)) {
     // Re-check por si la constante INTERNAL_EMAILS cambió después del login
     $isInternal = 1;
-} elseif ($legacyInternalCookie) {
-    // Fallback legacy
+} elseif ($visitorEmail) {
+    // Auto-detectar proveedor por email: si el email coincide con propuesta_proveedores,
+    // marcar como interno (auto-captura de Dani y otros proveedores sin meterlos en INTERNAL_EMAILS).
+    try {
+        $st = $pdo->prepare("SELECT 1 FROM propuesta_proveedores WHERE LOWER(email) = LOWER(?) LIMIT 1");
+        $st->execute([$visitorEmail]);
+        if ($st->fetchColumn()) $isInternal = 1;
+    } catch (Throwable $e) { /* tabla puede no existir */ }
+}
+if (!$isInternal && $legacyInternalCookie) {
     $isInternal = 1;
 }
 

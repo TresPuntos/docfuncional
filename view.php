@@ -78,11 +78,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['pin'])) {
     }
 
     if (!$login_errors) {
+        // Auto-detectar proveedor: si el email coincide con cualquier propuesta_proveedores,
+        // marcar la sesión como interna (no es cliente final).
+        $isProvEmail = false;
+        try {
+            $stmt = $pdo->prepare("SELECT 1 FROM propuesta_proveedores WHERE LOWER(email) = LOWER(?) LIMIT 1");
+            $stmt->execute([$email]);
+            $isProvEmail = (bool)$stmt->fetchColumn();
+        } catch (Throwable $e) { /* tabla puede no existir en deploys antiguos */ }
+
         $_SESSION[$session_key] = true;
         $_SESSION[$identity_key] = [
             'nombre'      => mb_substr($nombre, 0, 120),
             'email'       => mb_substr($email, 0, 180),
-            'is_internal' => isInternalEmail($email) ? 1 : 0,
+            'is_internal' => (isInternalEmail($email) || $isProvEmail) ? 1 : 0,
             'identified_at' => date('Y-m-d H:i:s'),
         ];
         $protocol = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http';

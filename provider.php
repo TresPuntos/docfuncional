@@ -251,7 +251,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['pin'])) {
         $_SESSION['provider_identity_' . $token] = [
             'nombre'      => mb_substr($nombre, 0, 120),
             'email'       => mb_substr(strtolower($email), 0, 180),
-            'is_internal' => isInternalEmail($email) ? 1 : 0,
+            // Proveedor SIEMPRE interno: no es cliente final, sus visitas no deben ensuciar analytics.
+            'is_internal' => 1,
             'provider_id' => (int)$provider['id'],
         ];
         // Si el proveedor editó su nombre (p.ej. admin le invitó como "Jordi" y él firma como "Jordi Expósito"), lo persistimos
