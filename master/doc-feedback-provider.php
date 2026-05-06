@@ -106,6 +106,9 @@ h2:hover > .tp-sec-btn, h3:hover > .tp-sec-btn { opacity: 1; }
 .tp-drawer-submit { background: var(--mint); color: #000; border: none; padding: .65rem 1rem; border-radius: 6px; font-weight: 700; cursor: pointer; font-family: inherit; }
 .tp-drawer-submit:disabled { opacity: .5; cursor: not-allowed; }
 .tp-drawer-empty { color: var(--text-muted); font-size: .85rem; text-align: center; padding: 2rem 1rem; }
+.tp-drawer-hint { border-top: 1px solid var(--border-base); padding: .85rem 1.25rem; background: var(--bg-base); color: var(--text-muted); font-size: .8rem; display: flex; align-items: center; gap: .5rem; }
+.tp-drawer-body .tp-thread { transition: background-color .15s ease, transform .12s ease; border-radius: 8px; }
+.tp-drawer-body .tp-thread[style*="cursor: pointer"]:hover { background: rgba(var(--mint-rgb), .06); }
 
 /* Comentarios */
 .tp-comment { background: var(--bg-subtle); border: 1px solid var(--border-base); border-radius: 10px; padding: .75rem .9rem; font-size: .88rem; line-height: 1.5; }
@@ -250,6 +253,10 @@ h2:hover > .tp-sec-btn, h3:hover > .tp-sec-btn { opacity: 1; }
         <button class="tp-drawer-close" id="tp-pv-drawer-close"><i data-lucide="x" style="width:18px;height:18px;"></i></button>
     </div>
     <div class="tp-drawer-body" id="tp-pv-drawer-body"><div class="tp-drawer-empty">Cargando…</div></div>
+    <div class="tp-drawer-hint" id="tp-pv-drawer-hint" style="display:none;">
+        <i data-lucide="mouse-pointer-click" style="width:14px;height:14px;vertical-align:-2px;"></i>
+        Pulsa un comentario para ir a su sección y responder allí.
+    </div>
     <form class="tp-drawer-form" id="tp-pv-drawer-form" autocomplete="on">
         <div class="tp-identity-compact" id="tp-pv-drawer-identity-compact" hidden>
             <span>Firmas como <strong id="tp-pv-drawer-identity-name">—</strong></span>
@@ -384,7 +391,31 @@ window.TP_PV_INITIAL_SIGNER = <?= json_encode($__pvInitialSigner, JSON_UNESCAPED
             document.getElementById('tp-pv-drawer-backdrop').classList.add('open');
         });
         renderDrawer(); refreshIdentityUI();
-        setTimeout(() => document.getElementById('tp-pv-drawer-texto').focus(), 200);
+        // Si hay sección seleccionada, focus en el textarea para escribir.
+        // Si es vista global (todas las secciones), no hacer focus al textarea (está oculto).
+        if (anchor) {
+            setTimeout(() => document.getElementById('tp-pv-drawer-texto').focus(), 200);
+        }
+    }
+
+    /**
+     * Mostrar/ocultar el form de envío según haya sección seleccionada.
+     * En modo "Todas las secciones" no tiene sentido un form sin contexto:
+     * mostramos un hint que invita a hacer click en un comentario para
+     * llevarte a su sección.
+     */
+    function applyDrawerFormState() {
+        const form = document.getElementById('tp-pv-drawer-form');
+        const hint = document.getElementById('tp-pv-drawer-hint');
+        if (state.currentAnchor) {
+            // Sección concreta: form visible, hint oculto
+            form.style.display = '';
+            if (hint) hint.style.display = 'none';
+        } else {
+            // Vista global: ocultar form, mostrar hint
+            form.style.display = 'none';
+            if (hint) hint.style.display = '';
+        }
     }
     function closeDrawer() {
         document.getElementById('tp-pv-drawer').classList.remove('open');
@@ -491,13 +522,65 @@ window.TP_PV_INITIAL_SIGNER = <?= json_encode($__pvInitialSigner, JSON_UNESCAPED
         const body = document.getElementById('tp-pv-drawer-body');
         const roots = state.comments.filter(c => !c.parent_id);
         const list = state.currentAnchor ? roots.filter(c => c.section_anchor === state.currentAnchor) : roots;
-        if (!list.length) { body.innerHTML = '<div class="tp-drawer-empty">Sin comentarios todavía. Empieza tú.</div>'; return; }
+        applyDrawerFormState();
+        if (!list.length) {
+            body.innerHTML = '<div class="tp-drawer-empty">Sin comentarios todavía. Empieza tú.</div>';
+            return;
+        }
         const repliesByRoot = {};
         state.comments.filter(c => c.parent_id).forEach(r => (repliesByRoot[r.parent_id] = repliesByRoot[r.parent_id] || []).push(r));
         body.innerHTML = list.slice().sort((a,b) => a.created_at > b.created_at ? 1 : -1).map(r => renderThread(r, repliesByRoot)).join('');
         body.querySelectorAll('.tp-btn-delete').forEach(b => b.addEventListener('click', onDelete));
         wireAdminReply('drawer');
+        wireThreadClickToSection('drawer');
         if (window.lucide) lucide.createIcons();
+    }
+
+    /**
+     * Vista global: cada hilo es clickable → cierra drawer, scroll a su sección,
+     * y abre el modal de esa sección donde sí se puede responder en contexto.
+     * En vista filtrada por sección no aplicamos esto (ya estás en la sección).
+     */
+    function wireThreadClickToSection(scope) {
+        if (state.currentAnchor) return; // solo en vista global
+        const container = document.getElementById(scope === 'modal' ? 'tp-pv-modal-body' : 'tp-pv-drawer-body');
+        if (!container) return;
+        container.querySelectorAll('.tp-thread').forEach(thread => {
+            // Buscar el primer .tp-comment dentro del hilo (el root) para pillar su anchor/title
+            const root = thread.querySelector('.tp-comment');
+            if (!root) return;
+            const anchor = root.dataset.anchor;
+            const title  = root.dataset.title;
+            if (!anchor) return;
+            thread.style.cursor = 'pointer';
+            thread.title = 'Pulsa para ir a esta sección y responder';
+            thread.addEventListener('click', (e) => {
+                // No interceptar clicks en botones internos (eliminar, etc.)
+                if (e.target.closest('button, a, .tp-btn-delete')) return;
+                goToSectionFromDrawer(anchor, title);
+            });
+        });
+    }
+
+    /**
+     * Cierra el drawer, hace scroll suave a la sección y abre el modal de la sección
+     * (donde sí hay form contextualizado para responder).
+     */
+    function goToSectionFromDrawer(anchor, title) {
+        closeDrawer();
+        setTimeout(() => {
+            const target = document.getElementById(anchor);
+            if (target) {
+                target.scrollIntoView({behavior: 'smooth', block: 'start'});
+                // breve highlight visual
+                target.style.transition = 'background-color .4s ease';
+                const prev = target.style.backgroundColor;
+                target.style.backgroundColor = 'rgba(var(--mint-rgb), .15)';
+                setTimeout(() => { target.style.backgroundColor = prev || ''; }, 1200);
+            }
+            // Abrir el modal de la sección — permite responder con contexto
+            setTimeout(() => openModal(anchor, title), 320);
+        }, 280);
     }
 
     function renderModal() {
