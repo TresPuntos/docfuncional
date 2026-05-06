@@ -14,6 +14,144 @@ Aplica también al detallar entregables Fase 2: no decimos "entregamos UI maquet
 
 ---
 
+## ✅ DESPLEGADO 2026-05-06 · UI "Nuevo mensaje" staff→proveedor + 13 borradores Gibobs + 3 fixes UX portal proveedor
+
+> Sesión completa cerrando el flujo cara-cliente / cara-proveedor con Gibobs Allbanks. Detonante: Ignacio Aymat (cliente Gibobs) había dejado 13 comentarios en el doc funcional v1.9 y Jordi necesitaba trasladarlos a Dani (Truman) en su portal proveedor sin que Dani viera identidad ni copy del cliente. Antes solo se podía responder a hilos que abriera el proveedor — no había forma de iniciar hilos staff→proveedor desde TP. Construido y desplegado el primitivo que faltaba.
+
+### Commits live (orden cronológico)
+
+1. **`cf94be5`** — `feat(providers): UI 'Nuevo mensaje' staff→proveedor + firma personalizable`
+2. **`7875cf8`** — `fix(provider-feedback): drawer global · ocultar form sin sección + click en hilo lleva a su sección`
+3. **`4a6bb75`** — `fix(provider-feedback): eliminar bloque 'Responder como Tres Puntos' duplicado`
+
+### Bundle 1 · Endpoints + UI "Nuevo mensaje" (`cf94be5`)
+
+**Endpoints nuevos**:
+- `POST admin_providers.php?action=new_thread_to_provider` — body `proveedor_id`, `texto`, `section_anchor` (opc), `section_title` (opc), `autor_nombre` (default `'Tres Puntos'`), `as_draft` (1/0). Valida proveedor activo, max 4000 chars, autor max 80.
+- `POST api/proposals.php?id=PROVEEDOR_ID&action=provider_new_thread_draft|publish` — body JSON `{texto, section_anchor, section_title, autor_nombre}`. Schema (`?action=schema`) actualizado para que los agentes IA descubran el endpoint. Telegram alert al publicar.
+
+**UI en `admin_providers.php?proveedor_id=X`** — botón "Nuevo mensaje" arriba del bloque MENSAJES + modal:
+- Dropdown de sección con las secciones donde el cliente ha comentado + opción "General" + opción "Otra sección" (anchor + título manuales).
+- Selector "Insertar cita literal de un comentario del cliente" → al elegir uno inserta automáticamente bloque `🗣️ Comentario del cliente en [sec X.X]: "literal" — Autor` + `💭 Nuestra lectura:` y ajusta la sección al comentario elegido. Lista solo comentarios cliente abiertos (filtra staff/draft).
+- Textarea con counter `0 / 4000`.
+- Campo **"Firmar como"** (default `Tres Puntos`, editable a `Claudio` / `Jordi` / cualquiera). Esto desbloqueó tener al asistente IA con identidad propia en cara-proveedor.
+- Botones Cancelar / Guardar borrador / Publicar ya. Esc cierra.
+
+**Render de hilos staff-iniciados**:
+- Antes `mRoots` filtraba `autor_tipo NO-staff`; ampliado para incluir hilos iniciados por TP (publicados + drafts).
+- Header del hilo con chip mint **"TP → PROVEEDOR"** para diferenciarlos visualmente de hilos abiertos por el proveedor.
+- Mismas pills (Borrador / Sin avisar / Notificado) y botones Publicar/Editar/Descartar que los replies staff.
+
+**Email de notificación adaptativo** en `notify_provider_replies`:
+- Detecta si los pendientes son hilos iniciados por TP o respuestas a mensajes del proveedor y ajusta el copy del intro:
+  - Solo TP-iniciados → "Te hemos dejado N mensajes con dudas y contexto en el portal de proveedor de [cliente]."
+  - Solo respuestas → copy clásico "Hemos respondido a N comentarios que dejaste."
+  - Mezcla → "Tienes N novedades (entre respuestas a tus mensajes y dudas que te trasladamos)."
+- Si el root es staff (sin pregunta previa del proveedor), omite el div italic con cita vacía `""`.
+
+**Fix · render del autor staff respeta `autor_nombre`**:
+- `master/doc-feedback-provider.php` deja de hardcodear `'Tres Puntos'` para `autor_tipo='staff'`. Si el INSERT guardó `Claudio` (o cualquier custom), se respeta y aparece así en el portal del proveedor con la pill **EQUIPO**. Fallback a `Tres Puntos` si vacío.
+- `admin_providers.php` replies: misma corrección.
+
+**Sin migración BD** — usa el schema existente: `parent_id NULL` = root, `autor_tipo='staff'`, `autor_nombre TEXT`. 100% compatible con datos previos.
+
+### Bundle 2 · Drawer global del proveedor: oculta form sin sección + click en hilo lleva a su sección (`7875cf8`)
+
+**Bug detectado** por Jordi en directo viendo el portal Dani: en el drawer "Comentarios del documento · Todas las secciones" aparecía el form "Escribe tu comentario sobre esta sección…" abajo. Al pulsar Enviar saltaba un alert pidiendo elegir sección — UX rota: el usuario rellena un form que no funciona.
+
+**Fix en `master/doc-feedback-provider.php`**:
+- Vista global (`state.currentAnchor=null`): form se oculta con `display:none`, aparece un hint mint con icono `mouse-pointer-click` al pie: *"Pulsa un comentario para ir a su sección y responder allí."* Markup: nuevo `<div id="tp-pv-drawer-hint">`.
+- Vista filtrada por sección: form se mantiene visible y funcional (no toca nada).
+- `applyDrawerFormState()` centraliza la decisión, llamada desde `renderDrawer` y `openDrawer`. Si vista global, `openDrawer` no hace `focus()` al textarea.
+
+**Click en hilo → scroll + modal de sección**:
+- `wireThreadClickToSection('drawer')` cablea cada `.tp-thread` del drawer global como clickable (cursor:pointer + hover mint sutil + tooltip "Pulsa para ir a esta sección y responder").
+- Click no propaga si pulsas botones internos (eliminar, etc.).
+- `goToSectionFromDrawer(anchor, title)` cierra drawer, scrollea suave a la sección con flash mint de 1.2s para confirmar dónde aterrizaste, y abre el modal de la sección — donde sí hay form contextualizado "Firmas como Dani · Escribe tu comentario sobre esta sección…".
+
+### Bundle 3 · Eliminar bloque "Responder como Tres Puntos" duplicado (`4a6bb75`)
+
+Detectado en directo: cuando entras con `__admin_view=1`, dentro de cada hilo aparecía un bloque morado "Responder como Tres Puntos" + textarea + botones Cancelar/Enviar. Aparecía tanto en drawer como en modal de sección, y duplicaba con el form principal del proveedor justo abajo (parecía caja para escribir, pero al pulsar abría el otro form). Confundía sin aportar.
+
+**Decisión**: eliminar `adminReplyBlock` por completo en `renderThread`. Ya tenemos:
+- `admin_providers.php` para responder a hilos del proveedor (con drafts + pills + email notify).
+- Botón "Nuevo mensaje" del Bundle 1 para abrir hilos staff→proveedor.
+
+Las funciones `wireAdminReply` quedan no-op (no encuentran elementos) — sin riesgo, se dejan por compatibilidad hasta limpieza más amplia.
+
+### Datos creados en prod (13 borradores Claudio en Gibobs)
+
+Usando el endpoint API nuevo `provider_new_thread_draft`, script `/tmp/seed-dani-gibobs-drafts.py` creó 13 borradores firmados **`Claudio`** para `proveedor_id=6` (Dani · Truman, Gibobs Allbanks):
+
+| ID | Sección | Tipo |
+|---|---|---|
+| 15 | 1.1 Situación actual | Pregunta técnica (Wp Rocket vs Cookiebot) |
+| 16 | 1.2 Objetivos estratégicos | Verificar redirects 301 subdominios |
+| 17 | 1.3 Alcance técnico (blog) | Cómo prefiere import (slugs/fecha/ID) |
+| 18 | 1.3 Alcance técnico (simuladores) | Fusionar 2 simuladores |
+| 19 | 2.1 Estructura URLs | GTM scope dev (versión aligerada) |
+| 20 | 2.3 Subdominios | FYI |
+| 21 | 4.1 Simuladores | 3er simulador mihipoteca |
+| 22 | 4.3 Tramos precio | FYI content-pruning |
+| 23 | 5.1 Inmobiliarias | FYI validación cliente |
+| 24 | 6.3 Landings | FYI tarea SEO interna |
+| 25 | 8.3 UTMs sin cookies | Vinculado al hilo 15 |
+| 26 | 9.2 Multiidioma | Plugin multilang + workflow |
+| 27 | 9.4 Core Web Vitals | Plugins caché (WP Rocket+Perfmatters) |
+
+Cada borrador con formato: `🗣️ Comentario del cliente en [sec]: "literal" — Ignacio` + `💭 Nuestra lectura: [opinión TP]`. Tono: técnico, cercano, partner mode. Pendiente que Jordi repase/publique/notifique en `admin_providers.php?proveedor_id=6`.
+
+### Sincronización git histórica recuperada
+
+Detectado durante el deploy: el remote `origin` apuntaba a `https://github.com/trespuntoslab/documento-funcional-.git` que devolvía 404 desde hacía tiempo. **62 commits estaban en prod pero no en GitHub** (commit más antiguo sin push: `4c89e19` portal proveedores).
+
+Resuelto:
+- Remote actualizado a `https://github.com/TresPuntos/docfuncional.git` (URL correcta confirmada por Jordi).
+- Push fast-forward `8222aaa..4a6bb75` a `origin/main`. 64 commits subidos en bloque, sin conflictos.
+- Rama `claude/amazing-jones-c87a44` también subida como backup.
+
+**Estado actual** (verificado): prod = `main` = `claude/amazing-jones-c87a44` = `4a6bb75`. Espejo perfecto.
+
+### Test E2E con Playwright (16 checks · pasaron todos)
+
+1. Login admin local + navegación a vista detalle Dani Gibobs
+2. Modal "Nuevo mensaje" abre con todos los componentes
+3. Bug `hidden` con `display:grid` arreglado (custom-row inputs ocultos por defecto)
+4. 13 comentarios cliente en dropdown de cita
+5. Insertar cita auto-rellena bloque + ajusta sección
+6. Counter de caracteres
+7. Firma "Claudio" persiste tras submit
+8. Borrador → BD → UI con pills "BORRADOR"
+9. Publicar borrador → pill "SIN AVISAR" + banner email
+10. Descartar borrador → DELETE BD
+11. Modo "Otra sección" muestra inputs custom
+12. Portal proveedor (Dani) ve "Claudio · EQUIPO" (no "Tres Puntos")
+13. Drawer global oculta form + muestra hint
+14. Click en hilo del drawer → scroll + modal contextualizado
+15. Bloque morado "Responder como TP" eliminado en drawer y modal
+16. Smoke prod tras cada deploy: 5/5 propuestas (h2b · aula · gibobs · b2b · nextica) HTTP 200 con 0 errores PHP
+
+### Backups disponibles (rollback)
+
+- `/tmp/tp-prod-backup-20260506-220654-new-thread-ui/` (pre-Bundle 1: admin_providers.php + api/proposals.php + master/doc-feedback-provider.php)
+- `/tmp/tp-prod-backup-20260506-224309-drawer-fix/` (pre-Bundle 2)
+- Pre-Bundle 3 sin backup (cambio mínimo, rollback vía `git revert 4a6bb75` + FTP push del archivo del worktree).
+
+### Lecciones aprendidas
+
+1. **Construir la primitiva > el hack**. La opción "script temporal de un solo uso" para meter 13 borradores cuesta 10 min hoy + 10 min cada vez que se repita el caso. Construir el endpoint + UI cuesta 60 min hoy y 0 min después. Para casos que se van a repetir (Aula con Truman, futuras propuestas con varios proveedores), merece la pena siempre.
+2. **Dos fuentes de verdad para `autor_nombre`**: el INSERT en `proveedor_mensajes` permite cualquier string, pero el render hardcodeaba `'Tres Puntos'` en 3 sitios. Cuando se permite identidad personalizable, hay que auditar todos los renders, no solo el INSERT.
+3. **Bug `hidden` aplastado por `display:grid|flex`**: documentado ya en CLAUDE.md de sesiones anteriores (master/doc-feedback.php). Se repitió en el modal Nuevo mensaje. **Regla**: si el contenedor lleva `display:grid|flex`, no usar atributo HTML `hidden` para ocultarlo — usar `style="display:none"` directamente y manipular `style.display` en JS.
+4. **`origin/main` no es source of truth**: estaba 62 commits atrás de prod sin que nadie se diera cuenta. Confiar en prod (FTP) como source of truth y `main` como su espejo, no al revés. El protocolo de deploy en CLAUDE.md (sección 🔁) ya lo dice — la incidencia recordó por qué importa pushear *cada* deploy.
+5. **Email transaccional firmado por agente**: los hilos creados firmados como "Claudio" pero el footer del email de notificación lleva firma "Jordan" del template estándar. Inconsistencia conocida — Dani lo entiende (ambos son asistentes IA de TP), pero unificar es mejora pendiente.
+
+### Pendientes para próxima sesión
+
+- **Bug toggle `ver_comentarios` cosmético** — el flag se guarda y se lee, pero `view.php` (que es lo que ve Dani en `__provider` mode) no consulta `comentarios_seccion` ni mira el flag. Solo `provider.php` lo respeta y ese código está muerto (redirect a view.php antes de renderizar). Fix: cargar comentarios cliente cuando `$isProviderMode && $__provider['ver_comentarios']` y renderizarlos read-only inline (junto a cada H2) o como bloque al final. Confianza estimada: 95% si bloque al final, 85% si inline.
+- **Unificar firma email transaccional** — opciones: (a) que el template `tp_render_email_layout` reciba `signer_name` y lo respete; (b) que cuando el origen sea hilo staff, derive el firmante del `autor_nombre` del último mensaje publicado.
+
+---
+
 ## ✅ DESPLEGADO 2026-04-27 (tarde) · H2B v1.7 · Stack Fase 2 cerrado (Angular + Laravel)
 
 > Sesión corta tras la del proveedor. Trasladados al doc cliente todos los acuerdos técnicos derivados de los hilos con Dani sin nombrarlo (regla cara-cliente). Solo BD, sin código. v1.6 archivada en `propuestas_history` (history_id=35).
