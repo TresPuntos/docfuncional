@@ -133,6 +133,12 @@ if ($method === 'POST' && $action === 'provider_reply_draft' && $id) {
 if ($method === 'POST' && $action === 'provider_reply_publish' && $id) {
     handleProviderReply($pdo, $id, false);
 }
+if ($method === 'POST' && $action === 'provider_new_thread_draft' && $id) {
+    handleProviderNewThread($pdo, $id, true);   // ?id=PROVEEDOR_ID
+}
+if ($method === 'POST' && $action === 'provider_new_thread_publish' && $id) {
+    handleProviderNewThread($pdo, $id, false);  // ?id=PROVEEDOR_ID
+}
 if ($method === 'POST' && $action === 'provider_publish_reply' && $id) {
     handleProviderPublishReply($pdo, $id);
 }
@@ -555,6 +561,16 @@ function handleSchema(): void {
             ],
             [
                 'method' => 'POST',
+                'path' => '/api/proposals.php?id={proveedor_id}&action=provider_new_thread_draft',
+                'description' => 'Abre un hilo NUEVO staff→proveedor como borrador (TP inicia conversación; útil para trasladar dudas del cliente al proveedor). Body: {"texto": "...", "section_anchor": "sec-1-1", "section_title": "1.1 Situación", "autor_nombre": "Claudio"}. autor_nombre opcional (default Tres Puntos).'
+            ],
+            [
+                'method' => 'POST',
+                'path' => '/api/proposals.php?id={proveedor_id}&action=provider_new_thread_publish',
+                'description' => 'Abre un hilo NUEVO staff→proveedor publicado (visible inmediatamente + ping Telegram). Mismo body que provider_new_thread_draft.'
+            ],
+            [
+                'method' => 'POST',
                 'path' => '/api/proposals.php?id={reply_id}&action=provider_publish_reply',
                 'description' => 'Publica un borrador staff existente. Body opcional: {"texto": "texto editado"}.'
             ],
@@ -949,6 +965,57 @@ function handleProviderReply(PDO $pdo, int $parentId, bool $isDraft): void {
     }
 
     jsonSuccess(['id' => $newId, 'is_draft' => $isDraft, 'parent_id' => $parentId]);
+}
+
+/**
+ * POST /api/proposals.php?id=PROVEEDOR_ID&action=provider_new_thread_draft|provider_new_thread_publish
+ * Body JSON: { "texto": "...", "section_anchor": "sec-1-1", "section_title": "1.1 …", "autor_nombre": "Claudio" }
+ *
+ * Crea un hilo NUEVO (root) staff→proveedor. Útil para trasladar dudas del cliente al proveedor
+ * sin esperar a que el proveedor abra una conversación primero.
+ */
+function handleProviderNewThread(PDO $pdo, int $proveedorId, bool $isDraft): void {
+    $input = json_decode(file_get_contents('php://input'), true) ?: [];
+    $texto = trim($input['texto'] ?? '');
+    $sectionAnchor = trim($input['section_anchor'] ?? '');
+    $sectionTitle = trim($input['section_title'] ?? '');
+    $autorNombre = trim($input['autor_nombre'] ?? '') ?: 'Tres Puntos';
+
+    if ($texto === '' || mb_strlen($texto) > 4000) jsonError('Texto inválido (vacío o >4000 caracteres)', 422);
+    if (mb_strlen($autorNombre) > 80) jsonError('Nombre de autor demasiado largo (>80)', 422);
+
+    // Verificar proveedor existe y activo
+    $chk = $pdo->prepare("SELECT id, activo, nombre FROM propuesta_proveedores WHERE id = ?");
+    $chk->execute([$proveedorId]);
+    $prov = $chk->fetch(PDO::FETCH_ASSOC);
+    if (!$prov) jsonError('Proveedor no encontrado', 404);
+    if ((int)$prov['activo'] === 0) jsonError('Proveedor revocado', 409);
+
+    $pdo->prepare("INSERT INTO proveedor_mensajes
+        (proveedor_id, section_anchor, section_title, autor_tipo, autor_nombre, texto, parent_id, is_draft)
+        VALUES (?, ?, ?, 'staff', ?, ?, NULL, ?)")
+        ->execute([
+            $proveedorId,
+            $sectionAnchor !== '' ? $sectionAnchor : null,
+            $sectionTitle !== '' ? $sectionTitle : null,
+            $autorNombre,
+            $texto,
+            $isDraft ? 1 : 0,
+        ]);
+    $newId = (int)$pdo->lastInsertId();
+
+    if (!$isDraft) {
+        $resumen = mb_substr($texto, 0, 120) . (mb_strlen($texto) > 120 ? '…' : '');
+        $sectionLabel = $sectionTitle ?: ($sectionAnchor ?: 'general');
+        notifyTelegram("📩 Nuevo hilo TP→proveedor #{$proveedorId} (" . htmlspecialchars($prov['nombre']) . ") · <i>" . htmlspecialchars($sectionLabel) . "</i>\n" . htmlspecialchars($resumen));
+    }
+
+    jsonSuccess([
+        'id' => $newId,
+        'is_draft' => $isDraft,
+        'autor_nombre' => $autorNombre,
+        'proveedor_id' => $proveedorId,
+    ]);
 }
 
 function handleProviderPublishReply(PDO $pdo, int $replyId): void {

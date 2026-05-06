@@ -425,7 +425,8 @@ window.TP_PV_INITIAL_SIGNER = <?= json_encode($__pvInitialSigner, JSON_UNESCAPED
         const staff = c.autor_tipo === 'staff';
         const mine = !staff && state.signer && state.signer.nombre && same(state.signer.nombre, c.autor_nombre);
         const cls = 'tp-comment' + (isReply?' reply':'') + (staff?' staff':'') + (mine?' mine':'');
-        const autor = staff ? 'Tres Puntos' : esc(c.autor_nombre || 'Proveedor');
+        // Si el staff guardó un autor_nombre custom (ej: "Claudio"), respetarlo. Fallback: "Tres Puntos".
+        const autor = staff ? esc(c.autor_nombre || 'Tres Puntos') : esc(c.autor_nombre || 'Proveedor');
         const pill = staff ? '<span class="tp-staff-pill">Equipo</span>' : '';
         const actions = mine ? `<div class="tp-comment-actions"><button type="button" class="tp-btn-delete" data-id="${c.id}">Eliminar</button></div>` : '';
         return `<article class="${cls}" data-id="${c.id}" data-anchor="${esc(c.section_anchor||'')}" data-title="${esc(c.section_title||'')}">

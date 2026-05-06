@@ -242,6 +242,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         exit;
     }
 
+    /**
+     * Crear hilo NUEVO staff→proveedor (root, parent_id=NULL).
+     * Body: proveedor_id, texto, section_anchor (opc), section_title (opc),
+     *       autor_nombre (opc, default 'Tres Puntos'), as_draft (1/0)
+     */
+    if ($action === 'new_thread_to_provider') {
+        $provId = (int)($_POST['proveedor_id'] ?? 0);
+        $texto = trim($_POST['texto'] ?? '');
+        $sectionAnchor = trim($_POST['section_anchor'] ?? '');
+        $sectionTitle = trim($_POST['section_title'] ?? '');
+        $autorNombre = trim($_POST['autor_nombre'] ?? '') ?: 'Tres Puntos';
+        $isDraft = !empty($_POST['as_draft']) ? 1 : 0;
+
+        if (!$provId || $texto === '') { echo json_encode(['success' => false, 'error' => 'Datos inválidos']); exit; }
+        if (mb_strlen($texto) > 4000) { echo json_encode(['success' => false, 'error' => 'Texto demasiado largo (>4000)']); exit; }
+        if (mb_strlen($autorNombre) > 80) { echo json_encode(['success' => false, 'error' => 'Nombre de autor demasiado largo']); exit; }
+
+        // Verificar que el proveedor existe y está activo
+        $chk = $pdo->prepare("SELECT id, activo FROM propuesta_proveedores WHERE id = ?");
+        $chk->execute([$provId]);
+        $prov = $chk->fetch(PDO::FETCH_ASSOC);
+        if (!$prov) { echo json_encode(['success' => false, 'error' => 'Proveedor no existe']); exit; }
+        if ((int)$prov['activo'] === 0) { echo json_encode(['success' => false, 'error' => 'Proveedor revocado']); exit; }
+
+        $pdo->prepare("INSERT INTO proveedor_mensajes (proveedor_id, section_anchor, section_title, autor_tipo, autor_nombre, texto, parent_id, is_draft)
+                       VALUES (?, ?, ?, 'staff', ?, ?, NULL, ?)")
+            ->execute([
+                $provId,
+                $sectionAnchor !== '' ? $sectionAnchor : null,
+                $sectionTitle !== '' ? $sectionTitle : null,
+                $autorNombre,
+                $texto,
+                $isDraft,
+            ]);
+        echo json_encode([
+            'success' => true,
+            'id' => (int)$pdo->lastInsertId(),
+            'is_draft' => (bool)$isDraft,
+            'autor_nombre' => $autorNombre,
+        ]);
+        exit;
+    }
+
     if ($action === 'update_draft_provider_msg') {
         $id = (int)($_POST['id'] ?? 0);
         $texto = trim($_POST['texto'] ?? '');
@@ -317,25 +360,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $clientNameSafe = htmlspecialchars($prov['client_name'], ENT_QUOTES);
         $nReplies = count($pending);
 
+        // Detectar si hay roots-staff (hilos iniciados por TP, sin pregunta previa del proveedor)
+        // o solo replies a comentarios del proveedor → ajusta el copy del intro.
+        $hasRootStaff = false;
+        $hasReplies = false;
+        foreach ($pending as $p) {
+            if (empty($p['root_texto'])) $hasRootStaff = true;
+            else $hasReplies = true;
+        }
+
         $itemsHtml = '';
         foreach ($pending as $p) {
             $sectionLbl = htmlspecialchars($p['section_title'] ?: $p['root_section_title'] ?: 'General', ENT_QUOTES);
             $rootExcerpt = htmlspecialchars(mb_substr($p['root_texto'] ?: '', 0, 140) . (mb_strlen($p['root_texto'] ?: '') > 140 ? '…' : ''), ENT_QUOTES);
             $replyExcerpt = htmlspecialchars(mb_substr($p['texto'], 0, 220) . (mb_strlen($p['texto']) > 220 ? '…' : ''), ENT_QUOTES);
+            // Si root_texto está vacío (= hilo iniciado por TP), omitir el bloque de cita
+            $rootBlock = $rootExcerpt !== ''
+                ? '<div style="font-size:13px;color:#444;font-style:italic;margin-bottom:8px;">"' . $rootExcerpt . '"</div>'
+                : '';
             $itemsHtml .= <<<HTML
 <table cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:100%;margin:0 0 16px;border-left:3px solid #0FA36C;background:#F7F6F3;">
   <tr><td style="padding:12px 16px;">
     <div style="font-size:12px;color:#666;text-transform:uppercase;letter-spacing:.04em;font-weight:700;margin-bottom:6px;">{$sectionLbl}</div>
-    <div style="font-size:13px;color:#444;font-style:italic;margin-bottom:8px;">"{$rootExcerpt}"</div>
+    {$rootBlock}
     <div style="font-size:14px;color:#141414;line-height:1.5;">{$replyExcerpt}</div>
   </td></tr>
 </table>
 HTML;
         }
 
-        $introHtml = "Hemos respondido a <strong>{$nReplies}</strong> "
-            . ($nReplies === 1 ? 'comentario' : 'comentarios')
-            . " que dejaste en el portal de proveedor de <strong>{$clientNameSafe}</strong>.";
+        // Copy según naturaleza de los mensajes pendientes
+        if ($hasRootStaff && !$hasReplies) {
+            // Solo hilos iniciados por TP
+            $introHtml = "Te hemos dejado <strong>{$nReplies}</strong> "
+                . ($nReplies === 1 ? 'mensaje' : 'mensajes')
+                . " en el portal de proveedor de <strong>{$clientNameSafe}</strong> con dudas y contexto.";
+        } elseif ($hasRootStaff && $hasReplies) {
+            // Mezcla
+            $introHtml = "Tienes <strong>{$nReplies}</strong> "
+                . ($nReplies === 1 ? 'novedad' : 'novedades')
+                . " en el portal de proveedor de <strong>{$clientNameSafe}</strong> (entre respuestas a tus mensajes y dudas que te trasladamos).";
+        } else {
+            // Solo replies a mensajes del proveedor
+            $introHtml = "Hemos respondido a <strong>{$nReplies}</strong> "
+                . ($nReplies === 1 ? 'comentario' : 'comentarios')
+                . " que dejaste en el portal de proveedor de <strong>{$clientNameSafe}</strong>.";
+        }
         if ($introExtra !== '') {
             $introHtml .= '<br><br>' . nl2br(htmlspecialchars($introExtra, ENT_QUOTES));
         }
@@ -482,8 +552,10 @@ if ($detailProv > 0) {
     $mq = $pdo->prepare("SELECT * FROM proveedor_mensajes WHERE proveedor_id = ? ORDER BY COALESCE(parent_id, id) ASC, created_at ASC");
     $mq->execute([$detailProv]);
     $provMessages = $mq->fetchAll(PDO::FETCH_ASSOC);
-    // Roots: solo mensajes raíz NO-staff y NO-draft (lo que escribió el proveedor). Si por alguna razón hay un draft staff sin parent, no lo mostramos como hilo.
-    $mRoots = array_filter($provMessages, fn($m) => !$m['parent_id'] && (int)($m['is_draft'] ?? 0) === 0);
+    // Roots: cualquier mensaje raíz (parent_id=NULL) — sea iniciado por proveedor o por staff (TP→proveedor).
+    // Los borradores staff también se muestran porque el admin debe poder gestionarlos. El proveedor solo
+    // los ve al publicarlos (su portal filtra is_draft=0).
+    $mRoots = array_filter($provMessages, fn($m) => !$m['parent_id']);
     $mReplies = [];
     foreach ($provMessages as $m) { if ($m['parent_id']) $mReplies[$m['parent_id']][] = $m; }
     // Cuenta de pendientes de notificar (staff publicadas sin notificado_at)
@@ -493,6 +565,28 @@ if ($detailProv > 0) {
             $pendingNotifyCount++;
         }
     }
+
+    // Secciones donde el cliente ha comentado (para sembrar dropdown "Nuevo mensaje")
+    // y poder trasladar su pregunta al proveedor con la sección ya identificada.
+    $sectionsQ = $pdo->prepare("SELECT DISTINCT section_anchor, section_title
+                                FROM comentarios_seccion
+                                WHERE propuesta_id = ?
+                                  AND section_anchor IS NOT NULL
+                                  AND (is_draft IS NULL OR is_draft = 0)
+                                ORDER BY section_anchor ASC");
+    $sectionsQ->execute([(int)$pv['propuesta_id']]);
+    $clientSections = $sectionsQ->fetchAll(PDO::FETCH_ASSOC);
+
+    // Comentarios cliente (para inyectarlos como cita rápida en el form "Nuevo mensaje")
+    $clientCommentsQ = $pdo->prepare("SELECT id, section_anchor, section_title, autor_nombre, texto, created_at
+                                      FROM comentarios_seccion
+                                      WHERE propuesta_id = ?
+                                        AND parent_id IS NULL
+                                        AND (is_draft IS NULL OR is_draft = 0)
+                                        AND (is_staff IS NULL OR is_staff = 0)
+                                      ORDER BY created_at DESC");
+    $clientCommentsQ->execute([(int)$pv['propuesta_id']]);
+    $clientCommentsForQuote = $clientCommentsQ->fetchAll(PDO::FETCH_ASSOC);
 
     $host = $_SERVER['HTTP_HOST'] ?? 'doc.trespuntos-lab.com';
     $scheme = (($_SERVER['HTTPS'] ?? '') === 'on' || strpos($host, 'localhost') === false) ? 'https' : 'http';
@@ -600,6 +694,14 @@ if ($detailProv > 0) {
     .pv-perm-row__label strong{color:var(--text-secondary);text-transform:none;letter-spacing:0;font-weight:600;}
     .pv-perm-row__hint{font-size:.72rem;color:var(--text-muted);line-height:1.45;}
     .pv-perm-row .pv-vc-toggle{align-self:flex-start;}
+
+    /* Form "Nuevo mensaje" */
+    .nt-label{display:block;font-size:.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;font-weight:600;margin-bottom:.3rem;}
+    .nt-input{width:100%;box-sizing:border-box;background:var(--bg-subtle);color:var(--text-primary);border:1px solid var(--border-base);padding:.55rem .7rem;border-radius:6px;font-family:inherit;font-size:.85rem;}
+    .nt-input:focus{outline:none;border-color:var(--mint);}
+    select.nt-input{cursor:pointer;}
+    textarea.nt-input{min-height:140px;resize:vertical;line-height:1.55;font-family:inherit;}
+    #nt-counter{font-size:.7rem;}
     </style></head><body>
 
     <?php
@@ -721,7 +823,12 @@ if ($detailProv > 0) {
         <!-- Columna derecha -->
         <div>
             <section class="card">
-                <h2>Mensajes (<?=count($mRoots)?>)</h2>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin:0 0 1rem;border-bottom:1px solid var(--border-base);padding-bottom:.5rem;gap:1rem;flex-wrap:wrap;">
+                    <h2 style="margin:0;border:0;padding:0;">Mensajes (<?=count($mRoots)?>)</h2>
+                    <button class="btn" onclick="openNewThreadModal()" style="font-size:.78rem;padding:.4rem .75rem;">
+                        <i data-lucide="message-circle-plus" style="width:14px;height:14px;"></i> Nuevo mensaje
+                    </button>
+                </div>
 
                 <?php if ($pendingNotifyCount > 0): ?>
                 <div class="notify-banner">
@@ -738,22 +845,44 @@ if ($detailProv > 0) {
                 <?php endif; ?>
 
                 <?php if (!$mRoots): ?>
-                    <p style="color:var(--text-muted);font-size:.85rem;">Sin mensajes del proveedor.</p>
-                <?php else: foreach ($mRoots as $root): $replies = $mReplies[$root['id']] ?? []; ?>
+                    <p style="color:var(--text-muted);font-size:.85rem;">Sin mensajes todavía. Pulsa "Nuevo mensaje" para abrir un hilo con el proveedor.</p>
+                <?php else: foreach ($mRoots as $root):
+                    $replies = $mReplies[$root['id']] ?? [];
+                    $rootIsStaff = ($root['autor_tipo'] ?? '') === 'staff';
+                    $rootIsDraft = (int)($root['is_draft'] ?? 0) === 1;
+                    $rootNotified = !empty($root['notificado_at']);
+                ?>
                 <article class="thread">
                     <header class="thread-head">
-                        <div><?=$root['section_title'] ? '<strong>' . e($root['section_title']) . '</strong>' : 'General'?></div>
+                        <div>
+                            <?=$root['section_title'] ? '<strong>' . e($root['section_title']) . '</strong>' : 'General'?>
+                            <?php if ($rootIsStaff): ?>
+                                <span class="pill" style="background:rgba(var(--mint-rgb),.12);color:var(--mint);border:1px solid rgba(var(--mint-rgb),.3);font-size:.65rem;padding:.05rem .4rem;border-radius:999px;margin-left:.4rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;">TP → proveedor</span>
+                            <?php endif; ?>
+                        </div>
                         <div><?=fecha($root['created_at'])?></div>
                     </header>
                     <div class="thread-body">
-                        <div class="msg">
-                            <div class="msg-author"><?=e($root['autor_nombre'] ?: $pv['nombre'])?></div>
-                            <div class="msg-text"><?=e($root['texto'])?></div>
+                        <div class="msg<?= $rootIsStaff ? ' reply' : '' ?><?= $rootIsDraft ? ' draft' : '' ?>" data-reply-id="<?=$root['id']?>">
+                            <div class="msg-author <?= $rootIsStaff ? 'staff' : '' ?>">
+                                <?=e($root['autor_nombre'] ?: ($rootIsStaff ? 'Tres Puntos' : $pv['nombre']))?>
+                                <?php if ($rootIsStaff && $rootIsDraft): ?><span class="pill pill-draft">Borrador</span><?php endif; ?>
+                                <?php if ($rootIsStaff && !$rootIsDraft && $rootNotified): ?><span class="pill pill-notif" title="Avisado por email el <?= e(fecha($root['notificado_at'])) ?>"><i data-lucide="mail-check" style="width:10px;height:10px;vertical-align:-1px;"></i> Notificado</span><?php endif; ?>
+                                <?php if ($rootIsStaff && !$rootIsDraft && !$rootNotified): ?><span class="pill pill-pending">Sin avisar</span><?php endif; ?>
+                            </div>
+                            <div class="msg-text reply-text"><?=e($root['texto'])?></div>
+                            <?php if ($rootIsStaff && $rootIsDraft): ?>
+                            <div class="draft-actions">
+                                <button class="btn btn-sm" onclick="publishReply(<?=$root['id']?>)"><i data-lucide="send" style="width:12px;height:12px;"></i> Publicar</button>
+                                <button class="btn btn-outline btn-sm" onclick="editDraft(<?=$root['id']?>)"><i data-lucide="edit-3" style="width:12px;height:12px;"></i> Editar</button>
+                                <button class="btn btn-outline btn-sm" onclick="discardDraft(<?=$root['id']?>)" style="color:#ff8888;border-color:#552222;"><i data-lucide="trash-2" style="width:12px;height:12px;"></i> Descartar</button>
+                            </div>
+                            <?php endif; ?>
                         </div>
                         <?php foreach ($replies as $r): $isDraft = (int)($r['is_draft'] ?? 0) === 1; $notified = !empty($r['notificado_at']); ?>
                         <div class="msg reply<?= $isDraft ? ' draft' : '' ?>" data-reply-id="<?=$r['id']?>">
                             <div class="msg-author <?=$r['autor_tipo']==='staff'?'staff':''?>">
-                                <?=$r['autor_tipo']==='staff' ? 'Tres Puntos' : e($r['autor_nombre'])?>
+                                <?= $r['autor_tipo']==='staff' ? e($r['autor_nombre'] ?: 'Tres Puntos') : e($r['autor_nombre']) ?>
                                 <?php if ($isDraft): ?><span class="pill pill-draft">Borrador</span><?php endif; ?>
                                 <?php if ($r['autor_tipo']==='staff' && !$isDraft && $notified): ?><span class="pill pill-notif" title="Avisado por email el <?= e(fecha($r['notificado_at'])) ?>"><i data-lucide="mail-check" style="width:10px;height:10px;vertical-align:-1px;"></i> Notificado</span><?php endif; ?>
                                 <?php if ($r['autor_tipo']==='staff' && !$isDraft && !$notified): ?><span class="pill pill-pending">Sin avisar</span><?php endif; ?>
@@ -780,6 +909,81 @@ if ($detailProv > 0) {
                 </article>
                 <?php endforeach; endif; ?>
             </section>
+
+            <!-- Modal NUEVO HILO staff→proveedor -->
+            <div class="modal-backdrop" id="new-thread-modal" hidden>
+                <div class="modal" style="max-width:680px;">
+                    <header>
+                        <h3><i data-lucide="message-circle-plus" style="width:18px;height:18px;vertical-align:-3px;"></i> Nuevo mensaje a <?=e($pv['nombre'])?></h3>
+                        <button onclick="closeNewThreadModal()" type="button" class="modal-close"><i data-lucide="x" style="width:18px;height:18px;"></i></button>
+                    </header>
+                    <div class="modal-body" style="display:grid;gap:.85rem;">
+
+                        <!-- Selector de sección -->
+                        <div>
+                            <label class="nt-label">Sección del documento (opcional)</label>
+                            <select id="nt-section" class="nt-input" onchange="onSectionChange()">
+                                <option value="">— General (sin sección) —</option>
+                                <?php foreach ($clientSections as $s): ?>
+                                    <option value="<?=e($s['section_anchor'])?>" data-title="<?=e($s['section_title'])?>"><?=e($s['section_title'] ?: $s['section_anchor'])?></option>
+                                <?php endforeach; ?>
+                                <option value="__custom">— Otra sección (escribir manualmente) —</option>
+                            </select>
+                        </div>
+
+                        <!-- Inputs custom si elige "Otra" (display gestionado por JS — hidden no basta porque el style:grid lo aplasta) -->
+                        <div id="nt-custom-row" style="display:none;grid-template-columns:1fr 2fr;gap:.5rem;">
+                            <input id="nt-custom-anchor" class="nt-input" placeholder="anchor (ej: sec-3-2)">
+                            <input id="nt-custom-title" class="nt-input" placeholder="Título sección (ej: 3.2 Algo)">
+                        </div>
+
+                        <!-- Citas rápidas: comentarios cliente abiertos -->
+                        <?php if ($clientCommentsForQuote): ?>
+                        <div style="background:var(--bg-subtle);border:1px solid var(--border-base);border-radius:8px;padding:.6rem .8rem;">
+                            <div style="font-size:.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;font-weight:700;margin-bottom:.4rem;display:flex;align-items:center;gap:.35rem;">
+                                <i data-lucide="quote" style="width:11px;height:11px;"></i> Insertar cita literal de un comentario del cliente
+                            </div>
+                            <select id="nt-quote-picker" class="nt-input" onchange="insertQuote()" style="font-size:.78rem;">
+                                <option value="">— Elegir un comentario para citar —</option>
+                                <?php foreach ($clientCommentsForQuote as $cc):
+                                    $autor = trim(($cc['autor_nombre'] ?? '') ?: 'Cliente');
+                                    $excerpt = mb_substr($cc['texto'], 0, 80) . (mb_strlen($cc['texto']) > 80 ? '…' : '');
+                                    $payload = json_encode([
+                                        'anchor' => $cc['section_anchor'],
+                                        'title' => $cc['section_title'],
+                                        'autor' => $autor,
+                                        'texto' => $cc['texto'],
+                                    ], JSON_UNESCAPED_UNICODE | JSON_HEX_QUOT | JSON_HEX_APOS | JSON_HEX_AMP);
+                                ?>
+                                    <option value='<?=htmlspecialchars($payload, ENT_QUOTES)?>'>
+                                        [<?=e($cc['section_title'] ?: $cc['section_anchor'])?>] <?=e($autor)?>: <?=e($excerpt)?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                            <div style="font-size:.7rem;color:var(--text-muted);margin-top:.3rem;">Inserta automáticamente el bloque de cita + ajusta la sección al comentario elegido.</div>
+                        </div>
+                        <?php endif; ?>
+
+                        <!-- Texto -->
+                        <div>
+                            <label class="nt-label">Mensaje (máx. 4000 caracteres) <span id="nt-counter" style="color:var(--text-muted);font-weight:400;">0 / 4000</span></label>
+                            <textarea id="nt-texto" rows="9" class="nt-input" placeholder="Escribe el mensaje a enviar al proveedor… Puedes incluir cita literal del cliente y nuestra opinión." oninput="updateCounter()"></textarea>
+                        </div>
+
+                        <!-- Firma -->
+                        <div>
+                            <label class="nt-label">Firmar como</label>
+                            <input id="nt-autor" class="nt-input" maxlength="80" value="Tres Puntos" placeholder="Tres Puntos · Claudio · Jordi · …">
+                            <div style="font-size:.7rem;color:var(--text-muted);margin-top:.3rem;">Aparecerá como autor del mensaje en el portal del proveedor.</div>
+                        </div>
+                    </div>
+                    <footer>
+                        <button class="btn btn-outline" onclick="closeNewThreadModal()" type="button">Cancelar</button>
+                        <button class="btn btn-outline" onclick="submitNewThread(true)" id="nt-draft-btn"><i data-lucide="file-text" style="width:13px;height:13px;"></i> Guardar borrador</button>
+                        <button class="btn" onclick="submitNewThread(false)" id="nt-publish-btn"><i data-lucide="send" style="width:13px;height:13px;"></i> Publicar ya</button>
+                    </footer>
+                </div>
+            </div>
 
             <!-- Modal notificar a proveedor -->
             <div class="modal-backdrop" id="notify-modal" hidden>
@@ -943,6 +1147,115 @@ if ($detailProv > 0) {
         }
     }
     if (window.lucide) lucide.createIcons();
+
+    // ====== Nuevo hilo staff→proveedor ======
+    const NT_PROVEEDOR_ID = <?= (int)$detailProv ?>;
+
+    function openNewThreadModal() {
+        document.getElementById('new-thread-modal').hidden = false;
+        setTimeout(() => document.getElementById('nt-texto').focus(), 50);
+    }
+    function closeNewThreadModal() {
+        document.getElementById('new-thread-modal').hidden = true;
+        document.getElementById('nt-texto').value = '';
+        document.getElementById('nt-section').value = '';
+        document.getElementById('nt-custom-row').style.display = 'none';
+        document.getElementById('nt-custom-anchor').value = '';
+        document.getElementById('nt-custom-title').value = '';
+        document.getElementById('nt-autor').value = 'Tres Puntos';
+        const qp = document.getElementById('nt-quote-picker');
+        if (qp) qp.value = '';
+        updateCounter();
+    }
+    function onSectionChange() {
+        const sel = document.getElementById('nt-section');
+        const customRow = document.getElementById('nt-custom-row');
+        customRow.style.display = (sel.value === '__custom') ? 'grid' : 'none';
+    }
+    function updateCounter() {
+        const t = document.getElementById('nt-texto').value;
+        const c = document.getElementById('nt-counter');
+        if (c) c.textContent = `${t.length} / 4000`;
+        c.style.color = t.length > 4000 ? '#ff8888' : 'var(--text-muted)';
+    }
+    function insertQuote() {
+        const picker = document.getElementById('nt-quote-picker');
+        const val = picker.value;
+        if (!val) return;
+        let data;
+        try { data = JSON.parse(val); } catch (e) { return; }
+        // Ajustar sección del dropdown si coincide
+        const sectionSel = document.getElementById('nt-section');
+        if (data.anchor) {
+            const opt = Array.from(sectionSel.options).find(o => o.value === data.anchor);
+            if (opt) {
+                sectionSel.value = data.anchor;
+                document.getElementById('nt-custom-row').style.display = 'none';
+            }
+        }
+        // Construir bloque cita
+        const sectionLabel = data.title || data.anchor || 'general';
+        const block = `🗣️ Comentario del cliente en ${sectionLabel}:\n\n"${data.texto.replace(/\n/g, '\n')}"\n— ${data.autor}\n\n💭 Nuestra lectura:\n`;
+        const ta = document.getElementById('nt-texto');
+        // Insertar al final (preservando texto previo si lo hay)
+        if (ta.value.trim() === '') {
+            ta.value = block;
+        } else {
+            ta.value = ta.value.replace(/\s+$/, '') + '\n\n' + block;
+        }
+        ta.focus();
+        // Posicionar cursor al final
+        ta.selectionStart = ta.selectionEnd = ta.value.length;
+        updateCounter();
+        // reset selector
+        picker.value = '';
+    }
+    async function submitNewThread(asDraft) {
+        const texto = document.getElementById('nt-texto').value.trim();
+        const autor = document.getElementById('nt-autor').value.trim() || 'Tres Puntos';
+        if (!texto) { alert('Escribe el mensaje antes de enviar.'); return; }
+        if (texto.length > 4000) { alert('Demasiado largo (máx 4000).'); return; }
+
+        const sectionSel = document.getElementById('nt-section');
+        let anchor = '', title = '';
+        if (sectionSel.value === '__custom') {
+            anchor = document.getElementById('nt-custom-anchor').value.trim();
+            title  = document.getElementById('nt-custom-title').value.trim();
+        } else if (sectionSel.value !== '') {
+            anchor = sectionSel.value;
+            const opt = sectionSel.options[sectionSel.selectedIndex];
+            title  = opt.dataset.title || opt.textContent.trim();
+        }
+
+        const btnDraft = document.getElementById('nt-draft-btn');
+        const btnPub = document.getElementById('nt-publish-btn');
+        btnDraft.disabled = true; btnPub.disabled = true;
+
+        const fd = new URLSearchParams({
+            action: 'new_thread_to_provider',
+            proveedor_id: NT_PROVEEDOR_ID,
+            texto: texto,
+            section_anchor: anchor,
+            section_title: title,
+            autor_nombre: autor,
+            as_draft: asDraft ? '1' : '',
+        });
+        const r = await fetch('admin_providers.php', {method: 'POST', body: fd}).then(r => r.json()).catch(() => ({}));
+        if (r.success) {
+            closeNewThreadModal();
+            location.reload();
+        } else {
+            alert(r.error || 'Error');
+            btnDraft.disabled = false; btnPub.disabled = false;
+        }
+    }
+    // Atajos: Esc cierra el modal
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            const m = document.getElementById('new-thread-modal');
+            if (m && !m.hidden) closeNewThreadModal();
+        }
+    });
     </script>
     </body></html>
     <?php
