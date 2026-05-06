@@ -467,23 +467,12 @@ window.TP_PV_INITIAL_SIGNER = <?= json_encode($__pvInitialSigner, JSON_UNESCAPED
 
     function renderThread(root, repliesByRoot) {
         const replies = (repliesByRoot[root.id] || []).sort((a,b) => a.created_at > b.created_at ? 1 : -1);
-        const adminReplyBlock = window.__isAdminViewing ? `
-            <div class="tp-admin-reply" data-root="${root.id}">
-                <button type="button" class="tp-admin-reply-toggle" data-root="${root.id}">
-                    <i data-lucide="reply" style="width:14px;height:14px;vertical-align:-2px;"></i>
-                    Responder como Tres Puntos
-                </button>
-                <div class="tp-admin-reply-form" hidden>
-                    <textarea placeholder="Escribe la respuesta…" maxlength="4000"></textarea>
-                    <div class="tp-admin-reply-actions">
-                        <button type="button" class="tp-admin-reply-cancel">Cancelar</button>
-                        <button type="button" class="tp-admin-reply-send" data-root="${root.id}">Enviar respuesta</button>
-                    </div>
-                </div>
-            </div>` : '';
+        // Bloque admin-reply eliminado: confundía con el form principal del proveedor
+        // y duplicaba la funcionalidad de admin_providers.php (donde el admin responde
+        // y abre hilos nuevos). Aquí solo mostramos los mensajes en modo lectura.
         return `<section class="tp-thread" data-root="${root.id}">
             ${renderOne(root, false)}${replies.map(r => renderOne(r, true)).join('')}
-            ${adminReplyBlock}</section>`;
+        </section>`;
     }
 
     function wireAdminReply(scope) {
@@ -530,6 +519,14 @@ window.TP_PV_INITIAL_SIGNER = <?= json_encode($__pvInitialSigner, JSON_UNESCAPED
         const repliesByRoot = {};
         state.comments.filter(c => c.parent_id).forEach(r => (repliesByRoot[r.parent_id] = repliesByRoot[r.parent_id] || []).push(r));
         body.innerHTML = list.slice().sort((a,b) => a.created_at > b.created_at ? 1 : -1).map(r => renderThread(r, repliesByRoot)).join('');
+
+        // En vista global el form admin-reply confunde: parece input pero al pulsar
+        // te lleva al modal de la sección. Lo quitamos. En vista filtrada por sección
+        // (currentAnchor != null) sí lo dejamos.
+        if (!state.currentAnchor) {
+            body.querySelectorAll('.tp-admin-reply').forEach(el => el.remove());
+        }
+
         body.querySelectorAll('.tp-btn-delete').forEach(b => b.addEventListener('click', onDelete));
         wireAdminReply('drawer');
         wireThreadClickToSection('drawer');
