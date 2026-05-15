@@ -79,13 +79,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['pin'])) {
 
     if (!$login_errors) {
         // Auto-detectar proveedor: si el email coincide con cualquier propuesta_proveedores,
-        // marcar la sesión como interna (no es cliente final).
+        // marcar la sesión como interna (no es cliente final) y avisar por Telegram.
         $isProvEmail = false;
+        $provInfo = null;
         try {
-            $stmt = $pdo->prepare("SELECT 1 FROM propuesta_proveedores WHERE LOWER(email) = LOWER(?) LIMIT 1");
+            $stmt = $pdo->prepare("SELECT id, nombre, empresa, propuesta_id FROM propuesta_proveedores WHERE LOWER(email) = LOWER(?) LIMIT 1");
             $stmt->execute([$email]);
-            $isProvEmail = (bool)$stmt->fetchColumn();
+            $provInfo = $stmt->fetch(PDO::FETCH_ASSOC);
+            $isProvEmail = (bool)$provInfo;
         } catch (Throwable $e) { /* tabla puede no existir en deploys antiguos */ }
+
+        // ⚠️ Alerta: un proveedor está entrando al doc usando el PIN del cliente
+        // (lo normal sería que entre por /s/{token}). Eso le da acceso al presupuesto
+        // y resto de contenido cara-cliente, hay que saberlo.
+        if ($isProvEmail && function_exists('sendTelegramNotification')) {
+            $clientName = $proposal['client_name'] ?? $slug;
+            $msg = "⚠️ <b>Proveedor con PIN cliente</b>\n";
+            $msg .= "Documento: <b>" . htmlspecialchars($clientName) . "</b>\n";
+            $msg .= "Proveedor: <b>" . htmlspecialchars($provInfo['nombre'] ?? $nombre) . "</b>";
+            if (!empty($provInfo['empresa'])) $msg .= " (" . htmlspecialchars($provInfo['empresa']) . ")";
+            $msg .= "\nEmail: " . htmlspecialchars($email) . "\n\n";
+            $msg .= "Está viendo el documento como cliente — incluye presupuesto y firmas. Confirma si es intencional.\n\n";
+            $msg .= "https://doc.trespuntos-lab.com/p/" . $slug;
+            @sendTelegramNotification($msg);
+        }
 
         $_SESSION[$session_key] = true;
         $_SESSION[$identity_key] = [
