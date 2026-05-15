@@ -40,6 +40,13 @@ test_db.php
 update_nextica.php
 old/
 
+# SQLite WAL/SHM locks (temporales, generados por SQLite en modo WAL)
+database/database.sqlite-shm
+database/database.sqlite-wal
+
+# Playwright MCP snapshots (DOM dumps de tests locales)
+.playwright-mcp/
+
 # Local dev scratch / debug
 cookies.txt
 test_cards.html

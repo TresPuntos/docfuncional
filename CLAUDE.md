@@ -14,6 +14,139 @@ Aplica también al detallar entregables Fase 2: no decimos "entregamos UI maquet
 
 ---
 
+## ✅ DESPLEGADO 2026-05-05 · Aula Clínic v1.0 · Comentarios Dani resueltos + presupuesto Holded + fix privacidad proveedor
+
+> Sesión larga. Tres bloques de trabajo: (1) revisión y resolución de los 5 comentarios de Dani sobre Aula Clínic (id=23) → doc draft sobre v1.0; (2) creación de presupuesto E170386 en Holded vía API directa con horquillas; (3) fix crítico de privacidad en `view.php` que mostraba el HTML del Holded a proveedores aunque el tab estuviera oculto.
+
+### Bloque 1 · Aula Clínic v1.0 — 5 comentarios de Dani resueltos (vía API REST PUT sin save_version)
+
+Doc id=23, slug `aula-clinic`. Sigue como **v1.0** (NO save_version) porque el cliente Hedima nunca vio v1.0 — la primera que verá es la post-Dani. Cuando Dani devuelva matices, ahí sí save_version → v1.1.
+
+**Cambios al HTML**:
+
+1. **Sección nueva 7 · Blog y contenidos editoriales** (~25 vistas, blog dentro del a medida, no WP headless). Lead corto sin entrar en detalle técnico (decisión user). Sub-bloques: 7.1 objetivo, 7.2 qué ve usuario (5 cards), 7.3 gestión panel admin (5 bullets simples), 7.4 posicionamiento orgánico (1 frase, sin SSR/schema/hidratación). Insertada entre Catálogo y Motor fiscal → desplaza 12 secciones (8→9 …, 17→18, 18→19).
+2. **Sección nueva 12 · Stack tecnológico** (renumerada desde 11 tras meter Blog) — Front Angular o React + Back Laravel + 5 cards "por qué a medida": SAGE bidireccional, Comisiones e IVA por tipología, B2B con compra delegada, Marketplace de cursos completo, Autonomía total del equipo. Lead con transición suave "primera aproximación valoramos un CMS, ahora vamos a medida". Mantiene "Angular o React" abiertos (kickoff técnico).
+3. **Refactor sec 11.3 (CRM) en Integraciones** — pasa de "pendiente decisión" a explícito: 2 vías posibles (CRM mercado vía API o módulo a medida en panel admin). **No presupuestado por falta de info**.
+4. **Refactor sec 11.2 (SAGE) · card "API a medida"** — tag pasa de mint "Disponible" a pending "Por validar". Mención explícita "Fase II" como dijo el cliente.
+5. **Sec 18 (Dudas) · 2 nuevas filas en tabla**: SAGE entorno y CRM con vías (mantiene CRM como duda alta).
+6. **Sec 19 (Siguientes pasos)** reescrita: 19.1 doc "casi completo", 19.2 cierre dudas (incluye SAGE + CRM), 19.3 "Sobre el presupuesto" (partidas cerradas vs horquillas + rango aproximado del coste final), 19.4 cómo seguimos.
+7. **Índice general** — quitada cláusula "Qué NO hay aquí" (porque ahora SÍ entregamos presupuesto + equipo + stack).
+8. **Renumeración masiva** — H2 7→8 hasta 18→19 + subsecciones 15.X→16.X + 5 refs cruzadas (sección 13/14/15.1/15.2/16) + reescritura sec 19 (era 17).
+
+**HTML**: 82.034 → 90.819 chars. Backups en `/tmp/aula-clinic-stack/v1.0-*.html`.
+
+### Bloque 2 · Presupuesto E170386 en Holded (Hedima D N FORMACION SL)
+
+**No existe wrapper de creación de Holded en el código** — solo lectura (`holded_get_estimate`, search). Creado por **POST directo a Holded API** con autorización explícita del user.
+
+- **Endpoint**: `POST /documents/estimate` (NO `/documents/salesestimate` que dio "Unknown docType")
+- **Auth**: `key: {HOLDED_API_KEY}` header
+- **Contact ID Hedima**: `68dd03d067343bce8001c273` (encontrado vía `GET /contacts?vatnumber=B82651514`, hay 2 duplicados sin tipo, usar el `type=client`)
+- **Estimate ID**: `69fa1af30b28bb40880ace4a` · doc number **E170386**
+- **Estado**: borrador (status=0), NO vinculado al doc, NO enviado al cliente
+
+**Estructura final · 8 partidas** (margen 25% sobre Dani por defecto, margen 33% en Plataforma+Virtagora tras decisión comercial):
+
+| # | Partida | Importe |
+|---|---|---:|
+| 01 | Diseño UX/UI | 5.000 € |
+| 02 | Maquetación HTML/CSS responsive | 3.500 € |
+| 03 | Plataforma · Angular + Laravel ★ | 13.500 € (max horquilla 10.500-13.500) |
+| 04 | Integración Virtagora LMS | 4.000 € (margen 33%) |
+| 05 | Sincronización CSV nightly | 1.750 € |
+| 06 | Project Manager · QA y despliegue | 2.800 € |
+| 07 | SEO, analítica y Cerebro Digital | 4.500 € |
+| 08 | Integración SAGE · Fase II ★ | 5.000 € (max horquilla 3.500-5.000) |
+| | **Subtotal s/IVA** | **40.050 €** |
+| | IVA 21% | 8.410,50 € |
+| | **Total c/IVA** | **48.460,50 €** |
+
+★ = horquilla. Holded no soporta rangos por línea → se sube al **máximo** (anchoring psicológico) + nota en descripción "* Precio horquilla X-Y €" + nota pie general "El total quedará entre 35.550 € y 40.050 €".
+
+**Costes Dani (uso interno, no cara-cliente)**:
+- Dev front+admin+back: 8.000-10.000 €
+- Virtagora: 3.000 €
+- CSV: 1.400 €
+- SAGE: 2.500-3.600 €
+- **Total Dani**: 14.900-18.000 €
+- **Margen Tres Puntos sobre subcontratación**: 4.100-5.000 € (~28%)
+- **Margen sobre partidas TP propias** (cliente 14.800 € − coste interno equipo TP ~10.000 €): ~4.800 €
+- **Beneficio NETO TP**: ~10.650 € (escenario simple) a ~12.050 € (escenario complejo)
+
+**Patrón reutilizable**: para futuras propuestas con incertidumbre real en alguna partida, subir Holded al **importe máximo** + nota "* Precio horquilla X-Y €" en `desc` + nota global en `notes`. Anchoring psicológico mejor que arriesgar fricción de subida posterior.
+
+### Bloque 3 · Fix de privacidad en view.php (commit `1fe46d9`)
+
+**Bug detectado** durante preparación de `holded_link`. El user preguntó si Dani podía ver el presupuesto al vincular Holded. Verificación en código mostró bug serio:
+
+```php
+// ANTES (bug)
+<?php if ($hasPresupuestoTab): ?>
+<div class="doc-view" data-tab="presupuesto" hidden>
+<?php endif; ?>                              // ← cierre temprano del condicional
+<?php if ($hasHolded):                       // ← se ejecutaba SIEMPRE, incluso con $isProviderMode
+    include 'master/presupuesto-holded.php'; // ← HTML del invoice queda en DOM
+elseif ($hasPdf): ...
+endif; ?>
+<?php if ($hasPresupuestoTab): ?>
+</div>
+<?php endif; ?>
+```
+
+Resultado: el botón del tab "Presupuesto" no se renderizaba para proveedores (eso sí funcionaba), pero **el HTML del template `tp-invoice` se imprimía huérfano al final del documento**, visible al hacer scroll.
+
+**Fix**: envolver todo el bloque (apertura div + render Holded/PDF + cierre div) dentro de un único `if ($hasPresupuestoTab)`. Diff de -2 líneas en `view.php` (líneas 2833 y 2918).
+
+**Verificación con Playwright en local**:
+- BD prod descargada vía FTP a local (`database/database.sqlite` 4,2 MB).
+- E170386 vinculado al doc 23 SOLO en BD local (sin tocar prod).
+- Server `php -S localhost:8000 router.php`.
+- Test 1 · Cliente con PIN 2024: ✅ ve los 2 tabs · `<div data-tab="presupuesto">` presente · `.tp-invoice` renderizado · "E170386" en DOM.
+- Test 2 · Proveedor Dani con token + PIN 5129: ✅ 0 tabs · sin `[data-tab="presupuesto"]` · sin `.tp-invoice` · sin "E170386" · sin "40.050" · sin IBAN.
+- Test 3 · Proveedor sigue viendo doc normal: 26 H2, 407 KB de contenido, sec 7 Blog, sec 12 Stack visibles.
+
+**Deploy**:
+- Backup prod: `/tmp/tp-prod-backup-20260505-191621-view-fix/view.php`
+- Upload FTP: 226 OK, 170.138 bytes
+- Smoke 3 propuestas (aula-clinic, h2bhipotecas, gibobs-allbanks): HTTP 200, 0 errores PHP
+- Git: `9bcf023..1fe46d9 main -> main`
+
+### Estado al cierre de sesión (2026-05-05 19:20)
+
+- Aula Clínic doc id=23 v1.0 con 5 comentarios Dani resueltos (en BD prod, sin save_version).
+- E170386 en Holded como borrador, NO vinculado al doc todavía.
+- Fix view.php DESPLEGADO en prod.
+- 5 hilos de Dani en `proveedor_mensajes` siguen abiertos sin respuesta staff.
+- Pendiente:
+  1. **Vincular E170386 al doc 23** con `holded_link` cuando Jordi dé OK (ahora seguro tras fix view.php).
+  2. **Esperar matices de Dani** sobre los cambios v1.0 → integrar y subir a v1.1.
+  3. **Enviar a Hedima** doc + presupuesto cuando v1.1 esté lista.
+  4. **Replicar borradores de respuesta** a los 5 hilos de Dani vía `provider_reply_draft` para que Jordi los publique cuando proceda.
+
+### Patrones reutilizables aprendidos esta sesión
+
+1. **Renumeración masiva del doc**: aplicar siempre en orden DESCENDENTE (18→19, 17→18, 16→17…) o usar tokens temporales para evitar pisar refs ya cambiadas. El script Python con `re.sub` y función lambda es lo más limpio.
+2. **Holded API · crear estimate**: `POST /documents/estimate` (NO `salesestimate`). Payload con `contactId`, `date`, `dueDate`, `items[].name|desc|units|subtotal|tax|discount`, `notes`, `language`, `currency`.
+3. **Holded API · update estimate**: `PUT /documents/estimate/{id}` con mismo payload (cuerpo). Sustituye items y notes completos.
+4. **Anchoring presupuestos con horquilla**: subir al MÁXIMO en Holded + nota visible. Bajar después se siente como descuento; subir después se siente como sorpresa negativa.
+5. **Test de privacidad en local con BD prod**: descargar `database.sqlite` vía FTP curl + restaurar BD local original al terminar (`/tmp/aula-clinic-stack/local-test/database.sqlite.before`).
+6. **Playwright para tests de privacidad**: `browser_evaluate` con `document.body.innerHTML.includes('XXXXX')` para verificar que un literal NO aparece en DOM. Más fiable que comprobar visibilidad CSS (un `hidden` puede saltarse vía URL hash).
+
+### Backups disponibles (rollback)
+
+- HTML doc Aula Clínic v1.0 pre-comentarios Dani: `/tmp/aula-clinic-stack/v1.0-original.html`
+- view.php prod pre-fix: `/tmp/tp-prod-backup-20260505-191621-view-fix/view.php`
+- BD prod snapshot 2026-05-05: `/tmp/aula-clinic-stack/local-test/database-prod-doc.sqlite`
+
+### Cara-cliente checklist (regla absoluta sigue intacta)
+
+- ✅ Doc Aula Clínic NO menciona a Dani ni a "partner técnico" en ningún sub-bloque.
+- ✅ Frase "primera aproximación valoramos un CMS" introduce el a medida sin nombrar quién hizo el presupuesto previo.
+- ✅ E170386 descripción no menciona subcontratación.
+- ✅ Costes Dani solo aparecen en CLAUDE.md y memoria interna.
+
+---
+
 ## ✅ DESPLEGADO 2026-05-06 · UI "Nuevo mensaje" staff→proveedor + 13 borradores Gibobs + 3 fixes UX portal proveedor
 
 > Sesión completa cerrando el flujo cara-cliente / cara-proveedor con Gibobs Allbanks. Detonante: Ignacio Aymat (cliente Gibobs) había dejado 13 comentarios en el doc funcional v1.9 y Jordi necesitaba trasladarlos a Dani (Truman) en su portal proveedor sin que Dani viera identidad ni copy del cliente. Antes solo se podía responder a hilos que abriera el proveedor — no había forma de iniciar hilos staff→proveedor desde TP. Construido y desplegado el primitivo que faltaba.
