@@ -83,6 +83,49 @@ if (($_GET['action'] ?? '') === 'search') {
     exit;
 }
 
+// ---- Iter 4a · Drawer data (JSON · cuando se click avatar en dashboard) ----
+if (isset($_GET['action']) && $_GET['action'] === 'drawer_data' && isset($_GET['proveedor_id'])) {
+    header('Content-Type: application/json; charset=utf-8');
+    $pvid = (int)$_GET['proveedor_id'];
+
+    $pq = $pdo->prepare("SELECT pv.id, pv.nombre, pv.empresa, pv.email, pv.accesos, pv.last_accessed_at,
+                                pv.ver_comentarios, pv.activo, pv.invited_at,
+                                pr.id AS prop_id, pr.client_name, pr.slug
+                         FROM propuesta_proveedores pv
+                         JOIN propuestas pr ON pr.id = pv.propuesta_id
+                         WHERE pv.id = ?");
+    $pq->execute([$pvid]);
+    $pv = $pq->fetch(PDO::FETCH_ASSOC);
+    if (!$pv) { echo json_encode(['success' => false, 'error' => 'Proveedor no encontrado']); exit; }
+
+    // Último presupuesto (incluye estado si la migración está aplicada)
+    $hasDecision = false;
+    try {
+        foreach ($pdo->query("PRAGMA table_info(proveedor_presupuestos)")->fetchAll(PDO::FETCH_ASSOC) as $c) {
+            if ($c['name'] === 'decision_state') { $hasDecision = true; break; }
+        }
+    } catch (\Throwable $_) {}
+
+    $bSelect = $hasDecision ? ", decision_state, decision_at, decision_note" : ", NULL AS decision_state, NULL AS decision_at, NULL AS decision_note";
+    $bq = $pdo->prepare("SELECT id, version_num, archivo_nombre, importe_total, plazo_dias, moneda, notas, uploaded_at $bSelect
+                         FROM proveedor_presupuestos WHERE proveedor_id = ? ORDER BY version_num DESC");
+    $bq->execute([$pvid]);
+    $budgets = $bq->fetchAll(PDO::FETCH_ASSOC);
+
+    // Conteo mensajes (hilos root, no draft)
+    $mc = $pdo->prepare("SELECT COUNT(*) FROM proveedor_mensajes WHERE proveedor_id = ? AND parent_id IS NULL AND (is_draft IS NULL OR is_draft = 0)");
+    $mc->execute([$pvid]);
+    $msgCount = (int)$mc->fetchColumn();
+
+    echo json_encode([
+        'success' => true,
+        'provider' => $pv,
+        'budgets' => $budgets,
+        'messages_count' => $msgCount,
+    ]);
+    exit;
+}
+
 // ---- Download de archivo presupuesto ----
 if (isset($_GET['download']) && is_numeric($_GET['download'])) {
     $id = (int)$_GET['download'];
@@ -441,6 +484,135 @@ HTML;
         exit;
     }
 
+    // ─── Cambio de estado del presupuesto (máquina de estados) ───
+    // Estados válidos: recibido | en_revision | aceptado | rechazado | iteracion_solicitada
+    if ($action === 'set_budget_state') {
+        $budgetId = (int)($_POST['budget_id'] ?? 0);
+        $newState = trim($_POST['state'] ?? '');
+        $note     = trim($_POST['note'] ?? '');
+        $notify   = !empty($_POST['notify_provider']);
+
+        $validStates = ['recibido', 'en_revision', 'aceptado', 'rechazado', 'iteracion_solicitada'];
+        if (!$budgetId || !in_array($newState, $validStates, true)) {
+            echo json_encode(['success' => false, 'error' => 'Datos inválidos (budget_id, state)']);
+            exit;
+        }
+        if (mb_strlen($note) > 2000) {
+            echo json_encode(['success' => false, 'error' => 'Nota demasiado larga (máx 2000)']);
+            exit;
+        }
+
+        // Leer presupuesto + datos del proveedor + cliente (para email)
+        $bq = $pdo->prepare("SELECT pp.id, pp.proveedor_id, pp.version_num, pp.importe_total, pp.archivo_nombre,
+                                    pp.decision_state AS from_state,
+                                    pv.nombre AS prov_nombre, pv.empresa AS prov_empresa, pv.email AS prov_email, pv.token,
+                                    pr.client_name, pr.slug
+                             FROM proveedor_presupuestos pp
+                             JOIN propuesta_proveedores pv ON pv.id = pp.proveedor_id
+                             JOIN propuestas pr ON pr.id = pv.propuesta_id
+                             WHERE pp.id = ?");
+        $bq->execute([$budgetId]);
+        $b = $bq->fetch(PDO::FETCH_ASSOC);
+        if (!$b) { echo json_encode(['success' => false, 'error' => 'Presupuesto no encontrado']); exit; }
+
+        $fromState = $b['from_state'] ?: 'recibido';
+        if ($fromState === $newState && $note === '') {
+            echo json_encode(['success' => false, 'error' => 'El presupuesto ya está en ese estado']);
+            exit;
+        }
+
+        $autorEmail = 'admin@trespuntos-lab.com'; // sesión admin no guarda email; placeholder
+        $autorNombre = 'Tres Puntos';
+
+        // Transacción · update + audit event
+        try {
+            $pdo->beginTransaction();
+
+            $upd = $pdo->prepare("UPDATE proveedor_presupuestos
+                                  SET decision_state = ?, decision_at = CURRENT_TIMESTAMP,
+                                      decision_by = ?, decision_note = ?
+                                  WHERE id = ?");
+            $upd->execute([$newState, $autorEmail, $note ?: null, $budgetId]);
+
+            $evt = $pdo->prepare("INSERT INTO proveedor_presupuestos_eventos
+                                  (presupuesto_id, from_state, to_state, note, autor_email, autor_nombre, notified_provider)
+                                  VALUES (?, ?, ?, ?, ?, ?, ?)");
+            $evt->execute([$budgetId, $fromState, $newState, $note ?: null, $autorEmail, $autorNombre, $notify ? 1 : 0]);
+
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            echo json_encode(['success' => false, 'error' => 'Error al guardar: ' . $e->getMessage()]);
+            exit;
+        }
+
+        // Notificación al proveedor (opcional, vía Resend con layout estándar)
+        $emailSent = false;
+        if ($notify && filter_var($b['prov_email'], FILTER_VALIDATE_EMAIL) && function_exists('tp_send_email')) {
+            $stateCopy = [
+                'en_revision'            => ['Estamos revisando tu presupuesto', 'Estamos revisando tu presupuesto en detalle. Te confirmamos pronto.'],
+                'aceptado'               => ['Tu presupuesto está aceptado', 'Confirmamos la aceptación del presupuesto. Te contactamos para los siguientes pasos.'],
+                'rechazado'              => ['Hemos cerrado el presupuesto', 'Hemos decidido no avanzar con esta versión. Gracias por tu trabajo.'],
+                'iteracion_solicitada'   => ['Tenemos comentarios sobre tu presupuesto', 'Nos gustaría que ajustes algún punto antes de avanzar. Te los detallamos abajo.'],
+            ];
+            if (isset($stateCopy[$newState])) {
+                [$subject, $intro] = $stateCopy[$newState];
+                $host = $_SERVER['HTTP_HOST'] ?? 'doc.trespuntos-lab.com';
+                $scheme = (strpos($host, 'localhost') === false) ? 'https' : 'http';
+                $portalUrl = $scheme . '://' . $host . '/s/' . $b['token'];
+                $impFmt = $b['importe_total'] !== null ? number_format((float)$b['importe_total'], 2, ',', '.') . ' €' : '';
+
+                $bodyHtml = '<p style="margin:0 0 12px;">' . htmlspecialchars($intro, ENT_QUOTES) . '</p>';
+                $bodyHtml .= '<p style="margin:0 0 12px;color:#555;font-size:14px;"><strong>Versión v' . (int)$b['version_num'] . '</strong>'
+                          . ($impFmt ? ' · ' . htmlspecialchars($impFmt, ENT_QUOTES) : '')
+                          . ' · <em>' . htmlspecialchars($b['archivo_nombre'], ENT_QUOTES) . '</em></p>';
+                if ($note !== '') {
+                    $bodyHtml .= '<p style="margin:16px 0 6px;font-weight:600;color:#0e0e0e;">Nuestra nota:</p>';
+                    $bodyHtml .= '<blockquote style="margin:0;padding:10px 14px;background:#f5f5f5;border-left:3px solid #0FA36C;color:#0e0e0e;font-size:14px;line-height:1.5;">'
+                              . nl2br(htmlspecialchars($note, ENT_QUOTES)) . '</blockquote>';
+                }
+
+                $emailSent = @tp_send_email(
+                    $b['prov_email'],
+                    $subject . ' · ' . $b['client_name'],
+                    [
+                        'preheader'   => $intro,
+                        'title'       => $subject,
+                        'highlight'   => $b['client_name'] . ' · presupuesto v' . (int)$b['version_num'],
+                        'body_html'   => $bodyHtml,
+                        'cta_label'   => 'Abrir portal de proveedor',
+                        'cta_url'     => $portalUrl,
+                        'fallback_url'=> $portalUrl,
+                        'footer_note' => 'Recibes este email porque colaboras con Tres Puntos en ' . $b['client_name'] . '.',
+                    ]
+                );
+            }
+        }
+
+        // Telegram alert al grupo Mesa 3P
+        if (defined('TELEGRAM_BOT_TOKEN') && defined('TELEGRAM_CHAT_ID')) {
+            $stateLabel = [
+                'recibido' => 'Recibido', 'en_revision' => 'En revisión',
+                'aceptado' => 'Aceptado', 'rechazado' => 'Rechazado',
+                'iteracion_solicitada' => 'Iteración pedida',
+            ][$newState] ?? $newState;
+            $msg = "📋 Presupuesto · <b>" . htmlspecialchars($b['client_name']) . "</b>"
+                . "\n<b>" . htmlspecialchars($b['prov_nombre']) . "</b> · v" . (int)$b['version_num']
+                . " → <b>" . htmlspecialchars($stateLabel) . "</b>";
+            if ($note !== '') $msg .= "\n\"" . htmlspecialchars(mb_substr($note, 0, 140)) . "\"";
+            @file_get_contents("https://api.telegram.org/bot" . TELEGRAM_BOT_TOKEN . "/sendMessage?chat_id=" . TELEGRAM_CHAT_ID . "&parse_mode=HTML&text=" . urlencode($msg));
+        }
+
+        echo json_encode([
+            'success' => true,
+            'budget_id' => $budgetId,
+            'from_state' => $fromState,
+            'to_state' => $newState,
+            'email_sent' => $emailSent,
+        ]);
+        exit;
+    }
+
     echo json_encode(['success' => false, 'error' => 'Acción no reconocida']);
     exit;
 }
@@ -619,12 +791,87 @@ if ($detailProv > 0) {
     .btn-purple{background:rgba(var(--purple-rgb),.2);color:var(--purple);border:1px solid rgba(var(--purple-rgb),.4);}
     .btn-purple:hover{background:rgba(var(--purple-rgb),.3);}
 
-    /* Presupuestos */
-    .budget{padding:.7rem 0;border-bottom:1px dashed var(--border-base);display:grid;grid-template-columns:50px 1fr auto;gap:1rem;align-items:center;font-size:.85rem;}
-    .budget:last-child{border-bottom:0;}
-    .budget-v{background:var(--mint);color:#000;padding:.1rem .5rem;border-radius:999px;font-size:.7rem;font-weight:700;text-align:center;}
-    .budget-meta{color:var(--text-secondary);font-size:.75rem;margin-top:.2rem;}
-    .budget-notes{color:var(--text-muted);font-size:.78rem;margin-top:.3rem;font-style:italic;}
+    /* Presupuestos · máquina de estados (Iter 1 redesign) */
+    :root { --yellow:#ffd84d; --yellow-rgb:255,216,77; --amber:#fac850; --amber-rgb:250,200,80; }
+    .budget-active{display:grid;grid-template-columns:auto 1fr auto;gap:1rem;align-items:start;padding:1rem;background:var(--bg-base);border:1px solid var(--border-strong);border-radius:10px;position:relative;}
+    .budget-active::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;border-radius:10px 0 0 10px;background:var(--state-color,var(--yellow));}
+    .budget-v{font-family:var(--font-heading,'Plus Jakarta Sans');font-size:.78rem;font-weight:700;letter-spacing:.04em;background:var(--bg-muted);border:1px solid var(--border-base);color:var(--text-primary);padding:.3rem .55rem;border-radius:6px;min-width:36px;text-align:center;font-variant-numeric:tabular-nums;}
+    .budget-info{min-width:0;}
+    .budget-filename{display:flex;align-items:center;gap:.4rem;font-weight:600;font-size:.9rem;color:var(--text-primary);margin-bottom:.35rem;letter-spacing:-.005em;}
+    .budget-filename i{width:14px;height:14px;color:var(--text-muted);flex-shrink:0;}
+    .budget-meta{display:flex;flex-wrap:wrap;gap:.55rem;align-items:center;font-size:.78rem;color:var(--text-secondary);font-variant-numeric:tabular-nums;}
+    .budget-meta-item{display:inline-flex;align-items:center;gap:.3rem;}
+    .budget-meta-item i{width:12px;height:12px;color:var(--text-muted);}
+    .budget-meta-amount{color:var(--text-primary);font-weight:600;font-size:.88rem;}
+    .budget-meta-sep{color:var(--text-muted);opacity:.5;}
+    .budget-notes{margin-top:.6rem;padding:.55rem .7rem;background:var(--bg-subtle);border-left:2px solid var(--border-strong);border-radius:4px;font-size:.78rem;color:var(--text-secondary);line-height:1.5;font-style:italic;}
+    .budget-pdf{display:inline-flex;align-items:center;gap:.35rem;background:var(--mint);color:#000;border:none;padding:.55rem .9rem;border-radius:6px;font-weight:700;cursor:pointer;font-family:inherit;font-size:.8rem;text-decoration:none;white-space:nowrap;transition:background-color .12s ease;height:fit-content;}
+    .budget-pdf:hover{background:#49e6a8;}
+    .budget-pdf i{width:13px;height:13px;}
+
+    .budget-state-row{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:.55rem .65rem;align-items:center;padding-top:.75rem;margin-top:.15rem;border-top:1px dashed var(--border-base);}
+    .state-badge{display:inline-flex;align-items:center;gap:.35rem;padding:.25rem .6rem;border-radius:999px;font-size:.72rem;font-weight:600;letter-spacing:.02em;border:1px solid;white-space:nowrap;font-variant-numeric:tabular-nums;line-height:1.4;}
+    .state-badge i{width:11px;height:11px;stroke-width:2.2;flex-shrink:0;}
+    .state-badge--recibido{background:rgba(var(--yellow-rgb),.1);color:var(--yellow);border-color:rgba(var(--yellow-rgb),.35);position:relative;padding-left:1.05rem;}
+    .state-badge--recibido::before{content:"";position:absolute;left:.5rem;top:50%;transform:translateY(-50%);width:6px;height:6px;border-radius:50%;background:var(--yellow);box-shadow:0 0 0 0 rgba(var(--yellow-rgb),.65);animation:tpPulseYellow 1.6s ease-in-out infinite;}
+    @keyframes tpPulseYellow{0%,100%{box-shadow:0 0 0 0 rgba(var(--yellow-rgb),.55);}70%{box-shadow:0 0 0 5px rgba(var(--yellow-rgb),0);}}
+    .state-badge--revision{background:rgba(var(--amber-rgb),.1);color:var(--amber);border-color:rgba(var(--amber-rgb),.35);}
+    .state-badge--aceptado{background:rgba(var(--mint-rgb),.12);color:var(--mint);border-color:rgba(var(--mint-rgb),.35);}
+    .state-badge--rechazado{background:rgba(255,107,107,.1);color:#ff6b6b;border-color:rgba(255,107,107,.35);}
+    .state-badge--iteracion{background:rgba(var(--purple-rgb),.1);color:var(--purple);border-color:rgba(var(--purple-rgb),.35);}
+    .state-since{font-size:.7rem;color:var(--text-muted);font-variant-numeric:tabular-nums;}
+
+    .state-actions{display:inline-flex;align-items:center;gap:.3rem;margin-left:auto;flex-wrap:wrap;}
+    .state-btn{display:inline-flex;align-items:center;gap:.3rem;padding:.32rem .6rem;border-radius:5px;background:transparent;border:1px solid var(--border-base);color:var(--text-secondary);font-family:inherit;font-size:.72rem;font-weight:500;cursor:pointer;white-space:nowrap;transition:all .12s ease;min-height:28px;}
+    .state-btn:hover{background:rgba(255,255,255,.02);color:var(--text-primary);border-color:var(--border-strong);}
+    .state-btn:disabled{opacity:.5;cursor:wait;}
+    .state-btn i{width:11px;height:11px;flex-shrink:0;}
+    .state-btn--review{color:var(--amber);border-color:rgba(var(--amber-rgb),.25);}
+    .state-btn--review:hover{background:rgba(var(--amber-rgb),.08);border-color:rgba(var(--amber-rgb),.5);color:var(--amber);}
+    .state-btn--accept{color:var(--mint);border-color:rgba(var(--mint-rgb),.25);}
+    .state-btn--accept:hover{background:rgba(var(--mint-rgb),.08);border-color:rgba(var(--mint-rgb),.5);color:var(--mint);}
+    .state-btn--reject{color:#ff6b6b;border-color:rgba(255,107,107,.2);}
+    .state-btn--reject:hover{background:rgba(255,107,107,.06);border-color:rgba(255,107,107,.4);color:#ff6b6b;}
+    .state-btn--iterate{color:var(--purple);border-color:rgba(var(--purple-rgb),.25);}
+    .state-btn--iterate:hover{background:rgba(var(--purple-rgb),.08);border-color:rgba(var(--purple-rgb),.5);color:var(--purple);}
+
+    .state-note-display{width:100%;margin-top:.15rem;padding:.6rem .8rem;background:rgba(var(--purple-rgb),.05);border-left:2px solid var(--purple);border-radius:4px;font-size:.78rem;color:var(--text-secondary);line-height:1.5;}
+    .state-note-head{display:inline-flex;align-items:center;gap:.35rem;font-size:.66rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--purple);margin-bottom:.3rem;}
+    .state-note-head i{width:11px;height:11px;}
+
+    /* Past versions accordion */
+    .budget-past{margin-top:1rem;border:1px solid var(--border-base);border-radius:8px;background:var(--bg-subtle);}
+    .budget-past-head{padding:.55rem .85rem;display:flex;align-items:center;gap:.5rem;cursor:pointer;list-style:none;color:var(--text-muted);font-size:.76rem;font-weight:500;}
+    .budget-past-head::-webkit-details-marker{display:none;}
+    .budget-past-head:hover{color:var(--text-secondary);}
+    .budget-past-head i.chev{width:12px;height:12px;transition:transform .15s ease;}
+    .budget-past[open] .budget-past-head i.chev{transform:rotate(90deg);}
+    .budget-past-count{font-variant-numeric:tabular-nums;font-weight:600;color:var(--text-secondary);}
+    .budget-past-body{border-top:1px solid var(--border-base);}
+    .budget-past-row{display:grid;grid-template-columns:auto 1fr auto auto;gap:.8rem;align-items:center;padding:.55rem .85rem;font-size:.78rem;}
+    .budget-past-row+.budget-past-row{border-top:1px dashed var(--border-base);}
+    .budget-past-row .budget-v{font-size:.66rem;padding:.13rem .4rem;min-width:28px;}
+    .budget-past-row .pname{color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    .budget-past-row .ppdf{color:var(--text-muted);text-decoration:none;display:inline-flex;align-items:center;gap:.25rem;font-size:.7rem;}
+    .budget-past-row .ppdf:hover{color:var(--mint);}
+    .budget-past-row .ppdf i{width:11px;height:11px;}
+    .budget-past-row .state-badge{font-size:.66rem;padding:.15rem .5rem;}
+
+    .budget-empty{padding:2.2rem 1rem;text-align:center;color:var(--text-muted);font-size:.82rem;border:1px dashed var(--border-base);border-radius:8px;}
+    .budget-empty strong{display:block;color:var(--text-secondary);margin-bottom:.25rem;font-weight:600;font-size:.85rem;}
+
+    /* Modal nota para iteración/rechazo */
+    .tp-note-modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(2px);z-index:1000;display:grid;place-items:center;padding:1rem;}
+    .tp-note-modal-backdrop[hidden]{display:none;}
+    .tp-note-modal{background:var(--bg-surface);border:1px solid var(--border-strong);border-radius:12px;width:100%;max-width:480px;box-shadow:0 20px 60px rgba(0,0,0,.6);}
+    .tp-note-modal h3{margin:0;padding:1rem 1.25rem;font-size:1rem;border-bottom:1px solid var(--border-base);font-weight:600;}
+    .tp-note-modal-body{padding:1rem 1.25rem;}
+    .tp-note-modal-body label{display:block;font-size:.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;font-weight:600;margin-bottom:.4rem;}
+    .tp-note-modal-body textarea{width:100%;box-sizing:border-box;background:var(--bg-base);border:1px solid var(--border-base);color:var(--text-primary);padding:.6rem .75rem;border-radius:6px;font-family:inherit;font-size:.85rem;min-height:100px;resize:vertical;line-height:1.5;}
+    .tp-note-modal-body textarea:focus{outline:none;border-color:var(--mint);}
+    .tp-note-modal-body label.notify-row{display:flex;align-items:center;gap:.5rem;font-size:.82rem;color:var(--text-secondary);text-transform:none;letter-spacing:0;font-weight:500;margin:.85rem 0 0;cursor:pointer;}
+    .tp-note-modal-body label.notify-row input{margin:0;accent-color:var(--mint);}
+    .tp-note-modal-footer{padding:.85rem 1.25rem;border-top:1px solid var(--border-base);display:flex;justify-content:flex-end;gap:.5rem;}
 
     /* Mensajes */
     .thread{border:1px solid var(--border-base);border-radius:10px;margin-bottom:1rem;overflow:hidden;}
@@ -702,6 +949,44 @@ if ($detailProv > 0) {
     select.nt-input{cursor:pointer;}
     textarea.nt-input{min-height:140px;resize:vertical;line-height:1.55;font-family:inherit;}
     #nt-counter{font-size:.7rem;}
+
+    /* ── Iter 4c · Sibling nav widget ── */
+    .tp-sibling-nav{display:inline-flex;align-items:center;background:var(--bg-base);border:1px solid var(--border-base);border-radius:8px;overflow:hidden;margin:8px 0 16px;}
+    .tp-sibling-nav__btn{display:inline-flex;align-items:center;justify-content:center;width:32px;height:36px;background:transparent;border:0;color:var(--text-secondary);cursor:pointer;text-decoration:none;transition:background-color .12s ease,color .12s ease;}
+    .tp-sibling-nav__btn:hover{background:rgba(255,255,255,.04);color:var(--text-primary);}
+    .tp-sibling-nav__btn[aria-disabled="true"]{opacity:.3;pointer-events:none;}
+    .tp-sibling-nav__btn i{width:14px;height:14px;}
+    .tp-sibling-nav__current{display:flex;align-items:center;gap:10px;padding:0 12px;border-left:1px solid var(--border-base);border-right:1px solid var(--border-base);min-width:220px;}
+    .tp-sibling-nav__avatar{width:26px;height:26px;border-radius:50%;background:rgba(var(--purple-rgb),.12);color:var(--purple);border:1px solid rgba(var(--purple-rgb),.35);display:grid;place-items:center;font-size:.68rem;font-weight:700;flex-shrink:0;}
+    .tp-sibling-nav__name{font-size:.85rem;font-weight:600;letter-spacing:-.005em;}
+    .tp-sibling-nav__name small{display:block;color:var(--text-muted);font-size:.68rem;font-weight:400;}
+    .tp-sibling-nav__counter{padding:0 12px;font-size:.7rem;color:var(--text-muted);font-variant-numeric:tabular-nums;letter-spacing:.04em;font-weight:500;border-right:1px solid var(--border-base);}
+    .tp-sibling-nav__kbd{display:inline-flex;align-items:center;gap:2px;padding:0 8px;}
+    .tp-kbd{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:.62rem;background:var(--bg-muted);border:1px solid var(--border-base);border-radius:3px;padding:1px 4px;color:var(--text-secondary);font-weight:600;}
+
+    /* ── Iter 4b · Tabs internos del detalle ── */
+    .tp-detail-tabs{display:flex;gap:4px;border-bottom:1px solid var(--border-base);margin:0 0 18px;padding:0;}
+    .tp-tab{display:inline-flex;align-items:center;gap:.4rem;padding:9px 14px;margin-bottom:-1px;border:0;border-bottom:2px solid transparent;background:transparent;color:var(--text-muted);font-family:inherit;font-size:.82rem;font-weight:500;cursor:pointer;transition:color .12s,border-color .12s;}
+    .tp-tab:hover{color:var(--text-primary);}
+    .tp-tab.is-active{color:var(--mint);border-bottom-color:var(--mint);}
+    .tp-tab i{width:13px;height:13px;}
+    .tp-tab-count{font-variant-numeric:tabular-nums;background:var(--bg-muted);color:var(--text-muted);border-radius:999px;padding:1px 6px;font-size:.65rem;font-weight:600;margin-left:2px;}
+    .tp-tab.is-active .tp-tab-count{background:rgba(var(--mint-rgb),.14);color:var(--mint);}
+    .tp-tab-pulse{width:6px;height:6px;border-radius:50%;background:var(--yellow);margin-left:2px;animation:tpTabPulse 1.6s ease-in-out infinite;}
+    @keyframes tpTabPulse{0%,100%{box-shadow:0 0 0 0 rgba(var(--yellow-rgb),.55);}70%{box-shadow:0 0 0 5px rgba(var(--yellow-rgb),0);}}
+
+    /* Tabs · visibilidad por activeTab. Default = resumen (todo visible).
+       Otras tabs colapsan grid a 1 col y ocultan secciones no relacionadas. */
+    body.tp-tab-presupuestos .pv-detail-grid{grid-template-columns:1fr;}
+    body.tp-tab-presupuestos .pv-detail-grid > div[data-col="right"]{display:none;}
+    body.tp-tab-presupuestos .pv-detail-grid > div[data-col="left"] section[data-tab="identidad"]{display:none;}
+
+    body.tp-tab-mensajes .pv-detail-grid{grid-template-columns:1fr;}
+    body.tp-tab-mensajes .pv-detail-grid > div[data-col="left"]{display:none;}
+
+    body.tp-tab-identidad .pv-detail-grid{grid-template-columns:1fr;}
+    body.tp-tab-identidad .pv-detail-grid > div[data-col="right"]{display:none;}
+    body.tp-tab-identidad .pv-detail-grid > div[data-col="left"] section[data-tab="presupuestos"]{display:none;}
     </style></head><body>
 
     <?php
@@ -716,16 +1001,81 @@ if ($detailProv > 0) {
 
     <main class="admin-main">
         <?php
-        // H3: breadcrumb detalle proveedor
+        // ─── Iter 4c · Cargar hermanos (proveedores de la misma propuesta) para sibling nav ───
+        $siblings = [];
+        try {
+            $sq = $pdo->prepare("SELECT id, nombre, empresa,
+                                        (SELECT importe_total FROM proveedor_presupuestos WHERE proveedor_id = p.id ORDER BY version_num DESC LIMIT 1) AS last_importe,
+                                        (SELECT version_num FROM proveedor_presupuestos WHERE proveedor_id = p.id ORDER BY version_num DESC LIMIT 1) AS last_version
+                                 FROM propuesta_proveedores p
+                                 WHERE p.propuesta_id = ? AND p.activo = 1
+                                 ORDER BY p.invited_at DESC");
+            $sq->execute([(int)$pv['propuesta_id']]);
+            $siblings = $sq->fetchAll(PDO::FETCH_ASSOC);
+        } catch (\Throwable $_) {}
+
+        $siblingIdx = null;
+        foreach ($siblings as $sIdx => $s) {
+            if ((int)$s['id'] === (int)$pv['id']) { $siblingIdx = $sIdx; break; }
+        }
+        $siblingPrev = ($siblingIdx !== null && $siblingIdx > 0) ? $siblings[$siblingIdx - 1] : null;
+        $siblingNext = ($siblingIdx !== null && $siblingIdx < count($siblings) - 1) ? $siblings[$siblingIdx + 1] : null;
+        $siblingCount = count($siblings);
+
+        // H3: breadcrumb detalle proveedor (con propNav entre propuestas)
         $adminBreadcrumbItems = [
             ['label' => 'Dashboard', 'href' => 'admin.php'],
             ['label' => e($pv['client_name']), 'href' => 'admin_providers.php?propuesta_id=' . (int)$pv['propuesta_id']],
             ['label' => 'Proveedores', 'href' => 'admin_providers.php?propuesta_id=' . (int)$pv['propuesta_id']],
             ['label' => e($pv['nombre']) . ($pv['empresa'] ? ' · ' . e($pv['empresa']) : ''), 'href' => null],
         ];
-        $adminBreadcrumbPropNav = null;
+        $adminBreadcrumbPropNav = [
+            'current_id' => (int)$pv['propuesta_id'],
+            'view' => 'proveedores',
+        ];
         include __DIR__ . '/master/admin-breadcrumb.php';
         ?>
+
+        <!-- ─── Iter 4c · Sibling nav ←/→ entre proveedores de esta propuesta ─── -->
+        <?php if ($siblingCount > 1): ?>
+        <div class="tp-sibling-nav" role="navigation" aria-label="Navegar entre proveedores de <?= e($pv['client_name']) ?>">
+            <?php if ($siblingPrev): ?>
+                <a href="admin_providers.php?proveedor_id=<?= (int)$siblingPrev['id'] ?>" class="tp-sibling-nav__btn" title="Anterior: <?= e($siblingPrev['nombre']) ?> (J)">
+                    <i data-lucide="chevron-left"></i>
+                </a>
+            <?php else: ?>
+                <span class="tp-sibling-nav__btn" aria-disabled="true"><i data-lucide="chevron-left"></i></span>
+            <?php endif; ?>
+
+            <div class="tp-sibling-nav__current">
+                <span class="tp-sibling-nav__avatar"><?= e(mb_strtoupper(mb_substr($pv['nombre'], 0, 1))) ?></span>
+                <span class="tp-sibling-nav__name">
+                    <?= e($pv['nombre']) ?>
+                    <?php
+                    $subBits = [];
+                    if ($pv['empresa']) $subBits[] = e($pv['empresa']);
+                    $latestB = $budgets[0] ?? null;
+                    if ($latestB && $latestB['version_num']) $subBits[] = 'v' . (int)$latestB['version_num'];
+                    if ($latestB && $latestB['importe_total']) $subBits[] = number_format((float)$latestB['importe_total'], 0, ',', '.') . ' €';
+                    ?>
+                    <?php if ($subBits): ?><small><?= implode(' · ', $subBits) ?></small><?php endif; ?>
+                </span>
+            </div>
+
+            <span class="tp-sibling-nav__counter"><?= $siblingIdx + 1 ?> / <?= $siblingCount ?></span>
+
+            <?php if ($siblingNext): ?>
+                <a href="admin_providers.php?proveedor_id=<?= (int)$siblingNext['id'] ?>" class="tp-sibling-nav__btn" title="Siguiente: <?= e($siblingNext['nombre']) ?> (K)">
+                    <i data-lucide="chevron-right"></i>
+                </a>
+            <?php else: ?>
+                <span class="tp-sibling-nav__btn" aria-disabled="true"><i data-lucide="chevron-right"></i></span>
+            <?php endif; ?>
+
+            <span class="tp-sibling-nav__kbd"><kbd class="tp-kbd">J</kbd><kbd class="tp-kbd">K</kbd></span>
+        </div>
+        <?php endif; ?>
+
         <div class="admin-main-header">
             <h1 class="admin-main-title">
                 <i data-lucide="hard-hat"></i>
@@ -739,10 +1089,37 @@ if ($detailProv > 0) {
             </div>
         </div>
 
+        <!-- ─── Iter 4b · Tabs internos del detalle del proveedor ─── -->
+        <?php
+        $tabsBudgetsCount = count($budgets);
+        $tabsHasUnseen = false;
+        foreach ($budgets as $__b) {
+            if (($__b['decision_state'] ?? 'recibido') === 'recibido') { $tabsHasUnseen = true; break; }
+        }
+        $tabsMsgCount = count($mRoots ?? []);
+        ?>
+        <nav class="tp-detail-tabs" role="tablist" data-default-tab="resumen">
+            <button class="tp-tab" data-tab="resumen" role="tab">
+                <i data-lucide="layout-grid"></i> Resumen
+            </button>
+            <button class="tp-tab" data-tab="presupuestos" role="tab">
+                <i data-lucide="file-text"></i> Presupuestos
+                <?php if ($tabsBudgetsCount > 0): ?><span class="tp-tab-count"><?= $tabsBudgetsCount ?></span><?php endif; ?>
+                <?php if ($tabsHasUnseen): ?><span class="tp-tab-pulse" title="Hay un presupuesto sin decidir"></span><?php endif; ?>
+            </button>
+            <button class="tp-tab" data-tab="mensajes" role="tab">
+                <i data-lucide="message-square"></i> Mensajes
+                <?php if ($tabsMsgCount > 0): ?><span class="tp-tab-count"><?= $tabsMsgCount ?></span><?php endif; ?>
+            </button>
+            <button class="tp-tab" data-tab="identidad" role="tab">
+                <i data-lucide="key"></i> Identidad y accesos
+            </button>
+        </nav>
+
         <div class="pv-detail-grid">
         <!-- Columna izquierda -->
-        <div>
-            <section class="card">
+        <div data-col="left">
+            <section class="card" data-tab="identidad">
                 <h2>Identidad · acceso</h2>
                 <div class="identity">
                     <div class="avatar"><?=e(mb_strtoupper(mb_substr($pv['nombre'],0,1)))?></div>
@@ -796,33 +1173,186 @@ if ($detailProv > 0) {
                 </div>
             </section>
 
-            <section class="card">
-                <h2>Presupuestos enviados (<?=count($budgets)?>)</h2>
-                <?php if (!$budgets): ?>
-                    <p style="color:var(--text-muted);font-size:.85rem;">Aún sin subir presupuesto.</p>
-                <?php else: foreach ($budgets as $b): ?>
-                    <div class="budget">
-                        <div class="budget-v">v<?=$b['version_num']?></div>
-                        <div>
-                            <div style="font-weight:500;"><?=e($b['archivo_nombre'])?></div>
-                            <div class="budget-meta">
-                                <?=fecha($b['uploaded_at'])?>
-                                <?php if ($b['importe_total']): ?> · <i data-lucide="euro" style="width:12px;height:12px;vertical-align:-1px;"></i> <?=number_format((float)$b['importe_total'],2,',','.')?>€<?php endif; ?>
-                                <?php if ($b['plazo_dias']): ?> · <i data-lucide="clock" style="width:12px;height:12px;vertical-align:-1px;"></i> <?=$b['plazo_dias']?>d<?php endif; ?>
+            <section class="card" data-tab="presupuestos">
+                <?php
+                // Helpers locales (estado del presupuesto)
+                $stateLabels = [
+                    'recibido' => 'Recibido', 'en_revision' => 'En revisión',
+                    'aceptado' => 'Aceptado', 'rechazado' => 'Rechazado',
+                    'iteracion_solicitada' => 'Iteración pedida',
+                ];
+                $stateClass = [
+                    'recibido' => 'recibido', 'en_revision' => 'revision',
+                    'aceptado' => 'aceptado', 'rechazado' => 'rechazado',
+                    'iteracion_solicitada' => 'iteracion',
+                ];
+                $stateColorVar = [
+                    'recibido' => 'var(--yellow)', 'en_revision' => 'var(--amber)',
+                    'aceptado' => 'var(--mint)', 'rechazado' => '#ff6b6b',
+                    'iteracion_solicitada' => 'var(--purple)',
+                ];
+                $daysAgo = function($datetime) {
+                    if (!$datetime) return null;
+                    $t = strtotime($datetime); if (!$t) return null;
+                    $d = floor((time() - $t) / 86400);
+                    if ($d < 1) return 'hoy';
+                    if ($d === 1.0) return 'ayer';
+                    return 'hace ' . (int)$d . ' días';
+                };
+                $latestBudget = $budgets ? $budgets[0] : null; // ya viene ORDER BY version_num DESC
+                $pastBudgets = $budgets ? array_slice($budgets, 1) : [];
+                ?>
+                <div style="display:flex;justify-content:space-between;align-items:baseline;margin:0 0 1rem;border-bottom:1px solid var(--border-base);padding-bottom:.5rem;gap:1rem;flex-wrap:wrap;">
+                    <h2 style="margin:0;border:0;padding:0;">Presupuestos enviados</h2>
+                    <span style="font-size:.72rem;color:var(--text-muted);font-variant-numeric:tabular-nums;">
+                        <?php if ($latestBudget): ?>
+                            <?=count($budgets)?> versión<?=count($budgets)===1?'':'es'?> · última <?=fecha($latestBudget['uploaded_at'])?>
+                        <?php endif; ?>
+                    </span>
+                </div>
+
+                <?php if (!$latestBudget): ?>
+                    <div class="budget-empty">
+                        <strong>Aún sin presupuesto</strong>
+                        <?=e($pv['nombre'])?> recibirá un aviso al subir su primera versión.
+                    </div>
+                <?php else: ?>
+                    <?php
+                    $st = $latestBudget['decision_state'] ?? 'recibido';
+                    $stKey = $stateClass[$st] ?? 'recibido';
+                    $stColor = $stateColorVar[$st] ?? 'var(--yellow)';
+                    $stLabel = $stateLabels[$st] ?? $st;
+                    $stSince = $latestBudget['decision_at']
+                        ? ucfirst($daysAgo($latestBudget['decision_at'])) . ' · ' . strtolower($stLabel)
+                        : ($daysAgo($latestBudget['uploaded_at']) . ' · sin decisión');
+                    ?>
+                    <div class="budget-active" style="--state-color:<?=$stColor?>;">
+                        <div class="budget-v">v<?=(int)$latestBudget['version_num']?></div>
+
+                        <div class="budget-info">
+                            <div class="budget-filename">
+                                <i data-lucide="file-text"></i>
+                                <?=e($latestBudget['archivo_nombre'])?>
                             </div>
-                            <?php if ($b['notas']): ?><div class="budget-notes"><?=e($b['notas'])?></div><?php endif; ?>
+                            <div class="budget-meta">
+                                <?php if ($latestBudget['importe_total']): ?>
+                                    <span class="budget-meta-item budget-meta-amount"><?=number_format((float)$latestBudget['importe_total'],2,',','.')?> €</span>
+                                    <span class="budget-meta-sep">·</span>
+                                <?php endif; ?>
+                                <?php if ($latestBudget['plazo_dias']): ?>
+                                    <span class="budget-meta-item"><i data-lucide="clock"></i><?=(int)$latestBudget['plazo_dias']?> días</span>
+                                    <span class="budget-meta-sep">·</span>
+                                <?php endif; ?>
+                                <span class="budget-meta-item"><i data-lucide="calendar"></i>Subido <?=fecha($latestBudget['uploaded_at'])?></span>
+                            </div>
+                            <?php if (!empty($latestBudget['notas'])): ?>
+                                <div class="budget-notes"><?=e($latestBudget['notas'])?></div>
+                            <?php endif; ?>
                         </div>
-                        <div>
-                            <a href="admin_providers.php?download=<?=(int)$b['id']?>" target="_blank" class="btn btn-outline" style="font-size:.72rem;padding:.25rem .55rem;display:inline-flex;align-items:center;gap:.3rem;"><i data-lucide="file-text" style="width:12px;height:12px;"></i> PDF</a>
+
+                        <a href="admin_providers.php?download=<?=(int)$latestBudget['id']?>" target="_blank" class="budget-pdf" aria-label="Abrir PDF del presupuesto">
+                            <i data-lucide="file-text"></i> Ver PDF
+                        </a>
+
+                        <div class="budget-state-row">
+                            <span class="state-badge state-badge--<?=$stKey?>">
+                                <?=e($stLabel)?>
+                            </span>
+                            <span class="state-since"><?=e($stSince)?></span>
+
+                            <div class="state-actions" data-budget-id="<?=(int)$latestBudget['id']?>" data-current-state="<?=e($st)?>">
+                                <?php if ($st !== 'en_revision' && $st !== 'aceptado'): ?>
+                                    <button class="state-btn state-btn--review" onclick="tpSetBudgetState(this,'en_revision')">
+                                        <i data-lucide="eye"></i> Marcar en revisión
+                                    </button>
+                                <?php endif; ?>
+                                <?php if ($st !== 'iteracion_solicitada'): ?>
+                                    <button class="state-btn state-btn--iterate" onclick="tpSetBudgetState(this,'iteracion_solicitada')">
+                                        <i data-lucide="refresh-cw"></i> Pedir iteración
+                                    </button>
+                                <?php endif; ?>
+                                <?php if ($st !== 'aceptado'): ?>
+                                    <button class="state-btn state-btn--accept" onclick="tpSetBudgetState(this,'aceptado')">
+                                        <i data-lucide="check"></i> Aceptar
+                                    </button>
+                                <?php endif; ?>
+                                <?php if ($st !== 'rechazado' && $st !== 'aceptado'): ?>
+                                    <button class="state-btn state-btn--reject" onclick="tpSetBudgetState(this,'rechazado')">
+                                        <i data-lucide="x"></i> Rechazar
+                                    </button>
+                                <?php endif; ?>
+                                <?php if ($st === 'aceptado' || $st === 'rechazado'): ?>
+                                    <button class="state-btn" onclick="tpSetBudgetState(this,'en_revision')">
+                                        <i data-lucide="rotate-ccw"></i> Revertir a revisión
+                                    </button>
+                                <?php endif; ?>
+                            </div>
+
+                            <?php if (!empty($latestBudget['decision_note'])): ?>
+                                <div class="state-note-display">
+                                    <div class="state-note-head">
+                                        <i data-lucide="message-square"></i>
+                                        Nota a <?=e(strtok($pv['nombre'] ?? '', ' '))?> · <?=fecha($latestBudget['decision_at'] ?? $latestBudget['uploaded_at'])?>
+                                    </div>
+                                    <?=nl2br(e($latestBudget['decision_note']))?>
+                                </div>
+                            <?php endif; ?>
                         </div>
                     </div>
-                <?php endforeach; endif; ?>
+
+                    <?php if (!empty($pastBudgets)): ?>
+                        <details class="budget-past">
+                            <summary class="budget-past-head">
+                                <i data-lucide="chevron-right" class="chev"></i>
+                                <span class="budget-past-count"><?=count($pastBudgets)?></span> versi<?=count($pastBudgets)===1?'ón anterior':'ones anteriores'?>
+                            </summary>
+                            <div class="budget-past-body">
+                                <?php foreach ($pastBudgets as $pb):
+                                    $pbSt = $pb['decision_state'] ?? 'recibido';
+                                    $pbKey = $stateClass[$pbSt] ?? 'recibido';
+                                    $pbLabel = $stateLabels[$pbSt] ?? $pbSt;
+                                ?>
+                                    <div class="budget-past-row">
+                                        <span class="budget-v">v<?=(int)$pb['version_num']?></span>
+                                        <span class="pname">
+                                            <?=e($pb['archivo_nombre'])?>
+                                            <?php if ($pb['importe_total']): ?> · <?=number_format((float)$pb['importe_total'],2,',','.')?> €<?php endif; ?>
+                                        </span>
+                                        <span class="state-badge state-badge--<?=$pbKey?>"><?=e($pbLabel)?></span>
+                                        <a class="ppdf" href="admin_providers.php?download=<?=(int)$pb['id']?>" target="_blank">
+                                            <i data-lucide="file-text"></i> PDF
+                                        </a>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        </details>
+                    <?php endif; ?>
+                <?php endif; ?>
             </section>
+
+            <!-- Modal nota opcional (iteración / rechazo) -->
+            <div class="tp-note-modal-backdrop" id="tp-budget-note-modal" hidden>
+                <div class="tp-note-modal">
+                    <h3 id="tp-budget-note-title">Cambiar estado</h3>
+                    <div class="tp-note-modal-body">
+                        <label for="tp-budget-note-text">Nota para el proveedor (opcional)</label>
+                        <textarea id="tp-budget-note-text" placeholder="Ej: Importe alto, ¿puedes desglosar por bloque?"></textarea>
+                        <label class="notify-row">
+                            <input type="checkbox" id="tp-budget-notify-cb" checked>
+                            <span>Notificar a <?=e($pv['nombre'] ?? '')?> por email</span>
+                        </label>
+                    </div>
+                    <div class="tp-note-modal-footer">
+                        <button class="btn btn-outline" onclick="tpBudgetNoteCancel()">Cancelar</button>
+                        <button class="btn" id="tp-budget-note-confirm" onclick="tpBudgetNoteConfirm()">Guardar</button>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- Columna derecha -->
-        <div>
-            <section class="card">
+        <div data-col="right">
+            <section class="card" data-tab="mensajes">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin:0 0 1rem;border-bottom:1px solid var(--border-base);padding-bottom:.5rem;gap:1rem;flex-wrap:wrap;">
                     <h2 style="margin:0;border:0;padding:0;">Mensajes (<?=count($mRoots)?>)</h2>
                     <button class="btn" onclick="openNewThreadModal()" style="font-size:.78rem;padding:.4rem .75rem;">
@@ -1036,6 +1566,154 @@ if ($detailProv > 0) {
     function copyAccess(url, pin) {
         navigator.clipboard.writeText(url + '\nPIN: ' + pin).then(() => alert('Acceso copiado'));
     }
+
+    /* ─── Sistema de estados de presupuesto (Iter 1) ─── */
+    const tpBudgetStateMeta = {
+        en_revision:          { title: 'Marcar como En revisión',     defaultNotify: false },
+        aceptado:             { title: 'Aceptar presupuesto',          defaultNotify: true  },
+        rechazado:            { title: 'Rechazar presupuesto',         defaultNotify: true  },
+        iteracion_solicitada: { title: 'Pedir iteración al proveedor', defaultNotify: true  },
+        recibido:             { title: 'Volver a Recibido',            defaultNotify: false },
+    };
+    let tpPendingBudgetChange = null; // { budgetId, state, btn }
+
+    function tpSetBudgetState(btn, state) {
+        const actions = btn.closest('.state-actions');
+        if (!actions) return;
+        const budgetId = parseInt(actions.dataset.budgetId, 10);
+        if (!budgetId) return;
+
+        // Estados que SIEMPRE abren modal (necesitan nota explicativa o confirmación)
+        const needsModal = ['iteracion_solicitada', 'rechazado', 'aceptado'];
+        if (needsModal.includes(state)) {
+            tpOpenBudgetNoteModal(budgetId, state, btn);
+        } else {
+            // Estados "ligeros" (en_revision, revertir) van directos sin modal
+            tpSubmitBudgetState(btn, budgetId, state, '', false);
+        }
+    }
+
+    function tpOpenBudgetNoteModal(budgetId, state, btn) {
+        tpPendingBudgetChange = { budgetId, state, btn };
+        const modal = document.getElementById('tp-budget-note-modal');
+        const title = document.getElementById('tp-budget-note-title');
+        const text  = document.getElementById('tp-budget-note-text');
+        const cb    = document.getElementById('tp-budget-notify-cb');
+        const meta  = tpBudgetStateMeta[state] || { title: 'Cambiar estado', defaultNotify: false };
+        title.textContent = meta.title;
+        text.value = '';
+        cb.checked = meta.defaultNotify;
+        modal.hidden = false;
+        setTimeout(() => text.focus(), 50);
+    }
+
+    function tpBudgetNoteCancel() {
+        document.getElementById('tp-budget-note-modal').hidden = true;
+        tpPendingBudgetChange = null;
+    }
+
+    function tpBudgetNoteConfirm() {
+        if (!tpPendingBudgetChange) return;
+        const { budgetId, state, btn } = tpPendingBudgetChange;
+        const note   = document.getElementById('tp-budget-note-text').value.trim();
+        const notify = document.getElementById('tp-budget-notify-cb').checked;
+        document.getElementById('tp-budget-note-modal').hidden = true;
+        tpPendingBudgetChange = null;
+        tpSubmitBudgetState(btn, budgetId, state, note, notify);
+    }
+
+    async function tpSubmitBudgetState(btn, budgetId, state, note, notify) {
+        // Disable todos los botones de la fila mientras se envía
+        const actions = btn.closest('.state-actions');
+        const buttons = actions ? actions.querySelectorAll('button') : [btn];
+        buttons.forEach(b => b.disabled = true);
+
+        const payload = new URLSearchParams({
+            action: 'set_budget_state',
+            budget_id: budgetId,
+            state: state,
+        });
+        if (note)   payload.append('note', note);
+        if (notify) payload.append('notify_provider', '1');
+
+        try {
+            const r = await fetch('admin_providers.php', { method: 'POST', body: payload, credentials: 'same-origin' })
+                            .then(r => r.json());
+            if (r && r.success) {
+                location.reload();
+            } else {
+                alert((r && r.error) || 'Error al cambiar el estado');
+                buttons.forEach(b => b.disabled = false);
+            }
+        } catch (err) {
+            alert('Error de red al cambiar el estado');
+            buttons.forEach(b => b.disabled = false);
+        }
+    }
+
+    // Esc cierra el modal
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            const modal = document.getElementById('tp-budget-note-modal');
+            if (modal && !modal.hidden) tpBudgetNoteCancel();
+        }
+    });
+
+    /* ── Iter 4b · Tabs internos del detalle del proveedor ── */
+    (function () {
+        const tabs = document.querySelectorAll('.tp-detail-tabs .tp-tab');
+        if (!tabs.length) return;
+
+        // Storage key scoped por proveedor (cada uno recuerda su tab activa)
+        const provId = (new URLSearchParams(location.search)).get('proveedor_id') || 'global';
+        const STORAGE_KEY = 'tp_provider_tab_' + provId;
+        const DEFAULT = 'resumen';
+
+        function activate(name) {
+            // Limpia clases body y aplica la nueva
+            document.body.classList.remove('tp-tab-resumen', 'tp-tab-presupuestos', 'tp-tab-mensajes', 'tp-tab-identidad');
+            document.body.classList.add('tp-tab-' + name);
+            tabs.forEach(t => t.classList.toggle('is-active', t.dataset.tab === name));
+            try { sessionStorage.setItem(STORAGE_KEY, name); } catch (e) {}
+        }
+
+        let initial = DEFAULT;
+        try {
+            const stored = sessionStorage.getItem(STORAGE_KEY);
+            if (stored && ['resumen','presupuestos','mensajes','identidad'].includes(stored)) initial = stored;
+        } catch (e) {}
+        activate(initial);
+
+        tabs.forEach(t => {
+            t.addEventListener('click', () => activate(t.dataset.tab));
+        });
+    })();
+
+    /* ── Iter 4c · Sibling nav atajos J/K ── */
+    (function () {
+        const nav = document.querySelector('.tp-sibling-nav');
+        if (!nav) return;
+        const prev = nav.querySelector('a.tp-sibling-nav__btn[title^="Anterior"]');
+        const next = nav.querySelector('a.tp-sibling-nav__btn[title^="Siguiente"]');
+
+        document.addEventListener('keydown', (e) => {
+            // No interceptar si el foco está en un input/textarea/contenteditable
+            const tag = (e.target.tagName || '').toLowerCase();
+            if (tag === 'input' || tag === 'textarea' || e.target.isContentEditable) return;
+            // No interceptar si hay modal abierto
+            const noteModal = document.getElementById('tp-budget-note-modal');
+            if (noteModal && !noteModal.hidden) return;
+
+            if ((e.key === 'j' || e.key === 'J') && prev) {
+                e.preventDefault();
+                window.location.href = prev.getAttribute('href');
+            } else if ((e.key === 'k' || e.key === 'K') && next) {
+                e.preventDefault();
+                window.location.href = next.getAttribute('href');
+            }
+        });
+    })();
+
     async function replyProviderMsg(e, parentId) {
         e.preventDefault();
         const form = e.target;
@@ -1275,13 +1953,34 @@ if ($filterProp) {
 
 $proveedores = [];
 if ($filterProp && $currentProp) {
+    // Detectar si la migración decision_state ya está aplicada
+    $hasDecisionCol = false;
+    try {
+        foreach ($pdo->query("PRAGMA table_info(proveedor_presupuestos)")->fetchAll(PDO::FETCH_ASSOC) as $c) {
+            if ($c['name'] === 'decision_state') { $hasDecisionCol = true; break; }
+        }
+    } catch (\Throwable $_) {}
+
+    $stateSelect = $hasDecisionCol ? "
+        (SELECT decision_state FROM proveedor_presupuestos WHERE proveedor_id = p.id ORDER BY version_num DESC LIMIT 1) AS last_state,
+        (SELECT decision_at    FROM proveedor_presupuestos WHERE proveedor_id = p.id ORDER BY version_num DESC LIMIT 1) AS last_decision_at,
+        (SELECT decision_note  FROM proveedor_presupuestos WHERE proveedor_id = p.id ORDER BY version_num DESC LIMIT 1) AS last_decision_note,
+    " : "
+        NULL AS last_state, NULL AS last_decision_at, NULL AS last_decision_note,
+    ";
+
     $pq = $pdo->prepare("SELECT p.*,
         (SELECT COUNT(*) FROM proveedor_presupuestos WHERE proveedor_id = p.id) AS n_presupuestos,
         (SELECT COUNT(*) FROM proveedor_mensajes WHERE proveedor_id = p.id AND is_draft = 0) AS n_mensajes,
-        (SELECT id FROM proveedor_presupuestos WHERE proveedor_id = p.id ORDER BY uploaded_at DESC LIMIT 1) AS last_budget_id,
-        (SELECT importe_total FROM proveedor_presupuestos WHERE proveedor_id = p.id ORDER BY uploaded_at DESC LIMIT 1) AS last_importe,
-        (SELECT plazo_dias FROM proveedor_presupuestos WHERE proveedor_id = p.id ORDER BY uploaded_at DESC LIMIT 1) AS last_plazo,
-        (SELECT version_num FROM proveedor_presupuestos WHERE proveedor_id = p.id ORDER BY uploaded_at DESC LIMIT 1) AS last_version
+        (SELECT id FROM proveedor_presupuestos WHERE proveedor_id = p.id ORDER BY version_num DESC LIMIT 1) AS last_budget_id,
+        (SELECT archivo_nombre FROM proveedor_presupuestos WHERE proveedor_id = p.id ORDER BY version_num DESC LIMIT 1) AS last_archivo,
+        (SELECT importe_total FROM proveedor_presupuestos WHERE proveedor_id = p.id ORDER BY version_num DESC LIMIT 1) AS last_importe,
+        (SELECT plazo_dias FROM proveedor_presupuestos WHERE proveedor_id = p.id ORDER BY version_num DESC LIMIT 1) AS last_plazo,
+        (SELECT notas FROM proveedor_presupuestos WHERE proveedor_id = p.id ORDER BY version_num DESC LIMIT 1) AS last_notas,
+        (SELECT version_num FROM proveedor_presupuestos WHERE proveedor_id = p.id ORDER BY version_num DESC LIMIT 1) AS last_version,
+        (SELECT uploaded_at FROM proveedor_presupuestos WHERE proveedor_id = p.id ORDER BY version_num DESC LIMIT 1) AS last_uploaded_at,
+        $stateSelect
+        1 AS __pad
         FROM propuesta_proveedores p
         WHERE p.propuesta_id = ?
         ORDER BY p.invited_at DESC");
@@ -1405,6 +2104,54 @@ select{background:var(--bg-subtle);border:1px solid var(--border-base);color:var
 .btn-outline:hover{color:var(--text-primary);border-color:var(--border-strong);}
 .btn-danger{color:#ff6b6b;border:1px solid rgba(255,107,107,.3);background:transparent;}
 .btn-danger:hover{border-color:#ff6b6b;background:rgba(255,107,107,.08);}
+
+/* Iter 3 · Tabla comparativa de presupuestos */
+:root{--yellow:#ffd84d;--yellow-rgb:255,216,77;--amber:#fac850;--amber-rgb:250,200,80;--purple:#c084fc;--purple-rgb:192,132,252;}
+.tp-compare-summary{display:flex;gap:1.25rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem;padding:.85rem 1.1rem;background:var(--bg-surface);border:1px solid var(--border-base);border-radius:8px;font-size:.78rem;color:var(--text-secondary);}
+.tp-cs-item{display:inline-flex;align-items:baseline;gap:.35rem;}
+.tp-cs-item small{font-size:.65rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;font-weight:600;}
+.tp-cs-item strong{font-family:'Plus Jakarta Sans',sans-serif;font-size:.98rem;color:var(--text-primary);font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.01em;}
+.tp-cs-sep{width:1px;height:18px;background:var(--border-base);}
+
+.tp-compare-wrap{background:var(--bg-surface);border:1px solid var(--border-base);border-radius:10px;overflow:hidden;margin-bottom:2rem;}
+.tp-compare-table{width:100%;border-collapse:separate;border-spacing:0;font-size:.82rem;background:transparent;border-radius:0;}
+.tp-compare-table thead th{text-align:left;background:var(--bg-subtle);color:var(--text-muted);font-size:.66rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;padding:.65rem 1rem;border-bottom:1px solid var(--border-base);white-space:nowrap;}
+.tp-compare-table th.num{text-align:right;font-variant-numeric:tabular-nums;}
+.tp-compare-table tbody td{padding:.85rem 1rem;border-bottom:1px solid var(--border-base);vertical-align:middle;}
+.tp-compare-table tbody tr:last-child td{border-bottom:0;}
+.tp-compare-table tbody tr:hover td{background:rgba(255,255,255,.015);}
+.tp-compare-table tr.is-winner td{background:rgba(var(--mint-rgb),.03);border-bottom-color:rgba(var(--mint-rgb),.15);}
+.tp-compare-table tr.is-winner:hover td{background:rgba(var(--mint-rgb),.05);}
+
+.tp-cmp-provider{display:flex;align-items:center;gap:.65rem;min-width:200px;}
+.tp-cmp-avatar{width:30px;height:30px;border-radius:50%;background:rgba(var(--purple-rgb),.12);color:var(--purple);border:1px solid rgba(var(--purple-rgb),.35);display:grid;place-items:center;font-size:.72rem;font-weight:700;flex-shrink:0;}
+.tp-cmp-info{min-width:0;}
+.tp-cmp-name{color:var(--text-primary);font-weight:600;font-size:.85rem;text-decoration:none;letter-spacing:-.005em;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.tp-cmp-name:hover{color:var(--mint);}
+.tp-cmp-company{color:var(--text-muted);font-size:.7rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;}
+
+.tp-cmp-v{font-family:'Plus Jakarta Sans',sans-serif;font-size:.7rem;font-weight:700;background:var(--bg-muted);border:1px solid var(--border-base);color:var(--text-primary);padding:.15rem .45rem;border-radius:5px;min-width:28px;text-align:center;font-variant-numeric:tabular-nums;display:inline-block;}
+.tp-cmp-amount{font-weight:600;color:var(--text-primary);font-variant-numeric:tabular-nums;font-size:.9rem;white-space:nowrap;}
+.tp-cmp-plazo{font-variant-numeric:tabular-nums;color:var(--text-secondary);white-space:nowrap;}
+.tp-cmp-notes{color:var(--text-muted);font-size:.76rem;font-style:italic;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;}
+.tp-cmp-notes-empty{color:var(--text-muted);opacity:.5;}
+
+.tp-cmp-actions{display:inline-flex;align-items:center;gap:.3rem;white-space:nowrap;}
+.tp-cmp-btn{display:inline-flex;align-items:center;gap:.3rem;padding:.35rem .65rem;border-radius:5px;background:transparent;border:1px solid var(--border-base);color:var(--text-secondary);font-family:inherit;font-size:.72rem;font-weight:500;cursor:pointer;text-decoration:none;white-space:nowrap;transition:all .12s ease;min-height:28px;}
+.tp-cmp-btn:hover{background:rgba(255,255,255,.03);color:var(--text-primary);border-color:var(--border-strong);}
+.tp-cmp-btn i{width:11px;height:11px;}
+.tp-cmp-btn--pdf{color:var(--mint);border-color:rgba(var(--mint-rgb),.25);}
+.tp-cmp-btn--pdf:hover{background:rgba(var(--mint-rgb),.08);border-color:rgba(var(--mint-rgb),.5);color:var(--mint);}
+
+/* State badges para la tabla comparativa (reutiliza nombres del Iter 1) */
+.tp-compare-table .state-badge{display:inline-flex;align-items:center;gap:.3rem;padding:.2rem .55rem;border-radius:999px;font-size:.68rem;font-weight:600;letter-spacing:.02em;border:1px solid;white-space:nowrap;font-variant-numeric:tabular-nums;line-height:1.4;}
+.tp-compare-table .state-badge--recibido{background:rgba(var(--yellow-rgb),.1);color:var(--yellow);border-color:rgba(var(--yellow-rgb),.35);position:relative;padding-left:.95rem;}
+.tp-compare-table .state-badge--recibido::before{content:"";position:absolute;left:.45rem;top:50%;transform:translateY(-50%);width:6px;height:6px;border-radius:50%;background:var(--yellow);animation:tpCmpPulseYellow 1.6s ease-in-out infinite;}
+@keyframes tpCmpPulseYellow{0%,100%{box-shadow:0 0 0 0 rgba(var(--yellow-rgb),.55);}70%{box-shadow:0 0 0 5px rgba(var(--yellow-rgb),0);}}
+.tp-compare-table .state-badge--revision{background:rgba(var(--amber-rgb),.1);color:var(--amber);border-color:rgba(var(--amber-rgb),.35);}
+.tp-compare-table .state-badge--aceptado{background:rgba(var(--mint-rgb),.12);color:var(--mint);border-color:rgba(var(--mint-rgb),.35);}
+.tp-compare-table .state-badge--rechazado{background:rgba(255,107,107,.1);color:#ff6b6b;border-color:rgba(255,107,107,.35);}
+.tp-compare-table .state-badge--iteracion{background:rgba(var(--purple-rgb),.1);color:var(--purple);border-color:rgba(var(--purple-rgb),.35);}
 
 /* Invitar form */
 .invite-form{background:var(--bg-surface);border:1px solid var(--border-base);border-radius:10px;padding:1.25rem 1.5rem;margin-bottom:2rem;}
@@ -1693,6 +2440,139 @@ $adminSidebarPropuestas = $propuestas;
     <div id="ac-email-status"></div>
     <button type="button" class="btn btn-outline" onclick="copyAccess()" style="display:inline-flex;align-items:center;gap:.35rem;"><i data-lucide="clipboard" style="width:14px;height:14px;"></i> Copiar URL + PIN</button>
 </div>
+
+<?php
+// ─── Iter 3 · Sección "Presupuestos recibidos" con tabla comparativa ───
+// Filtra solo los que tienen al menos 1 presupuesto subido
+$withBudget = array_values(array_filter($proveedores, fn($p) => !empty($p['last_budget_id']) && (int)$p['activo'] === 1));
+
+if (!empty($withBudget)):
+    // Etiquetas y clases por estado
+    $cmpStateLabels = [
+        'recibido' => 'Recibido', 'en_revision' => 'En revisión',
+        'aceptado' => 'Aceptado', 'rechazado' => 'Rechazado',
+        'iteracion_solicitada' => 'Iteración pedida',
+    ];
+    $cmpStateClass = [
+        'recibido' => 'recibido', 'en_revision' => 'revision',
+        'aceptado' => 'aceptado', 'rechazado' => 'rechazado',
+        'iteracion_solicitada' => 'iteracion',
+    ];
+    // Orden por urgencia: recibido > revision > iteracion > aceptado > rechazado
+    $cmpStateOrder = ['recibido' => 1, 'en_revision' => 2, 'iteracion_solicitada' => 3, 'aceptado' => 4, 'rechazado' => 5];
+    usort($withBudget, function($a, $b) use ($cmpStateOrder) {
+        $sa = $cmpStateOrder[$a['last_state'] ?? 'recibido'] ?? 99;
+        $sb = $cmpStateOrder[$b['last_state'] ?? 'recibido'] ?? 99;
+        if ($sa !== $sb) return $sa - $sb;
+        return strcmp($b['last_uploaded_at'] ?? '', $a['last_uploaded_at'] ?? '');
+    });
+
+    // Summary numérico
+    $amounts = array_values(array_filter(array_map(fn($p) => $p['last_importe'] !== null ? (float)$p['last_importe'] : null, $withBudget), fn($v) => $v !== null));
+    $plazos  = array_values(array_filter(array_map(fn($p) => $p['last_plazo'] !== null ? (int)$p['last_plazo'] : null, $withBudget), fn($v) => $v !== null));
+    $minAmt = $amounts ? min($amounts) : null;
+    $maxAmt = $amounts ? max($amounts) : null;
+    sort($amounts);
+    $medAmt = $amounts ? $amounts[intdiv(count($amounts), 2)] : null;
+    $avgPlazo = $plazos ? round(array_sum($plazos) / count($plazos)) : null;
+    $nPending = count(array_filter($withBudget, fn($p) => ($p['last_state'] ?? 'recibido') === 'recibido'));
+?>
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin:2rem 0 .85rem;">
+        <h2 style="margin:0;border:0;padding:0;display:inline-flex;align-items:center;gap:.5rem;">
+            <i data-lucide="layout-grid" style="width:15px;height:15px;color:var(--purple);"></i>
+            Presupuestos recibidos
+        </h2>
+        <span style="font-size:.72rem;color:var(--text-muted);font-variant-numeric:tabular-nums;">
+            <strong style="color:var(--text-secondary);"><?=count($withBudget)?></strong> proveedor<?=count($withBudget)===1?'':'es'?>
+            <?php if ($amounts && count($amounts) >= 2): ?>
+              · rango <strong style="color:var(--text-secondary);"><?=number_format($minAmt,0,',','.')?> – <?=number_format($maxAmt,0,',','.')?> €</strong>
+              · ahorro potencial <strong style="color:var(--mint);"><?=number_format($maxAmt - $minAmt,0,',','.')?> €</strong>
+            <?php endif; ?>
+        </span>
+    </div>
+
+    <?php if ($amounts && count($amounts) >= 2): ?>
+    <div class="tp-compare-summary">
+        <div class="tp-cs-item"><small>Más barato</small><strong><?=number_format($minAmt,0,',','.')?> €</strong></div>
+        <div class="tp-cs-sep"></div>
+        <div class="tp-cs-item"><small>Mediana</small><strong><?=number_format($medAmt,0,',','.')?> €</strong></div>
+        <div class="tp-cs-sep"></div>
+        <div class="tp-cs-item"><small>Más caro</small><strong><?=number_format($maxAmt,0,',','.')?> €</strong></div>
+        <?php if ($avgPlazo !== null): ?>
+            <div class="tp-cs-sep"></div>
+            <div class="tp-cs-item"><small>Plazo medio</small><strong><?=$avgPlazo?> días</strong></div>
+        <?php endif; ?>
+        <?php if ($nPending > 0): ?>
+            <div class="tp-cs-sep"></div>
+            <div class="tp-cs-item"><small>Sin decisión</small><strong style="color:var(--yellow);"><?=$nPending?></strong></div>
+        <?php endif; ?>
+    </div>
+    <?php endif; ?>
+
+    <div class="tp-compare-wrap">
+        <table class="tp-compare-table">
+            <thead>
+                <tr>
+                    <th>Proveedor</th>
+                    <th>v</th>
+                    <th class="num">Importe</th>
+                    <th class="num">Plazo</th>
+                    <th>Estado</th>
+                    <th>Notas</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($withBudget as $w):
+                    $st = $w['last_state'] ?? 'recibido';
+                    $stKey = $cmpStateClass[$st] ?? 'recibido';
+                    $stLabel = $cmpStateLabels[$st] ?? $st;
+                    $isWinner = $st === 'aceptado' && count($withBudget) >= 2;
+                    $notesFull = $w['last_notas'] ?? '';
+                    $notesShort = mb_substr($notesFull, 0, 70);
+                    $needsEllipsis = mb_strlen($notesFull) > 70;
+                ?>
+                    <tr class="<?= $isWinner ? 'is-winner' : '' ?>">
+                        <td>
+                            <div class="tp-cmp-provider">
+                                <span class="tp-cmp-avatar"><?=e(mb_strtoupper(mb_substr($w['nombre'] ?? '?', 0, 1)))?></span>
+                                <div class="tp-cmp-info">
+                                    <a href="admin_providers.php?proveedor_id=<?=(int)$w['id']?>" class="tp-cmp-name"><?=e($w['nombre'])?></a>
+                                    <?php if ($w['empresa']): ?><span class="tp-cmp-company"><?=e($w['empresa'])?></span><?php endif; ?>
+                                </div>
+                            </div>
+                        </td>
+                        <td><span class="tp-cmp-v">v<?=(int)$w['last_version']?></span></td>
+                        <td class="num tp-cmp-amount">
+                            <?=$w['last_importe'] !== null ? number_format((float)$w['last_importe'],2,',','.') . ' €' : '—'?>
+                        </td>
+                        <td class="num tp-cmp-plazo"><?=$w['last_plazo'] !== null ? (int)$w['last_plazo'] . ' d' : '—'?></td>
+                        <td>
+                            <span class="state-badge state-badge--<?=$stKey?>"><?=e($stLabel)?></span>
+                        </td>
+                        <td>
+                            <?php if ($notesFull): ?>
+                                <span class="tp-cmp-notes" title="<?=e($notesFull)?>"><?=e($notesShort)?><?=$needsEllipsis ? '…' : ''?></span>
+                            <?php else: ?>
+                                <span class="tp-cmp-notes-empty">—</span>
+                            <?php endif; ?>
+                        </td>
+                        <td>
+                            <div class="tp-cmp-actions">
+                                <a href="admin_providers.php?download=<?=(int)$w['last_budget_id']?>" target="_blank" class="tp-cmp-btn tp-cmp-btn--pdf">
+                                    <i data-lucide="file-text"></i> PDF
+                                </a>
+                                <a href="admin_providers.php?proveedor_id=<?=(int)$w['id']?>" class="tp-cmp-btn">
+                                    Decidir
+                                </a>
+                            </div>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+    </div>
+<?php endif; ?>
 
 <h2>Proveedores invitados (<?=count($proveedores)?>)</h2>
 <?php if (!$proveedores): ?>

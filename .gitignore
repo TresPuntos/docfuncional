@@ -65,3 +65,6 @@ instruccion-v1.rtf
 *.rtf
 /.claude/
 
+
+# Screenshots de verificación local (Iter 1-4)
+iter*.png

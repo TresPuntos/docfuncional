@@ -591,9 +591,11 @@ if ($is_logged_in) {
     $globalOpen = (int)$pdo->query("SELECT COUNT(*) FROM comentarios_seccion WHERE parent_id IS NULL AND resuelto = 0")->fetchColumn();
     $globalDrafts = (int)$pdo->query("SELECT COUNT(*) FROM comentarios_seccion WHERE is_staff = 1 AND is_draft = 1")->fetchColumn();
 
-    // --- Portal proveedores: stats por propuesta ---
+    // --- Portal proveedores: stats por propuesta + shelf detail ---
+    // Estructura: $providerStats[$propId] = ['total'=>N, 'presupuestos'=>N, 'shelf'=>[ {id,nombre,empresa,inicial,state,importe,days_since,version}, ... ]]
     $providerStats = [];
     try {
+        // Totales por propuesta (igual que antes)
         $psRows = $pdo->query("
             SELECT p.propuesta_id,
                    COUNT(*) AS total_proveedores,
@@ -606,6 +608,64 @@ if ($is_logged_in) {
             $providerStats[(int)$ps['propuesta_id']] = [
                 'total' => (int)$ps['total_proveedores'],
                 'presupuestos' => (int)$ps['total_presupuestos'],
+                'shelf' => [],
+            ];
+        }
+
+        // Shelf detail: 1 fila por proveedor activo · último presupuesto + estado
+        // (LEFT JOIN para que aparezca aunque no haya subido nada)
+        // Si decision_state no existe (migración no corrida) lo defensiveamos
+        $hasDecision = false;
+        try {
+            $col = $pdo->query("PRAGMA table_info(proveedor_presupuestos)")->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($col as $c) if ($c['name'] === 'decision_state') { $hasDecision = true; break; }
+        } catch (\Throwable $_) {}
+
+        if ($hasDecision) {
+            $shelfSql = "
+                SELECT p.id AS prov_id, p.propuesta_id, p.nombre, p.empresa,
+                       pp.id AS budget_id, pp.version_num, pp.importe_total,
+                       pp.decision_state, pp.decision_at, pp.uploaded_at
+                FROM propuesta_proveedores p
+                LEFT JOIN proveedor_presupuestos pp ON pp.id = (
+                    SELECT id FROM proveedor_presupuestos WHERE proveedor_id = p.id ORDER BY version_num DESC LIMIT 1
+                )
+                WHERE p.activo = 1
+                ORDER BY p.propuesta_id, p.invited_at DESC
+            ";
+        } else {
+            $shelfSql = "
+                SELECT p.id AS prov_id, p.propuesta_id, p.nombre, p.empresa,
+                       pp.id AS budget_id, pp.version_num, pp.importe_total,
+                       NULL AS decision_state, NULL AS decision_at, pp.uploaded_at
+                FROM propuesta_proveedores p
+                LEFT JOIN proveedor_presupuestos pp ON pp.id = (
+                    SELECT id FROM proveedor_presupuestos WHERE proveedor_id = p.id ORDER BY version_num DESC LIMIT 1
+                )
+                WHERE p.activo = 1
+                ORDER BY p.propuesta_id, p.invited_at DESC
+            ";
+        }
+        $shelfRows = $pdo->query($shelfSql)->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($shelfRows as $r) {
+            $propId = (int)$r['propuesta_id'];
+            if (!isset($providerStats[$propId])) continue;
+            $state = $r['decision_state'] ?: ($r['budget_id'] ? 'recibido' : 'sin_budget');
+            $refDate = $r['decision_at'] ?: $r['uploaded_at'];
+            $daysSince = null;
+            if ($refDate) {
+                $daysSince = (int)floor((time() - strtotime($refDate)) / 86400);
+            }
+            $providerStats[$propId]['shelf'][] = [
+                'id'         => (int)$r['prov_id'],
+                'nombre'     => $r['nombre'] ?? '',
+                'empresa'    => $r['empresa'] ?? '',
+                'inicial'    => mb_strtoupper(mb_substr($r['nombre'] ?? '?', 0, 1)),
+                'state'      => $state,
+                'version'    => $r['version_num'] ? (int)$r['version_num'] : null,
+                'importe'    => $r['importe_total'] !== null ? (float)$r['importe_total'] : null,
+                'days_since' => $daysSince,
+                'has_budget' => !empty($r['budget_id']),
             ];
         }
     } catch (Exception $e) { /* tabla no existe aún */ }
@@ -789,6 +849,86 @@ if ($is_logged_in) {
 
         .drawer.active .drawer-content {
             transform: translateX(0);
+        }
+
+        /* Iter 2 · Provider shelf en fila de propuesta */
+        .tp-shelf-avatar {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 26px; height: 26px;
+            border-radius: 50%;
+            background: rgba(192, 132, 252, 0.12);
+            color: #c084fc;
+            font-size: 10.5px;
+            font-weight: 700;
+            letter-spacing: .02em;
+            border: 1px solid rgba(192, 132, 252, 0.35);
+            text-decoration: none;
+            cursor: pointer;
+            transition: transform .12s ease, border-color .12s ease, background .12s ease;
+            flex-shrink: 0;
+            font-family: 'Inter', system-ui, sans-serif;
+        }
+        .tp-shelf-avatar:hover {
+            transform: scale(1.08);
+            background: rgba(192, 132, 252, 0.2);
+            border-color: rgba(192, 132, 252, 0.65);
+        }
+        .tp-shelf-avatar:focus-visible {
+            outline: 2px solid #5dffbf;
+            outline-offset: 2px;
+        }
+
+        .tp-shelf-dot {
+            position: absolute;
+            top: -2px; right: -2px;
+            width: 9px; height: 9px;
+            border-radius: 50%;
+            border: 2px solid #0e0e0e;
+            display: grid;
+            place-items: center;
+        }
+        .tp-shelf-dot--yellow {
+            background: #ffd84d;
+            box-shadow: 0 0 0 0 rgba(255, 216, 77, .65);
+            animation: tpShelfPulseYellow 1.8s ease-in-out infinite;
+        }
+        @keyframes tpShelfPulseYellow {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(255, 216, 77, .55); }
+            70% { box-shadow: 0 0 0 5px rgba(255, 216, 77, 0); }
+        }
+        .tp-shelf-dot--amber { background: #fac850; }
+        .tp-shelf-dot--mint {
+            background: #5dffbf;
+            box-shadow: 0 0 4px rgba(93, 255, 191, .4);
+        }
+        .tp-shelf-dot--red { background: #ff6b6b; }
+        .tp-shelf-dot--purple { background: #c084fc; }
+        .tp-shelf-dot--dashed {
+            background: transparent;
+            border: 2px dashed #8a8a8a;
+            width: 10px; height: 10px;
+        }
+
+        .tp-shelf-invite {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 26px; height: 26px;
+            border-radius: 50%;
+            background: transparent;
+            border: 1px dashed #2a2a2a;
+            color: #8a8a8a;
+            text-decoration: none;
+            transition: all .12s ease;
+            flex-shrink: 0;
+        }
+        .tp-shelf-invite:hover {
+            color: #c084fc;
+            border-color: rgba(192, 132, 252, .55);
+            background: rgba(192, 132, 252, .06);
         }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/preline/dist/preline.min.js" defer></script>
@@ -1082,20 +1222,69 @@ else: ?>
                                             }
                                             ?>
                                         </div>
-                                    <?php $ps = $providerStats[(int)$p['id']] ?? null; if ($ps): ?>
-                                        <a href="admin_providers.php?propuesta_id=<?php echo (int)$p['id']; ?>"
-                                           class="inline-flex items-center gap-1.5 mt-2 text-[10px] text-text-muted hover:text-purple-300 border-t border-border-subtle pt-1.5 transition-colors"
-                                           title="Gestionar proveedores">
-                                            <span class="font-semibold uppercase tracking-wider text-text-muted/70">Colaboradores:</span>
-                                            <span class="inline-flex items-center gap-1 text-purple-300 font-semibold">
-                                                <i data-lucide="hard-hat" class="w-3 h-3"></i><?php echo $ps['total']; ?>
-                                            </span>
-                                            <?php if ($ps['presupuestos']>0): ?>
-                                                <span class="text-text-muted">·</span>
-                                                <span class="inline-flex items-center gap-1 text-purple-300 font-semibold">
-                                                    <i data-lucide="file-text" class="w-3 h-3"></i><?php echo $ps['presupuestos']; ?>
-                                                </span>
-                                            <?php endif; ?>
+                                    <?php $ps = $providerStats[(int)$p['id']] ?? null; if ($ps && !empty($ps['shelf'])): ?>
+                                        <?php
+                                        // Iter 2 · Provider shelf: avatars + dot por estado del último presupuesto
+                                        $stateLabel = [
+                                            'recibido' => 'recibido sin decisión',
+                                            'en_revision' => 'en revisión',
+                                            'aceptado' => 'aceptado',
+                                            'rechazado' => 'rechazado',
+                                            'iteracion_solicitada' => 'iteración pedida',
+                                            'sin_budget' => 'sin presupuesto',
+                                        ];
+                                        $stateDotClass = [
+                                            'recibido' => 'tp-shelf-dot--yellow',
+                                            'en_revision' => 'tp-shelf-dot--amber',
+                                            'aceptado' => 'tp-shelf-dot--mint',
+                                            'rechazado' => 'tp-shelf-dot--red',
+                                            'iteracion_solicitada' => 'tp-shelf-dot--purple',
+                                            'sin_budget' => 'tp-shelf-dot--dashed',
+                                        ];
+                                        ?>
+                                        <div class="mt-2 pt-1.5 border-t border-border-subtle">
+                                            <div class="flex items-center gap-1.5 mb-1">
+                                                <i data-lucide="hard-hat" class="w-3 h-3 text-purple-300/80"></i>
+                                                <span class="text-[10px] font-semibold uppercase tracking-wider text-text-muted/70">Proveedores</span>
+                                            </div>
+                                            <div class="flex items-center gap-1.5 flex-wrap">
+                                                <?php foreach ($ps['shelf'] as $pv):
+                                                    $tipBits = [htmlspecialchars($pv['nombre'])];
+                                                    if ($pv['empresa']) $tipBits[] = htmlspecialchars($pv['empresa']);
+                                                    if ($pv['version']) $tipBits[] = 'v' . $pv['version'];
+                                                    if ($pv['importe']) $tipBits[] = number_format($pv['importe'], 2, ',', '.') . ' €';
+                                                    $tipBits[] = $stateLabel[$pv['state']] ?? $pv['state'];
+                                                    if ($pv['days_since'] !== null && $pv['days_since'] > 0) {
+                                                        $tipBits[] = 'hace ' . $pv['days_since'] . ' d';
+                                                    }
+                                                    $tip = implode(' · ', $tipBits);
+                                                ?>
+                                                    <a href="admin_providers.php?proveedor_id=<?= (int)$pv['id'] ?>"
+                                                       class="tp-shelf-avatar"
+                                                       title="<?= $tip ?>"
+                                                       aria-label="<?= $tip ?>">
+                                                        <?= htmlspecialchars($pv['inicial']) ?>
+                                                        <span class="tp-shelf-dot <?= $stateDotClass[$pv['state']] ?? '' ?>" aria-hidden="true">
+                                                            <?php if ($pv['state'] === 'aceptado'): ?>
+                                                                <svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" style="width:6px;height:6px;display:block;"><polyline points="20 6 9 17 4 12"/></svg>
+                                                            <?php endif; ?>
+                                                        </span>
+                                                    </a>
+                                                <?php endforeach; ?>
+                                                <a href="admin_providers.php?propuesta_id=<?= (int)$p['id'] ?>"
+                                                   class="tp-shelf-invite"
+                                                   title="Invitar proveedor a <?= htmlspecialchars($p['client_name']) ?>"
+                                                   aria-label="Invitar proveedor">
+                                                    <i data-lucide="plus" class="w-3 h-3"></i>
+                                                </a>
+                                            </div>
+                                        </div>
+                                    <?php elseif ($ps): ?>
+                                        <!-- Propuesta sin proveedores invitados: silencio, solo botón discreto en hover -->
+                                        <a href="admin_providers.php?propuesta_id=<?= (int)$p['id'] ?>"
+                                           class="inline-flex items-center gap-1 mt-2 text-[10px] text-text-muted/40 hover:text-purple-300 transition-colors"
+                                           title="Invitar primer proveedor">
+                                            <i data-lucide="plus" class="w-3 h-3"></i> Invitar proveedor
                                         </a>
                                     <?php endif; ?>
                                 </td>
@@ -2314,6 +2503,565 @@ else: ?>
     </script>
     <?php
 endif; ?>
+
+<!-- ════════════════════════════════════════════════════════
+     ITER 4a · DRAWER LATERAL DEL PROVEEDOR
+     Se rellena al click en .tp-shelf-avatar (preventDefault + fetch)
+     ════════════════════════════════════════════════════════ -->
+<div id="tp-drawer-scrim" class="tp-drawer-scrim" hidden onclick="tpDrawerClose()" aria-hidden="true"></div>
+<aside id="tp-provider-drawer" class="tp-provider-drawer" hidden aria-label="Detalle del proveedor" role="dialog" aria-modal="true">
+    <div class="tp-drawer-head">
+        <div class="tp-drawer-id">
+            <div class="tp-drawer-avatar" id="tp-drawer-avatar">—</div>
+            <h3 class="tp-drawer-name" id="tp-drawer-name">Cargando…<small id="tp-drawer-sub"></small></h3>
+        </div>
+        <div class="tp-drawer-actions">
+            <a id="tp-drawer-expand" class="tp-drawer-expand" href="#" title="Abrir detalle completo (E)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:11px;height:11px;"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                Ver completo
+            </a>
+            <button class="tp-drawer-close" onclick="tpDrawerClose()" aria-label="Cerrar (Esc)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+        </div>
+    </div>
+    <div class="tp-drawer-body" id="tp-drawer-body">
+        <div class="tp-drawer-loading">Cargando…</div>
+    </div>
+    <div class="tp-drawer-shortcuts">
+        <span><span class="tp-drawer-kbd">Esc</span> cerrar</span>
+        <span><span class="tp-drawer-kbd">E</span> ver completo</span>
+        <span style="margin-left:auto;opacity:.6;">El dashboard queda intacto al cerrar</span>
+    </div>
+</aside>
+
+<style>
+/* ── Iter 4a · Drawer del proveedor desde el dashboard ── */
+.tp-drawer-scrim {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.55);
+    backdrop-filter: blur(2px);
+    z-index: 999;
+    animation: tpDrawerFadeIn .15s ease-out;
+}
+@keyframes tpDrawerFadeIn { from { opacity: 0; } to { opacity: 1; } }
+.tp-drawer-scrim[hidden] { display: none; }
+
+.tp-provider-drawer {
+    position: fixed;
+    top: 0; right: 0; bottom: 0;
+    width: 520px;
+    max-width: 95vw;
+    background: #141414;
+    border-left: 1px solid #2a2a2a;
+    box-shadow: -20px 0 50px rgba(0,0,0,.5);
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    animation: tpDrawerSlide .25s ease-out;
+    color: #f5f5f5;
+    font: 14px/1.55 'Inter', system-ui, sans-serif;
+}
+@keyframes tpDrawerSlide { from { transform: translateX(100%); } to { transform: translateX(0); } }
+.tp-provider-drawer[hidden] { display: none; }
+
+.tp-drawer-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    border-bottom: 1px solid #1f1f1f;
+    background: #191919;
+    gap: 12px;
+}
+.tp-drawer-id { display: flex; align-items: center; gap: 10px; }
+.tp-drawer-avatar {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    background: rgba(192, 132, 252, .12);
+    color: #c084fc;
+    border: 1px solid rgba(192, 132, 252, .35);
+    display: grid;
+    place-items: center;
+    font-size: 13px;
+    font-weight: 700;
+}
+.tp-drawer-name {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: -.005em;
+    margin: 0;
+}
+.tp-drawer-name small {
+    display: block;
+    color: #8a8a8a;
+    font-size: 11px;
+    margin-top: 2px;
+    font-weight: 400;
+    font-family: 'Inter', sans-serif;
+}
+.tp-drawer-actions { display: flex; gap: 6px; align-items: center; }
+.tp-drawer-close, .tp-drawer-expand {
+    background: transparent;
+    border: 1px solid #1f1f1f;
+    color: #8a8a8a;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 10px;
+    border-radius: 5px;
+    font-family: inherit;
+    font-size: 11.5px;
+    font-weight: 500;
+    text-decoration: none;
+    transition: all .12s ease;
+}
+.tp-drawer-close { padding: 6px; }
+.tp-drawer-close:hover, .tp-drawer-expand:hover { color: #f5f5f5; border-color: #2a2a2a; }
+.tp-drawer-expand:hover { color: #5dffbf; border-color: rgba(93,255,191,.4); }
+
+.tp-drawer-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 18px;
+}
+.tp-drawer-loading {
+    color: #8a8a8a;
+    text-align: center;
+    padding: 40px 0;
+    font-size: 13px;
+}
+
+.tp-drawer-section { margin-bottom: 18px; }
+.tp-drawer-section-title {
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: #8a8a8a;
+    margin-bottom: 8px;
+}
+
+.tp-drawer-budget {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 12px;
+    align-items: start;
+    padding: 14px;
+    background: #0e0e0e;
+    border: 1px solid #2a2a2a;
+    border-radius: 8px;
+    position: relative;
+}
+.tp-drawer-budget::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+    border-radius: 8px 0 0 8px;
+    background: var(--tp-state-color, #ffd84d);
+}
+.tp-drawer-budget-v {
+    background: #1f1f1f;
+    border: 1px solid #1f1f1f;
+    padding: 4px 8px;
+    border-radius: 5px;
+    font-size: 11.5px;
+    font-weight: 700;
+    text-align: center;
+    min-width: 32px;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-variant-numeric: tabular-nums;
+}
+.tp-drawer-budget-info { min-width: 0; }
+.tp-drawer-budget-filename {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 5px;
+    letter-spacing: -.005em;
+    word-break: break-word;
+}
+.tp-drawer-budget-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    font-size: 12px;
+    color: #b3b3b3;
+    font-variant-numeric: tabular-nums;
+}
+.tp-drawer-budget-meta strong { color: #f5f5f5; }
+.tp-drawer-budget-meta-sep { color: #8a8a8a; opacity: .5; }
+.tp-drawer-budget-pdf {
+    background: #5dffbf;
+    color: #000;
+    border: none;
+    padding: 7px 11px;
+    border-radius: 5px;
+    font-weight: 700;
+    font-size: 11.5px;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+    height: fit-content;
+    transition: background .12s ease;
+}
+.tp-drawer-budget-pdf:hover { background: #49e6a8; }
+
+.tp-drawer-state-row {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px dashed #1f1f1f;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    grid-column: 1 / -1;
+}
+.tp-drawer-state-actions {
+    display: flex;
+    gap: 4px;
+    margin-left: auto;
+    flex-wrap: wrap;
+}
+.tp-drawer-state-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 10px;
+    border-radius: 5px;
+    background: transparent;
+    border: 1px solid #1f1f1f;
+    color: #b3b3b3;
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all .12s ease;
+}
+.tp-drawer-state-btn:hover { background: rgba(255,255,255,.03); color: #f5f5f5; }
+.tp-drawer-state-btn--review { color: #fac850; border-color: rgba(250,200,80,.25); }
+.tp-drawer-state-btn--review:hover { background: rgba(250,200,80,.08); }
+.tp-drawer-state-btn--accept { color: #5dffbf; border-color: rgba(93,255,191,.25); }
+.tp-drawer-state-btn--accept:hover { background: rgba(93,255,191,.08); }
+.tp-drawer-state-btn--iterate { color: #c084fc; border-color: rgba(192,132,252,.25); }
+.tp-drawer-state-btn--iterate:hover { background: rgba(192,132,252,.08); }
+
+/* Estado pill — copia minimal */
+.tp-drawer .state-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .02em;
+    border: 1px solid;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+.tp-state-recibido { background: rgba(255,216,77,.1); color: #ffd84d; border: 1px solid rgba(255,216,77,.35); padding: 3px 9px 3px 14px; border-radius: 999px; font-size: 10.5px; font-weight: 600; position: relative; display: inline-flex; align-items: center; }
+.tp-state-recibido::before { content: ""; position: absolute; left: 6px; top: 50%; transform: translateY(-50%); width: 6px; height: 6px; border-radius: 50%; background: #ffd84d; animation: tpDrawerPulseY 1.6s ease-in-out infinite; }
+@keyframes tpDrawerPulseY { 0%, 100% { box-shadow: 0 0 0 0 rgba(255,216,77,.55); } 70% { box-shadow: 0 0 0 5px rgba(255,216,77,0); } }
+.tp-state-revision { background: rgba(250,200,80,.1); color: #fac850; border: 1px solid rgba(250,200,80,.35); padding: 3px 9px; border-radius: 999px; font-size: 10.5px; font-weight: 600; }
+.tp-state-aceptado { background: rgba(93,255,191,.12); color: #5dffbf; border: 1px solid rgba(93,255,191,.35); padding: 3px 9px; border-radius: 999px; font-size: 10.5px; font-weight: 600; }
+.tp-state-rechazado { background: rgba(255,107,107,.1); color: #ff6b6b; border: 1px solid rgba(255,107,107,.35); padding: 3px 9px; border-radius: 999px; font-size: 10.5px; font-weight: 600; }
+.tp-state-iteracion { background: rgba(192,132,252,.1); color: #c084fc; border: 1px solid rgba(192,132,252,.35); padding: 3px 9px; border-radius: 999px; font-size: 10.5px; font-weight: 600; }
+.tp-state-since { font-size: 11px; color: #8a8a8a; font-variant-numeric: tabular-nums; }
+
+.tp-drawer-note-display {
+    width: 100%;
+    margin-top: 4px;
+    padding: 8px 12px;
+    background: rgba(192,132,252,.05);
+    border-left: 2px solid #c084fc;
+    border-radius: 4px;
+    font-size: 12px;
+    color: #b3b3b3;
+    line-height: 1.5;
+}
+.tp-drawer-note-head {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: #c084fc;
+    margin-bottom: 4px;
+}
+
+.tp-drawer-quick-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+.tp-drawer-quick {
+    background: #0e0e0e;
+    border: 1px solid #1f1f1f;
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-size: 12px;
+}
+.tp-drawer-quick small {
+    display: block;
+    color: #8a8a8a;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    font-size: 9.5px;
+    font-weight: 600;
+    margin-bottom: 2px;
+}
+.tp-drawer-quick strong {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    color: #f5f5f5;
+    font-weight: 600;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+}
+.tp-drawer-empty {
+    color: #8a8a8a;
+    text-align: center;
+    padding: 18px 12px;
+    border: 1px dashed #1f1f1f;
+    border-radius: 6px;
+    font-size: 12px;
+}
+
+.tp-drawer-shortcuts {
+    padding: 10px 18px;
+    background: #191919;
+    border-top: 1px solid #1f1f1f;
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    font-size: 11px;
+    color: #8a8a8a;
+    align-items: center;
+}
+.tp-drawer-kbd {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 10px;
+    background: #1f1f1f;
+    border: 1px solid #1f1f1f;
+    border-radius: 3px;
+    padding: 1px 5px;
+    color: #b3b3b3;
+    font-weight: 600;
+}
+</style>
+
+<script>
+/* ════════════════════════════════════════════════════════
+   ITER 4a · Drawer logic + sibling nav (J/K) y atajos
+   ════════════════════════════════════════════════════════ */
+(function () {
+    'use strict';
+
+    const STATE_LABEL = {
+        recibido: 'Recibido', en_revision: 'En revisión',
+        aceptado: 'Aceptado', rechazado: 'Rechazado',
+        iteracion_solicitada: 'Iteración pedida',
+    };
+    const STATE_CLASS = {
+        recibido: 'tp-state-recibido', en_revision: 'tp-state-revision',
+        aceptado: 'tp-state-aceptado', rechazado: 'tp-state-rechazado',
+        iteracion_solicitada: 'tp-state-iteracion',
+    };
+    const STATE_COLOR = {
+        recibido: '#ffd84d', en_revision: '#fac850',
+        aceptado: '#5dffbf', rechazado: '#ff6b6b',
+        iteracion_solicitada: '#c084fc',
+    };
+
+    function esc(s) { return (s || '').toString().replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+    function fmtAmount(n) { return n !== null && n !== undefined ? new Intl.NumberFormat('es-ES', {minimumFractionDigits:2, maximumFractionDigits:2}).format(n) + ' €' : '—'; }
+    function fmtDate(s) {
+        if (!s) return '';
+        const d = new Date(s.replace(' ', 'T') + (s.includes('Z') ? '' : 'Z'));
+        if (isNaN(d)) return s;
+        return d.toLocaleString('es-ES', {day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit'});
+    }
+    function daysAgo(s) {
+        if (!s) return null;
+        const d = new Date(s.replace(' ', 'T') + (s.includes('Z') ? '' : 'Z'));
+        if (isNaN(d)) return null;
+        const days = Math.floor((Date.now() - d.getTime()) / 86400000);
+        if (days < 1) return 'hoy';
+        if (days === 1) return 'ayer';
+        return 'hace ' + days + ' d';
+    }
+
+    let currentProviderId = null;
+    let isOpen = false;
+
+    window.tpDrawerOpen = async function (proveedorId) {
+        currentProviderId = proveedorId;
+        const scrim = document.getElementById('tp-drawer-scrim');
+        const drawer = document.getElementById('tp-provider-drawer');
+        const body = document.getElementById('tp-drawer-body');
+        body.innerHTML = '<div class="tp-drawer-loading">Cargando…</div>';
+        scrim.hidden = false;
+        drawer.hidden = false;
+        isOpen = true;
+
+        try {
+            const r = await fetch('admin_providers.php?action=drawer_data&proveedor_id=' + encodeURIComponent(proveedorId), { credentials: 'same-origin' }).then(r => r.json());
+            if (!r.success) { body.innerHTML = '<div class="tp-drawer-loading">' + esc(r.error || 'Error') + '</div>'; return; }
+            renderDrawer(r);
+        } catch (err) {
+            body.innerHTML = '<div class="tp-drawer-loading">Error de red</div>';
+        }
+    };
+
+    window.tpDrawerClose = function () {
+        document.getElementById('tp-drawer-scrim').hidden = true;
+        document.getElementById('tp-provider-drawer').hidden = true;
+        isOpen = false;
+        currentProviderId = null;
+    };
+
+    function renderDrawer(data) {
+        const pv = data.provider;
+        const latest = data.budgets[0] || null;
+        const past = data.budgets.slice(1);
+
+        // Cabecera
+        document.getElementById('tp-drawer-avatar').textContent = (pv.nombre || '?').charAt(0).toUpperCase();
+        const sub = (pv.empresa ? pv.empresa + ' · ' : '') + 'en ' + pv.client_name;
+        document.getElementById('tp-drawer-name').innerHTML = esc(pv.nombre) + '<small>' + esc(sub) + '</small>';
+        document.getElementById('tp-drawer-expand').setAttribute('href', 'admin_providers.php?proveedor_id=' + pv.id);
+
+        const body = document.getElementById('tp-drawer-body');
+
+        if (!latest) {
+            body.innerHTML = `
+                <div class="tp-drawer-section">
+                    <div class="tp-drawer-section-title">Último presupuesto</div>
+                    <div class="tp-drawer-empty">
+                        <strong style="color:#b3b3b3;display:block;margin-bottom:4px;">Aún sin presupuesto</strong>
+                        ${esc(pv.nombre)} recibirá un aviso al subir su primera versión.
+                    </div>
+                </div>
+                ${renderResumen(pv, data)}
+            `;
+            return;
+        }
+
+        const state = latest.decision_state || 'recibido';
+        const stateCol = STATE_COLOR[state] || '#ffd84d';
+        const stateCls = STATE_CLASS[state] || 'tp-state-recibido';
+        const stateLbl = STATE_LABEL[state] || state;
+        const sinceText = latest.decision_at
+            ? (daysAgo(latest.decision_at) + ' · ' + stateLbl.toLowerCase())
+            : (daysAgo(latest.uploaded_at) + ' · sin decisión');
+
+        // Botones contextuales
+        const btns = [];
+        if (state !== 'en_revision' && state !== 'aceptado') {
+            btns.push(`<button class="tp-drawer-state-btn tp-drawer-state-btn--review" onclick="tpDrawerSetState('en_revision')">Revisar</button>`);
+        }
+        if (state !== 'iteracion_solicitada') {
+            btns.push(`<button class="tp-drawer-state-btn tp-drawer-state-btn--iterate" onclick="tpDrawerSetState('iteracion_solicitada')">Iterar</button>`);
+        }
+        if (state !== 'aceptado') {
+            btns.push(`<button class="tp-drawer-state-btn tp-drawer-state-btn--accept" onclick="tpDrawerSetState('aceptado')">Aceptar</button>`);
+        }
+
+        const noteBlock = latest.decision_note ? `
+            <div class="tp-drawer-note-display">
+                <div class="tp-drawer-note-head">Nota a ${esc((pv.nombre || '').split(' ')[0])} · ${fmtDate(latest.decision_at || latest.uploaded_at)}</div>
+                ${esc(latest.decision_note).replace(/\n/g, '<br>')}
+            </div>` : '';
+
+        const meta = [];
+        if (latest.importe_total !== null) meta.push('<strong>' + fmtAmount(latest.importe_total) + '</strong>');
+        if (latest.plazo_dias !== null) meta.push((latest.plazo_dias|0) + ' d');
+        meta.push(fmtDate(latest.uploaded_at));
+
+        body.innerHTML = `
+            <div class="tp-drawer-section">
+                <div class="tp-drawer-section-title">Último presupuesto</div>
+                <div class="tp-drawer-budget" style="--tp-state-color:${stateCol};">
+                    <div class="tp-drawer-budget-v">v${latest.version_num|0}</div>
+                    <div class="tp-drawer-budget-info">
+                        <div class="tp-drawer-budget-filename">${esc(latest.archivo_nombre)}</div>
+                        <div class="tp-drawer-budget-meta">${meta.join('<span class="tp-drawer-budget-meta-sep">·</span>')}</div>
+                    </div>
+                    <a href="admin_providers.php?download=${latest.id}" target="_blank" class="tp-drawer-budget-pdf">PDF</a>
+
+                    <div class="tp-drawer-state-row">
+                        <span class="${stateCls}">${esc(stateLbl)}</span>
+                        <span class="tp-state-since">${esc(sinceText)}</span>
+                        <div class="tp-drawer-state-actions">${btns.join('')}</div>
+                        ${noteBlock}
+                    </div>
+                </div>
+                ${past.length ? `<div style="margin-top:10px;color:#8a8a8a;font-size:11.5px;"><strong>${past.length}</strong> versi${past.length === 1 ? 'ón' : 'ones'} anterior${past.length === 1 ? '' : 'es'} · ver en detalle completo</div>` : ''}
+            </div>
+            ${renderResumen(pv, data)}
+        `;
+    }
+
+    function renderResumen(pv, data) {
+        return `
+            <div class="tp-drawer-section">
+                <div class="tp-drawer-section-title">Resumen</div>
+                <div class="tp-drawer-quick-grid">
+                    <div class="tp-drawer-quick"><small>Accesos</small><strong>${pv.accesos|0}</strong></div>
+                    <div class="tp-drawer-quick"><small>Mensajes</small><strong>${data.messages_count|0} hilo${data.messages_count === 1 ? '' : 's'}</strong></div>
+                    <div class="tp-drawer-quick"><small>Último acceso</small><strong>${pv.last_accessed_at ? daysAgo(pv.last_accessed_at) : '—'}</strong></div>
+                    <div class="tp-drawer-quick"><small>Permiso cliente</small><strong style="color:${(pv.ver_comentarios|0) === 1 ? '#5dffbf' : '#8a8a8a'};">${(pv.ver_comentarios|0) === 1 ? 'Ve comentarios' : 'Sin acceso'}</strong></div>
+                </div>
+            </div>
+        `;
+    }
+
+    // Setear estado desde el drawer (reusa endpoint admin_providers set_budget_state)
+    window.tpDrawerSetState = async function (state) {
+        if (!currentProviderId) return;
+        const data = await fetch('admin_providers.php?action=drawer_data&proveedor_id=' + currentProviderId, { credentials: 'same-origin' }).then(r => r.json());
+        const latest = data?.budgets?.[0];
+        if (!latest) { alert('No hay presupuesto vigente'); return; }
+        const note = (state === 'iteracion_solicitada' || state === 'rechazado' || state === 'aceptado')
+            ? (prompt('Nota opcional para el proveedor (Enter para omitir):') || '')
+            : '';
+        const notify = (state === 'aceptado' || state === 'rechazado' || state === 'iteracion_solicitada');
+        const body = new URLSearchParams({ action: 'set_budget_state', budget_id: latest.id, state, note });
+        if (notify) body.append('notify_provider', '1');
+        const r = await fetch('admin_providers.php', { method: 'POST', body, credentials: 'same-origin' }).then(r => r.json());
+        if (r.success) tpDrawerOpen(currentProviderId); // re-render
+        else alert(r.error || 'Error');
+    };
+
+    // Intercepta click en cualquier .tp-shelf-avatar del dashboard
+    document.addEventListener('click', function (e) {
+        const a = e.target.closest('a.tp-shelf-avatar');
+        if (!a) return;
+        if (e.metaKey || e.ctrlKey || e.shiftKey) return; // permitir abrir en pestaña nueva
+        e.preventDefault();
+        const href = a.getAttribute('href') || '';
+        const m = href.match(/proveedor_id=(\d+)/);
+        if (m) tpDrawerOpen(parseInt(m[1], 10));
+    });
+
+    // Atajos teclado
+    document.addEventListener('keydown', function (e) {
+        if (!isOpen) return;
+        if (e.key === 'Escape') { tpDrawerClose(); }
+        else if (e.key === 'e' || e.key === 'E') {
+            const expand = document.getElementById('tp-drawer-expand');
+            if (expand) window.location.href = expand.getAttribute('href');
+        }
+    });
+})();
+</script>
+
 </body>
 
 </html>
