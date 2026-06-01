@@ -123,33 +123,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         // Crear slots de firma (uno por firmante declarado en la plantilla)
         $firmantes = json_decode($plant['firmantes_json'], true) ?: ['cliente','tp'];
         foreach ($firmantes as $i => $rol) {
-            $datosFirmante = [];
-            if ($rol === 'tp') {
-                $datosFirmante = [
-                    'firmante_nombre' => TP_FIRMANTE_NOMBRE,
-                    'firmante_email'  => TP_FIRMANTE_EMAIL,
-                    'firmante_documento' => TP_FIRMANTE_DNI,
-                    'firmante_empresa' => TP_RAZON_SOCIAL,
-                    'firmante_cargo'  => TP_FIRMANTE_CARGO,
-                    'firmante_direccion' => TP_DIRECCION,
-                ];
-            } elseif ($rol === 'proveedor' && $destId) {
-                $pv = $pdo->prepare("SELECT nombre, empresa, email FROM propuesta_proveedores WHERE id = ?");
-                $pv->execute([$destId]);
-                $row = $pv->fetch(PDO::FETCH_ASSOC);
-                if ($row) {
-                    $datosFirmante = [
-                        'firmante_nombre' => $row['nombre'],
-                        'firmante_email'  => $row['email'],
-                        'firmante_empresa' => $row['empresa'],
-                    ];
-                }
-            } elseif ($rol === 'cliente' && $propuestaId) {
-                $pp = $pdo->prepare("SELECT client_name FROM propuestas WHERE id = ?");
-                $pp->execute([$propuestaId]);
-                $name = $pp->fetchColumn();
-                $datosFirmante = ['firmante_nombre' => $name ?: '', 'firmante_email' => ''];
-            }
+            $datosFirmante = contrato_resolve_firmante_identidad($pdo, $rol, $destId, $propuestaId);
             $pdo->prepare("INSERT INTO contratos_firmas
                 (contrato_id, rol, orden, firmante_nombre, firmante_email, firmante_documento, firmante_empresa, firmante_cargo, firmante_direccion)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
@@ -232,26 +206,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         // Crear slots de firma
         foreach ($firmantes as $i => $rol) {
             if (!in_array($rol, ['cliente','proveedor','tp'], true)) continue;
-            $datosFirmante = [];
-            if ($rol === 'tp') {
-                $datosFirmante = [
-                    'firmante_nombre' => TP_FIRMANTE_NOMBRE, 'firmante_email' => TP_FIRMANTE_EMAIL,
-                    'firmante_documento' => TP_FIRMANTE_DNI, 'firmante_empresa' => TP_RAZON_SOCIAL,
-                    'firmante_cargo' => TP_FIRMANTE_CARGO, 'firmante_direccion' => TP_DIRECCION,
-                ];
-            } elseif ($rol === 'proveedor' && $destId) {
-                $pv = $pdo->prepare("SELECT nombre, empresa, email FROM propuesta_proveedores WHERE id = ?");
-                $pv->execute([$destId]);
-                $row = $pv->fetch(PDO::FETCH_ASSOC);
-                if ($row) $datosFirmante = [
-                    'firmante_nombre' => $row['nombre'], 'firmante_email' => $row['email'],
-                    'firmante_empresa' => $row['empresa'],
-                ];
-            } elseif ($rol === 'cliente' && $propuestaId) {
-                $pp = $pdo->prepare("SELECT client_name FROM propuestas WHERE id = ?");
-                $pp->execute([$propuestaId]);
-                $datosFirmante = ['firmante_nombre' => $pp->fetchColumn() ?: ''];
-            }
+            $datosFirmante = contrato_resolve_firmante_identidad($pdo, $rol, $destId, $propuestaId);
             $pdo->prepare("INSERT INTO contratos_firmas
                 (contrato_id, rol, orden, firmante_nombre, firmante_email, firmante_documento, firmante_empresa, firmante_cargo, firmante_direccion)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
@@ -568,11 +523,13 @@ if ($estadoFilter !== 'todos') { $where[] = "c.estado = ?"; $params[] = $estadoF
 $qContratos = $pdo->prepare("
     SELECT c.*, p.nombre AS plantilla_nombre, p.tipo AS plantilla_tipo,
            pr.client_name, pr.slug AS propuesta_slug,
-           pv.nombre AS proveedor_nombre, pv.empresa AS proveedor_empresa, pv.email AS proveedor_email
+           pv.nombre AS proveedor_nombre, pv.empresa AS proveedor_empresa, pv.email AS proveedor_email,
+           cl.nombre AS cliente_nombre, cl.empresa AS cliente_empresa, cl.email AS cliente_email
     FROM contratos c
     LEFT JOIN contratos_plantillas p ON p.id = c.plantilla_id
     LEFT JOIN propuestas pr ON pr.id = c.propuesta_id
     LEFT JOIN propuesta_proveedores pv ON pv.id = c.destinatario_id AND c.destinatario_tipo = 'proveedor'
+    LEFT JOIN propuesta_clientes cl    ON cl.id = c.destinatario_id AND c.destinatario_tipo = 'cliente'
     WHERE " . implode(' AND ', $where) . "
     ORDER BY c.created_at DESC
 ");
@@ -589,6 +546,18 @@ $proveedoresDisponibles = $pdo->query("
     ORDER BY pr.id DESC, pv.nombre ASC
 ")->fetchAll(PDO::FETCH_ASSOC);
 
+// Clientes firmantes (defensivo: tabla puede no existir si migrate_clientes.php no se aplicó)
+$clientesDisponibles = [];
+try {
+    $clientesDisponibles = $pdo->query("
+        SELECT cl.id, cl.nombre, cl.empresa, cl.email, cl.propuesta_id, pr.client_name, pr.slug
+        FROM propuesta_clientes cl
+        LEFT JOIN propuestas pr ON pr.id = cl.propuesta_id
+        WHERE cl.activo = 1
+        ORDER BY pr.id DESC, cl.nombre ASC
+    ")->fetchAll(PDO::FETCH_ASSOC);
+} catch (\Throwable $e) { /* tabla aún no migrada en prod */ }
+
 // Si se pide vista detalle
 $contratoView = null;
 $firmasView = [];
@@ -597,11 +566,13 @@ if ($contratoIdView) {
     $stmt = $pdo->prepare("
         SELECT c.*, p.nombre AS plantilla_nombre, p.tipo AS plantilla_tipo,
                pr.client_name, pr.slug AS propuesta_slug,
-               pv.nombre AS proveedor_nombre, pv.empresa AS proveedor_empresa
+               pv.nombre AS proveedor_nombre, pv.empresa AS proveedor_empresa,
+               cl.nombre AS cliente_nombre, cl.empresa AS cliente_empresa, cl.email AS cliente_email
         FROM contratos c
         LEFT JOIN contratos_plantillas p ON p.id = c.plantilla_id
         LEFT JOIN propuestas pr ON pr.id = c.propuesta_id
         LEFT JOIN propuesta_proveedores pv ON pv.id = c.destinatario_id AND c.destinatario_tipo = 'proveedor'
+        LEFT JOIN propuesta_clientes cl    ON cl.id = c.destinatario_id AND c.destinatario_tipo = 'cliente'
         WHERE c.id = ?
     ");
     $stmt->execute([$contratoIdView]);
@@ -804,10 +775,17 @@ if ($contratoIdView && $contratoView) {
         </tr></thead>
         <tbody>
         <?php foreach ($contratos as $c):
-            $contraparteName = $c['destinatario_tipo'] === 'proveedor'
-                ? ($c['proveedor_nombre'] . ($c['proveedor_empresa'] ? ' · ' . $c['proveedor_empresa'] : ''))
-                : ($c['client_name'] ?: '—');
-            $contraparteEmail = $c['destinatario_tipo'] === 'proveedor' ? ($c['proveedor_email'] ?? '') : '';
+            if ($c['destinatario_tipo'] === 'proveedor') {
+                $contraparteName = $c['proveedor_nombre'] . ($c['proveedor_empresa'] ? ' · ' . $c['proveedor_empresa'] : '');
+                $contraparteEmail = $c['proveedor_email'] ?? '';
+            } elseif ($c['destinatario_tipo'] === 'cliente') {
+                $contraparteName = ($c['cliente_nombre'] ?? '') . (!empty($c['cliente_empresa']) ? ' · ' . $c['cliente_empresa'] : '');
+                if (trim($contraparteName) === '' || $contraparteName === ' · ') $contraparteName = $c['client_name'] ?: '—';
+                $contraparteEmail = $c['cliente_email'] ?? '';
+            } else {
+                $contraparteName = $c['client_name'] ?: '—';
+                $contraparteEmail = '';
+            }
             $initial = mb_strtoupper(mb_substr($contraparteName, 0, 1));
         ?>
         <tr>
@@ -1052,6 +1030,13 @@ if ($contratoIdView && $contratoView) {
                         <label>4. Contraparte</label>
                         <select name="destinatario_id" id="destinatarioSelect">
                             <option value="">— Selecciona contraparte —</option>
+                            <?php if (!empty($clientesDisponibles)): ?>
+                            <optgroup label="Clientes">
+                                <?php foreach ($clientesDisponibles as $cl): ?>
+                                <option value="cli:<?=$cl['id']?>" data-prop="<?=$cl['propuesta_id']?>"><?=e($cl['nombre'])?><?php if (!empty($cl['empresa'])): ?> · <?=e($cl['empresa'])?><?php endif; ?></option>
+                                <?php endforeach; ?>
+                            </optgroup>
+                            <?php endif; ?>
                             <optgroup label="Proveedores">
                                 <?php foreach ($proveedoresDisponibles as $pv): ?>
                                 <option value="prov:<?=$pv['id']?>" data-prop="<?=$pv['propuesta_id']?>"><?=e($pv['nombre'])?> · <?=e($pv['empresa'])?></option>
@@ -1128,6 +1113,13 @@ if ($contratoIdView && $contratoView) {
                         <label>6. Contraparte (quién firma) <span style="color:#ff6b6b">*</span></label>
                         <select name="destinatario_id" required>
                             <option value="">— Selecciona —</option>
+                            <?php if (!empty($clientesDisponibles)): ?>
+                            <optgroup label="Clientes">
+                                <?php foreach ($clientesDisponibles as $cl): ?>
+                                <option value="cli:<?=$cl['id']?>"><?=e($cl['nombre'])?><?php if (!empty($cl['empresa'])): ?> · <?=e($cl['empresa'])?><?php endif; ?></option>
+                                <?php endforeach; ?>
+                            </optgroup>
+                            <?php endif; ?>
                             <optgroup label="Proveedores">
                                 <?php foreach ($proveedoresDisponibles as $pv): ?>
                                 <option value="prov:<?=$pv['id']?>"><?=e($pv['nombre'])?> · <?=e($pv['empresa'])?></option>
@@ -1226,8 +1218,12 @@ async function submitCreatePdf(ev){
     if (dest && dest.startsWith('prov:')) {
         fd.set('destinatario_tipo', 'proveedor');
         fd.set('destinatario_id', dest.replace('prov:', ''));
+    } else if (dest && dest.startsWith('cli:')) {
+        fd.set('destinatario_tipo', 'cliente');
+        fd.set('destinatario_id', dest.replace('cli:', ''));
     } else {
         fd.set('destinatario_tipo', 'cliente');
+        fd.set('destinatario_id', '');
     }
     // Firmantes → array JSON (orden: contraparte primero, tp después)
     const firmantes = [];
@@ -1284,6 +1280,9 @@ async function submitCreate(ev){
     if (dest && dest.startsWith('prov:')) {
         body.append('destinatario_tipo', 'proveedor');
         body.append('destinatario_id', dest.replace('prov:', ''));
+    } else if (dest && dest.startsWith('cli:')) {
+        body.append('destinatario_tipo', 'cliente');
+        body.append('destinatario_id', dest.replace('cli:', ''));
     }
     const datos = {};
     for (const [k,v] of fd.entries()) {

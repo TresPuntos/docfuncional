@@ -85,6 +85,72 @@ function contrato_hash_short(string $full): string
 }
 
 // ====================================================================
+//   IDENTIDAD DEL FIRMANTE
+// ====================================================================
+
+/**
+ * Resuelve los datos del firmante para un slot de contrato según rol.
+ * Devuelve array con claves firmante_nombre, firmante_email, firmante_empresa,
+ * firmante_cargo, firmante_documento, firmante_direccion (las que aplican).
+ *
+ *   $rol         = 'tp' | 'proveedor' | 'cliente'
+ *   $destId      = id de propuesta_proveedores o propuesta_clientes (según rol)
+ *   $propuestaId = id de la propuesta (fallback para rol=cliente sin destId)
+ */
+function contrato_resolve_firmante_identidad(PDO $pdo, string $rol, ?int $destId, ?int $propuestaId): array
+{
+    if ($rol === 'tp') {
+        return [
+            'firmante_nombre'    => TP_FIRMANTE_NOMBRE,
+            'firmante_email'     => TP_FIRMANTE_EMAIL,
+            'firmante_documento' => TP_FIRMANTE_DNI,
+            'firmante_empresa'   => TP_RAZON_SOCIAL,
+            'firmante_cargo'     => TP_FIRMANTE_CARGO,
+            'firmante_direccion' => TP_DIRECCION,
+        ];
+    }
+    if ($rol === 'proveedor' && $destId) {
+        $st = $pdo->prepare("SELECT nombre, empresa, email FROM propuesta_proveedores WHERE id = ?");
+        $st->execute([$destId]);
+        $row = $st->fetch(PDO::FETCH_ASSOC);
+        if ($row) {
+            return [
+                'firmante_nombre'  => $row['nombre'],
+                'firmante_email'   => $row['email'],
+                'firmante_empresa' => $row['empresa'],
+            ];
+        }
+        return [];
+    }
+    if ($rol === 'cliente' && $destId) {
+        // Tabla propuesta_clientes (puede no existir si migrate_clientes.php no se ha aplicado)
+        try {
+            $st = $pdo->prepare("SELECT nombre, empresa, email, cargo, dni FROM propuesta_clientes WHERE id = ?");
+            $st->execute([$destId]);
+            $row = $st->fetch(PDO::FETCH_ASSOC);
+            if ($row) {
+                return [
+                    'firmante_nombre'    => $row['nombre'],
+                    'firmante_email'     => $row['email'],
+                    'firmante_empresa'   => $row['empresa'],
+                    'firmante_cargo'     => $row['cargo'],
+                    'firmante_documento' => $row['dni'],
+                ];
+            }
+        } catch (\Throwable $e) { /* tabla no existe todavía · fallback abajo */ }
+    }
+    if ($rol === 'cliente' && $propuestaId) {
+        // Fallback legacy: usar client_name de la propuesta cuando no hay propuesta_clientes
+        $st = $pdo->prepare("SELECT client_name FROM propuestas WHERE id = ?");
+        $st->execute([$propuestaId]);
+        $name = $st->fetchColumn();
+        return ['firmante_nombre' => $name ?: '', 'firmante_email' => ''];
+    }
+    return [];
+}
+
+
+// ====================================================================
 //   EVENTOS (audit cronológico)
 // ====================================================================
 
