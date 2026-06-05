@@ -2808,7 +2808,7 @@ if ($is_unlocked) {
 
                 <div id="content-areas-extensions">
                     <div class="doc-view" data-tab="documento">
-                    <?php include __DIR__ . '/metodologia.php'; ?>
+                    <?php if (strpos($proposal['html_content'], 'tp-hide-metodologia') === false): include __DIR__ . '/metodologia.php'; endif; ?>
                     <div id="equipo-extension-area" style="margin-top: 4rem;"></div>
                     <div class="cta-block" id="sec-avanzamos-doc"<?= $isProviderMode ? ' hidden' : '' ?>>
                         <?php if (!$isDocApproved): ?>
