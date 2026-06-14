@@ -14,6 +14,34 @@ Aplica también al detallar entregables Fase 2: no decimos "entregamos UI maquet
 
 ---
 
+## 🆕 2026-06-14 · Cajas de respuesta del cliente (`tp-respuesta`) — texto libre + Guardar
+
+Nueva funcionalidad para bloques de "dudas/preguntas para el cliente": una **caja de texto con botón Guardar** embebible en cualquier punto del `html_content`. El cliente escribe su respuesta dentro del propio documento y la guarda; queda persistida, editable (se puede volver a guardar) y precargada al recargar. Al guardar, ping Telegram al equipo. Modelada sobre el patrón de `tp-tasks`.
+
+**Archivos:**
+- **`database/migrate_respuestas.php`** · tabla `propuesta_respuestas` (respuesta_key, pregunta, respuesta_texto, autor_nombre/email, updated_at · UNIQUE(propuesta_id, respuesta_key)). **No hace falta correrla en prod**: `view.php` la auto-crea con `CREATE TABLE IF NOT EXISTS` en el primer `respuestas_sync`.
+- **`master/doc-respuestas.php`** · CSS+JS autocontenido (incluido en `view.php` solo en modo cliente, junto a `doc-tasks.php`). Renderiza textarea + botón Guardar + estado "Guardado · autor · fecha". Botón deshabilitado hasta que hay cambios. Usa `tp_signer` (identidad del login PIN, sin modal).
+- **`view.php`** · 2 endpoints nuevos en el bloque `api_action`:
+  - `respuestas_sync` · UPSERT de preguntas declaradas en HTML + devuelve respuestas guardadas (auto-crea tabla).
+  - `respuesta_save` · upsert del texto (lee signer de sesión) + Telegram alert.
+
+**Markup que el admin pone en html_content de la propuesta** (una caja por pregunta):
+```html
+<div class="tp-respuesta"
+     data-respuesta-key="j2-1-idiomas"
+     data-respuesta-label="Vuestra respuesta"
+     data-respuesta-pregunta="Idiomas activos en el lanzamiento"></div>
+```
+- `data-respuesta-key` (obligatorio, estable): identificador único en kebab-case por propuesta.
+- `data-respuesta-label` (opcional): etiqueta sobre el textarea (por defecto "Vuestra respuesta").
+- `data-respuesta-pregunta` (opcional pero recomendado): texto que sale en la notificación Telegram.
+
+**Solo modo cliente (`/p/{slug}`)** — el endpoint es `/p/`+slug. No se activa en portal proveedor `/s/`.
+**Primer uso real:** MAI CDMO (id 31) — una caja tras cada duda del bloque J.2.
+**Probado en local** (servidor `router.php`, propuesta de prueba): render, guardado, persistencia en BD y precarga al recargar — OK.
+
+---
+
 ## ✅ DESPLEGADO 2026-05-05 · Aula Clínic v1.0 · Comentarios Dani resueltos + presupuesto Holded + fix privacidad proveedor
 
 > Sesión larga. Tres bloques de trabajo: (1) revisión y resolución de los 5 comentarios de Dani sobre Aula Clínic (id=23) → doc draft sobre v1.0; (2) creación de presupuesto E170386 en Holded vía API directa con horquillas; (3) fix crítico de privacidad en `view.php` que mostraba el HTML del Holded a proveedores aunque el tab estuviera oculto.

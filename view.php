@@ -541,6 +541,125 @@ if ($is_unlocked) {
             exit;
         }
 
+        // --- RESPUESTAS DEL CLIENTE (cajas de texto con botón Guardar) ---
+        // respuestas_sync: registra las preguntas declaradas en el HTML y devuelve
+        //                  las respuestas ya guardadas. Auto-crea la tabla si no existe
+        //                  (evita tener que correr la migración a mano en producción).
+        if ($_POST['api_action'] === 'respuestas_sync' || $_POST['api_action'] === 'respuesta_save') {
+            $pdo->exec("
+                CREATE TABLE IF NOT EXISTS propuesta_respuestas (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    propuesta_id INTEGER NOT NULL,
+                    respuesta_key TEXT NOT NULL,
+                    pregunta TEXT,
+                    respuesta_texto TEXT,
+                    autor_nombre TEXT,
+                    autor_email TEXT,
+                    orden INTEGER DEFAULT 0,
+                    updated_at DATETIME,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(propuesta_id, respuesta_key)
+                )
+            ");
+            $pdo->exec("CREATE INDEX IF NOT EXISTS idx_respuestas_propuesta ON propuesta_respuestas(propuesta_id)");
+        }
+
+        if ($_POST['api_action'] === 'respuestas_sync') {
+            $items = json_decode($_POST['respuestas'] ?? '[]', true);
+            if (!is_array($items)) $items = [];
+
+            $pdo->beginTransaction();
+            try {
+                $upsert = $pdo->prepare("
+                    INSERT INTO propuesta_respuestas (propuesta_id, respuesta_key, pregunta, orden)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(propuesta_id, respuesta_key) DO UPDATE SET
+                        pregunta = excluded.pregunta,
+                        orden = excluded.orden
+                ");
+                foreach ($items as $idx => $it) {
+                    $key = trim($it['key'] ?? '');
+                    if ($key === '') continue;
+                    $upsert->execute([
+                        $proposal['id'],
+                        mb_substr($key, 0, 100),
+                        mb_substr(trim($it['pregunta'] ?? ''), 0, 500),
+                        (int)($it['orden'] ?? $idx),
+                    ]);
+                }
+                $pdo->commit();
+            } catch (Throwable $e) {
+                $pdo->rollBack();
+                echo json_encode(['success' => false, 'error' => 'No se pudieron sincronizar las respuestas.']);
+                exit;
+            }
+
+            $stmt = $pdo->prepare("SELECT respuesta_key, respuesta_texto, autor_nombre, autor_email, updated_at
+                                   FROM propuesta_respuestas WHERE propuesta_id = ?");
+            $stmt->execute([$proposal['id']]);
+            $state = [];
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $state[$row['respuesta_key']] = [
+                    'texto' => (string)$row['respuesta_texto'],
+                    'autor' => trim((string)$row['autor_nombre']),
+                    'autor_email' => $row['autor_email'],
+                    'updated_at' => $row['updated_at'],
+                ];
+            }
+            echo json_encode(['success' => true, 'state' => $state]);
+            exit;
+        }
+
+        if ($_POST['api_action'] === 'respuesta_save') {
+            $key = trim($_POST['respuesta_key'] ?? '');
+            $texto = trim($_POST['texto'] ?? '');
+            $signer = $readSigner();
+            if ($key === '') { echo json_encode(['success' => false, 'error' => 'Falta el identificador de la pregunta.']); exit; }
+            if (!$signer['valid_lite']) {
+                echo json_encode(['success' => false, 'error' => 'Identifícate antes de guardar tu respuesta.']);
+                exit;
+            }
+            if (mb_strlen($texto) > 8000) { echo json_encode(['success' => false, 'error' => 'Respuesta demasiado larga (máx. 8000 caracteres).']); exit; }
+
+            $stmt = $pdo->prepare("SELECT id, pregunta FROM propuesta_respuestas WHERE propuesta_id = ? AND respuesta_key = ?");
+            $stmt->execute([$proposal['id'], $key]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            $nombreCompleto = trim($signer['nombre'] . ' ' . $signer['apellidos']);
+
+            if ($row) {
+                $pdo->prepare("UPDATE propuesta_respuestas
+                               SET respuesta_texto = ?, autor_nombre = ?, autor_email = ?, updated_at = CURRENT_TIMESTAMP
+                               WHERE id = ?")
+                    ->execute([$texto, $nombreCompleto, $signer['email'], $row['id']]);
+                $pregunta = (string)$row['pregunta'];
+            } else {
+                $pdo->prepare("INSERT INTO propuesta_respuestas (propuesta_id, respuesta_key, pregunta, respuesta_texto, autor_nombre, autor_email, updated_at)
+                               VALUES (?, ?, '', ?, ?, ?, CURRENT_TIMESTAMP)")
+                    ->execute([$proposal['id'], mb_substr($key, 0, 100), $texto, $nombreCompleto, $signer['email']]);
+                $pregunta = '';
+            }
+
+            $resumen = $texto !== ''
+                ? "\n<i>" . htmlspecialchars(mb_substr($texto, 0, 280), ENT_QUOTES, 'UTF-8') . (mb_strlen($texto) > 280 ? '…' : '') . "</i>"
+                : "\n<i>(respuesta vaciada)</i>";
+            sendTelegramNotification(
+                "✍️ <b>Respuesta del cliente</b> · <b>" . htmlspecialchars($clientName, ENT_QUOTES, 'UTF-8') . "</b>"
+                . ($pregunta !== '' ? "\n<b>" . htmlspecialchars($pregunta, ENT_QUOTES, 'UTF-8') . "</b>" : "\n<code>" . htmlspecialchars($key, ENT_QUOTES, 'UTF-8') . "</code>")
+                . "\nPor: " . htmlspecialchars($nombreCompleto, ENT_QUOTES, 'UTF-8') . " · " . htmlspecialchars($signer['email'], ENT_QUOTES, 'UTF-8')
+                . $resumen
+                . "\n<a href=\"" . htmlspecialchars($viewUrl, ENT_QUOTES) . "\">Ver propuesta</a>"
+            );
+
+            echo json_encode([
+                'success' => true,
+                'texto' => $texto,
+                'autor' => $nombreCompleto,
+                'autor_email' => $signer['email'],
+                'updated_at' => date('c'),
+            ]);
+            exit;
+        }
+
         echo json_encode(['success' => false, 'error' => 'Acción no reconocida']);
         exit;
     }
@@ -3739,6 +3858,7 @@ if ($is_unlocked) {
     <?php else: ?>
         <?php include __DIR__ . '/master/doc-feedback.php'; ?>
         <?php include __DIR__ . '/master/doc-tasks.php'; ?>
+        <?php include __DIR__ . '/master/doc-respuestas.php'; ?>
     <?php endif; ?>
 
     <!-- Onboarding primera visita: apunta al FAB de comentarios -->
