@@ -545,7 +545,7 @@ if ($is_unlocked) {
         // respuestas_sync: registra las preguntas declaradas en el HTML y devuelve
         //                  las respuestas ya guardadas. Auto-crea la tabla si no existe
         //                  (evita tener que correr la migración a mano en producción).
-        if ($_POST['api_action'] === 'respuestas_sync' || $_POST['api_action'] === 'respuesta_save') {
+        if (in_array($_POST['api_action'], ['respuestas_sync', 'respuesta_save', 'respuestas_submit'], true)) {
             $pdo->exec("
                 CREATE TABLE IF NOT EXISTS propuesta_respuestas (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -562,6 +562,18 @@ if ($is_unlocked) {
                 )
             ");
             $pdo->exec("CREATE INDEX IF NOT EXISTS idx_respuestas_propuesta ON propuesta_respuestas(propuesta_id)");
+            $pdo->exec("
+                CREATE TABLE IF NOT EXISTS propuesta_respuestas_envios (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    propuesta_id INTEGER NOT NULL,
+                    grupo TEXT NOT NULL DEFAULT '',
+                    enviado_at DATETIME,
+                    enviado_por_nombre TEXT,
+                    enviado_por_email TEXT,
+                    total INTEGER DEFAULT 0,
+                    UNIQUE(propuesta_id, grupo)
+                )
+            ");
         }
 
         if ($_POST['api_action'] === 'respuestas_sync') {
@@ -606,7 +618,13 @@ if ($is_unlocked) {
                     'updated_at' => $row['updated_at'],
                 ];
             }
-            echo json_encode(['success' => true, 'state' => $state]);
+            $envStmt = $pdo->prepare("SELECT grupo, enviado_at, enviado_por_nombre FROM propuesta_respuestas_envios WHERE propuesta_id = ?");
+            $envStmt->execute([$proposal['id']]);
+            $envios = [];
+            foreach ($envStmt->fetchAll(PDO::FETCH_ASSOC) as $er) {
+                $envios[$er['grupo']] = ['enviado_at' => $er['enviado_at'], 'autor' => trim((string)$er['enviado_por_nombre'])];
+            }
+            echo json_encode(['success' => true, 'state' => $state, 'envios' => $envios]);
             exit;
         }
 
@@ -657,6 +675,59 @@ if ($is_unlocked) {
                 'autor_email' => $signer['email'],
                 'updated_at' => date('c'),
             ]);
+            exit;
+        }
+
+        if ($_POST['api_action'] === 'respuestas_submit') {
+            $grupo = trim($_POST['grupo'] ?? '');
+            $keys = json_decode($_POST['keys'] ?? '[]', true);
+            if (!is_array($keys)) $keys = [];
+            $keys = array_values(array_filter(array_map(fn($k) => trim((string)$k), $keys), fn($k) => $k !== ''));
+            $signer = $readSigner();
+            if (!$signer['valid_lite']) { echo json_encode(['success' => false, 'error' => 'Identifícate antes de enviar.']); exit; }
+            if (!$keys) { echo json_encode(['success' => false, 'error' => 'No hay preguntas que enviar.']); exit; }
+
+            $place = implode(',', array_fill(0, count($keys), '?'));
+            $stmt = $pdo->prepare("SELECT respuesta_key, pregunta, respuesta_texto FROM propuesta_respuestas WHERE propuesta_id = ? AND respuesta_key IN ($place)");
+            $stmt->execute(array_merge([$proposal['id']], $keys));
+            $byKey = [];
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) $byKey[$r['respuesta_key']] = $r;
+
+            $faltan = [];
+            foreach ($keys as $k) {
+                if (!isset($byKey[$k]) || trim((string)$byKey[$k]['respuesta_texto']) === '') $faltan[] = $k;
+            }
+            if ($faltan) {
+                echo json_encode(['success' => false, 'error' => 'Faltan respuestas por contestar antes de enviar.', 'faltan' => $faltan]);
+                exit;
+            }
+
+            $nombreCompleto = trim($signer['nombre'] . ' ' . $signer['apellidos']);
+            $pdo->prepare("INSERT INTO propuesta_respuestas_envios (propuesta_id, grupo, enviado_at, enviado_por_nombre, enviado_por_email, total)
+                           VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?)
+                           ON CONFLICT(propuesta_id, grupo) DO UPDATE SET
+                               enviado_at = CURRENT_TIMESTAMP,
+                               enviado_por_nombre = excluded.enviado_por_nombre,
+                               enviado_por_email = excluded.enviado_por_email,
+                               total = excluded.total")
+                ->execute([$proposal['id'], $grupo, $nombreCompleto, $signer['email'], count($keys)]);
+
+            $msg = "📨 <b>Respuestas enviadas</b> · <b>" . htmlspecialchars($clientName, ENT_QUOTES, 'UTF-8') . "</b>"
+                 . "\nPor: " . htmlspecialchars($nombreCompleto, ENT_QUOTES, 'UTF-8') . " · " . htmlspecialchars($signer['email'], ENT_QUOTES, 'UTF-8')
+                 . "\n" . count($keys) . " respuestas completas:\n";
+            $n = 0;
+            foreach ($keys as $k) {
+                $n++;
+                $p = trim((string)$byKey[$k]['pregunta']);
+                $t = trim((string)$byKey[$k]['respuesta_texto']);
+                $msg .= "\n<b>" . $n . ". " . htmlspecialchars($p !== '' ? $p : $k, ENT_QUOTES, 'UTF-8') . "</b>\n"
+                      . htmlspecialchars(mb_substr($t, 0, 200), ENT_QUOTES, 'UTF-8') . (mb_strlen($t) > 200 ? '…' : '') . "\n";
+            }
+            $msg .= "\n<a href=\"" . htmlspecialchars($viewUrl, ENT_QUOTES) . "\">Ver propuesta</a>";
+            if (mb_strlen($msg) > 3900) $msg = mb_substr($msg, 0, 3900) . "…";
+            sendTelegramNotification($msg);
+
+            echo json_encode(['success' => true, 'enviado_at' => date('c'), 'autor' => $nombreCompleto]);
             exit;
         }
 

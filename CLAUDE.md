@@ -38,7 +38,19 @@ Nueva funcionalidad para bloques de "dudas/preguntas para el cliente": una **caj
 
 **Solo modo cliente (`/p/{slug}`)** — el endpoint es `/p/`+slug. No se activa en portal proveedor `/s/`.
 **Primer uso real:** MAI CDMO (id 31) — una caja tras cada duda del bloque J.2.
-**Probado en local** (servidor `router.php`, propuesta de prueba): render, guardado, persistencia en BD y precarga al recargar — OK.
+
+### 🆕 2026-06-15 · Botón "Enviar respuestas" (obligar a contestar todas) + estado por caja
+
+Ampliación del componente para forzar que el cliente conteste **todas** las preguntas de un grupo antes de enviar, con buena UX de "por qué no puedes enviar":
+
+- **Agrupación**: cada `tp-respuesta` admite `data-respuesta-grupo="j2"`. Un bloque de envío gobierna su grupo:
+  ```html
+  <div class="tp-respuestas-enviar" data-respuestas-grupo="j2"
+       data-respuestas-titulo="Enviar vuestras respuestas"></div>
+  ```
+- **`doc-respuestas.php`**: el bloque de envío renderiza barra de progreso "X de N respondidas", **lista por nombre lo que falta**, etiqueta **Pendiente/Respondida** por caja, y un **botón deshabilitado hasta completar las N**. Al completar → habilitado; al enviar → confirmación "Enviadas por … · fecha" y el botón pasa a "Reenviar respuestas". El autosave por pregunta sigue igual (con su Telegram).
+- **`view.php`**: endpoint nuevo **`respuestas_submit`** (valida server-side que las N tienen texto; si falta alguna devuelve `faltan:[keys]` sin escribir nada) + **un Telegram consolidado** con todas las respuestas al enviar. `respuestas_sync` ahora devuelve también `envios` (estado de envío por grupo) para restaurar la confirmación al recargar. Tabla nueva auto-creada **`propuesta_respuestas_envios`** (UNIQUE propuesta_id+grupo).
+- **Probado end-to-end en local** (0/2→1/2→2/2→enviar→reenviar, persistencia BD) y **verificado en prod** (render + gating + rechazo de envío incompleto, sin ensuciar el doc). **Desplegado por FTP 2026-06-15.**
 
 ---
 
