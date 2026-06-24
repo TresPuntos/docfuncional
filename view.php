@@ -4101,16 +4101,21 @@ if ($is_unlocked) {
                 onShow: null
             });
 
-            var fab = document.getElementById('tp-fab');
-            if (fab) {
-                steps.push({
-                    el: fab,
-                    icon: 'message-square-text',
-                    title: 'Comenta lo que quieras',
-                    body: 'Puedes dejar dudas, cambios o ideas sobre <strong>cualquier sección</strong> del documento. Las leemos al instante.',
-                    onShow: null
-                });
-            }
+            // Comentarios: el botón «Comentar» inline que aparece junto a cada apartado
+            // (.tp-sec-btn, inyectado por doc-feedback DESPUÉS de cargar) o, en su defecto,
+            // el botón flotante. Resolución perezosa (elFn) por el orden de carga.
+            steps.push({
+                elFn: function () {
+                    return document.querySelector('.tp-sec-btn') || document.getElementById('tp-fab');
+                },
+                icon: 'message-square-text',
+                title: 'Comenta lo que quieras',
+                body: 'Junto a cada apartado verás un botón <strong>«Comentar»</strong> para dejar dudas, cambios o ideas sobre esa sección concreta. Las leemos al instante.',
+                onShow: function () {
+                    // los botones viven en el documento: aseguramos esa pestaña activa
+                    try { if (documentoTab && !documentoTab.classList.contains('is-active')) documentoTab.click(); } catch (e) {}
+                }
+            });
 
             // Botón de aprobar presupuesto (vive dentro de la pestaña Presupuesto).
             // Como esa vista puede estar oculta, lo activamos al llegar al paso.
@@ -4251,7 +4256,13 @@ if ($is_unlocked) {
 
             function render() {
                 var step = steps[current];
-                if (!step || !step.el) { teardown(true); return; }
+                if (!step) { teardown(true); return; }
+                // Resolución perezosa del objetivo (para botones inyectados tras cargar)
+                if (!step.el && typeof step.elFn === 'function') { try { step.el = step.elFn(); } catch (e) {} }
+                if (!step.el) {
+                    if (current < steps.length - 1) { current++; return render(); }
+                    teardown(true); return;
+                }
                 if (typeof step.onShow === 'function') { try { step.onShow(); } catch (e) {} }
 
                 iconEl.setAttribute('data-lucide', step.icon || 'info');
