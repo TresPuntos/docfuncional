@@ -3958,6 +3958,353 @@ if ($is_unlocked) {
         include __DIR__ . '/master/jordan-widget.php';
     }
     ?>
+
+    <!-- ============================================================
+         Onboarding TOUR de primera visita (multi-paso, spotlight)
+         Bloque autocontenido y aditivo. Resalta la pestaña «Presupuesto»
+         para que el cliente no se la pierda. Solo se muestra UNA vez por
+         documento (localStorage) y solo en la vista CLIENTE normal
+         (NO admin, NO proveedor). Falla en silencio ante cualquier error.
+         ============================================================ -->
+    <style>
+        .tpob-overlay {
+            position: fixed; inset: 0; z-index: 4000;
+            background: rgba(0, 0, 0, .62);
+            opacity: 0; transition: opacity .25s ease;
+            pointer-events: auto;
+        }
+        [data-theme="light"] .tpob-overlay { background: rgba(20, 20, 22, .5); }
+        .tpob-overlay.tpob-show { opacity: 1; }
+        /* Recorte (spotlight) alrededor del elemento resaltado mediante box-shadow gigante */
+        .tpob-hole {
+            position: fixed; z-index: 4001;
+            border-radius: 12px;
+            box-shadow: 0 0 0 9999px rgba(0, 0, 0, .62), 0 0 0 3px var(--tp-primary, #5dffbf);
+            outline: 2px solid var(--tp-primary, #5dffbf);
+            outline-offset: 3px;
+            pointer-events: none;
+            transition: all .28s cubic-bezier(.16, 1, .3, 1);
+        }
+        [data-theme="light"] .tpob-hole { box-shadow: 0 0 0 9999px rgba(20, 20, 22, .5), 0 0 0 3px var(--tp-primary, #5dffbf); }
+        .tpob-tip {
+            position: fixed; z-index: 4002;
+            max-width: 320px; width: calc(100vw - 2rem);
+            background: var(--bg-surface, #16181d);
+            border: 1px solid var(--border-strong, rgba(255,255,255,.18));
+            border-radius: 14px;
+            padding: 1.15rem 1.25rem 1.1rem;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, .5), 0 2px 6px rgba(0, 0, 0, .3);
+            color: var(--text-primary, #f5f5f5);
+            opacity: 0; transform: translateY(8px);
+            transition: opacity .25s ease, transform .25s ease;
+        }
+        [data-theme="light"] .tpob-tip { box-shadow: 0 20px 50px rgba(20,20,20,.18), 0 2px 6px rgba(20,20,20,.08); }
+        .tpob-tip.tpob-show { opacity: 1; transform: translateY(0); }
+        .tpob-tip__close {
+            position: absolute; top: .55rem; right: .55rem;
+            width: 28px; height: 28px;
+            display: inline-flex; align-items: center; justify-content: center;
+            border: 0; background: transparent; cursor: pointer;
+            color: var(--text-muted, #9aa0a6); border-radius: 6px;
+            transition: background .15s ease, color .15s ease;
+        }
+        .tpob-tip__close:hover { background: var(--bg-nav-hover, rgba(255,255,255,.08)); color: var(--text-primary, #fff); }
+        .tpob-tip__close i { width: 15px; height: 15px; }
+        .tpob-tip__title {
+            display: flex; align-items: center; gap: .55rem;
+            font-family: var(--font-heading, inherit);
+            font-weight: 700; font-size: 1rem;
+            margin: 0 1.5rem .55rem 0;
+            color: var(--text-primary, #f5f5f5);
+        }
+        .tpob-tip__title i { width: 20px; height: 20px; color: var(--tp-primary, #5dffbf); flex: 0 0 auto; }
+        .tpob-tip__body {
+            font-size: .85rem; line-height: 1.55;
+            color: var(--text-secondary, #c4c8ce); margin-bottom: 1rem;
+        }
+        .tpob-tip__body strong { color: var(--text-primary, #fff); font-weight: 600; }
+        .tpob-tip__foot { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
+        .tpob-tip__steps { font-size: .72rem; color: var(--text-muted, #9aa0a6); letter-spacing: .02em; }
+        .tpob-tip__actions { display: inline-flex; gap: .5rem; }
+        .tpob-btn {
+            display: inline-flex; align-items: center; justify-content: center;
+            padding: .5rem .9rem; border-radius: 8px; cursor: pointer;
+            font-family: var(--font-heading, inherit); font-weight: 700; font-size: .8rem;
+            border: 1px solid transparent; transition: filter .15s ease, background .15s ease, color .15s ease;
+        }
+        .tpob-btn--skip {
+            background: transparent; border-color: var(--border-strong, rgba(255,255,255,.18));
+            color: var(--text-secondary, #c4c8ce);
+        }
+        .tpob-btn--skip:hover { color: var(--text-primary, #fff); background: var(--bg-nav-hover, rgba(255,255,255,.06)); }
+        .tpob-btn--next { background: var(--tp-primary, #5dffbf); color: #0e0e0e; border: 0; }
+        [data-theme="light"] .tpob-btn--next { color: #ffffff; }
+        .tpob-btn--next:hover { filter: brightness(1.08); }
+        .tpob-tip__arrow {
+            position: absolute; width: 14px; height: 14px;
+            background: var(--bg-surface, #16181d);
+            border: 1px solid var(--border-strong, rgba(255,255,255,.18));
+            transform: rotate(45deg);
+        }
+        @media (max-width: 600px) {
+            .tpob-tip { max-width: none; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .tpob-overlay, .tpob-hole, .tpob-tip { transition: none; }
+        }
+    </style>
+    <script>
+    (function () {
+        try {
+            // --- Gating: solo vista CLIENTE normal -----------------------------
+            if (window.__isAdminViewing === true) return;          // staff/admin
+            if (typeof window.__providerApiUrl !== 'undefined') return; // modo proveedor
+
+            var slug = (window.tpSlug || 'doc').toString().replace(/[^a-z0-9-]/gi, '');
+            var KEY  = 'tp_onboarding_done_' + slug;
+
+            // Ya visto -> no repetir
+            var done = null;
+            try { done = localStorage.getItem(KEY); } catch (e) {}
+            if (done === '1') return;
+
+            // --- Feature-detection: sin pestaña «Presupuesto» no hay tour ------
+            var presupuestoTab = document.querySelector('.doc-tab[data-tab-target="presupuesto"]');
+            if (!presupuestoTab) return;
+
+            // Evitar que el coachmark antiguo (FAB comentarios) salga a la vez:
+            // pre-marcamos su clave como vista (no editamos su código).
+            try { localStorage.setItem('tp-onb-comentarios-' + slug, '1'); } catch (e) {}
+
+            // --- Construir la lista de pasos (solo los que existen) ------------
+            var steps = [];
+            steps.push({
+                el: presupuestoTab,
+                icon: 'file-spreadsheet',
+                title: 'Aquí tienes el presupuesto',
+                body: 'En esta pestaña <strong>Presupuesto</strong> encontrarás el detalle económico del proyecto. Revísalo con calma y, si encaja, dale el OK.',
+                onShow: null
+            });
+
+            var fab = document.getElementById('tp-fab');
+            if (fab) {
+                steps.push({
+                    el: fab,
+                    icon: 'message-square-text',
+                    title: 'Comenta lo que quieras',
+                    body: 'Puedes dejar dudas, cambios o ideas sobre <strong>cualquier sección</strong> del documento. Las leemos al instante.',
+                    onShow: null
+                });
+            }
+
+            // Botón de aprobar presupuesto (vive dentro de la pestaña Presupuesto).
+            // Como esa vista puede estar oculta, lo activamos al llegar al paso.
+            var approveBtn = document.querySelector('button.btn-cta-primary[onclick*="approve-pdf"]');
+            if (approveBtn) {
+                steps.push({
+                    el: approveBtn,
+                    icon: 'check-circle',
+                    title: 'Cuando estéis conformes',
+                    body: 'Desde aquí <strong>aprobáis el presupuesto</strong> y arrancamos. Sin prisa: primero revisad todo lo que necesitéis.',
+                    onShow: function () {
+                        // Asegurarse de que la pestaña Presupuesto está activa para que el botón sea visible
+                        try { if (presupuestoTab && !presupuestoTab.classList.contains('is-active')) presupuestoTab.click(); } catch (e) {}
+                    }
+                });
+            }
+
+            if (!steps.length) return;
+
+            // --- Crear DOM del tour -------------------------------------------
+            var overlay = document.createElement('div');
+            overlay.className = 'tpob-overlay';
+
+            var hole = document.createElement('div');
+            hole.className = 'tpob-hole';
+
+            var tip = document.createElement('div');
+            tip.className = 'tpob-tip';
+            tip.setAttribute('role', 'dialog');
+            tip.setAttribute('aria-modal', 'true');
+            tip.setAttribute('aria-live', 'polite');
+
+            var arrow = document.createElement('div');
+            arrow.className = 'tpob-tip__arrow';
+
+            tip.innerHTML =
+                '<button class="tpob-tip__close" type="button" aria-label="Cerrar"><i data-lucide="x"></i></button>' +
+                '<div class="tpob-tip__title"><i data-lucide="info"></i><span class="tpob-tip__title-text"></span></div>' +
+                '<div class="tpob-tip__body"></div>' +
+                '<div class="tpob-tip__foot">' +
+                    '<span class="tpob-tip__steps"></span>' +
+                    '<span class="tpob-tip__actions">' +
+                        '<button class="tpob-btn tpob-btn--skip" type="button"></button>' +
+                        '<button class="tpob-btn tpob-btn--next" type="button"></button>' +
+                    '</span>' +
+                '</div>';
+            tip.appendChild(arrow);
+
+            var iconEl  = tip.querySelector('.tpob-tip__title i');
+            var titleEl = tip.querySelector('.tpob-tip__title-text');
+            var bodyEl  = tip.querySelector('.tpob-tip__body');
+            var stepsEl = tip.querySelector('.tpob-tip__steps');
+            var skipBtn = tip.querySelector('.tpob-btn--skip');
+            var nextBtn = tip.querySelector('.tpob-btn--next');
+            var closeBtn = tip.querySelector('.tpob-tip__close');
+
+            var current = 0;
+            var mounted = false;
+
+            function refreshIcons() {
+                try { if (window.lucide && window.lucide.createIcons) window.lucide.createIcons(); } catch (e) {}
+            }
+
+            function persistDone() {
+                try { localStorage.setItem(KEY, '1'); } catch (e) {}
+            }
+
+            function teardown(persist) {
+                if (persist) persistDone();
+                document.removeEventListener('keydown', onKey, true);
+                window.removeEventListener('resize', reposition);
+                window.removeEventListener('scroll', reposition, true);
+                [overlay, hole, tip].forEach(function (n) {
+                    if (n && n.parentNode) n.parentNode.removeChild(n);
+                });
+                mounted = false;
+            }
+
+            function positionFor(el) {
+                var r = el.getBoundingClientRect();
+                var pad = 6;
+                // Spotlight
+                hole.style.top    = (r.top - pad) + 'px';
+                hole.style.left   = (r.left - pad) + 'px';
+                hole.style.width  = (r.width + pad * 2) + 'px';
+                hole.style.height = (r.height + pad * 2) + 'px';
+
+                // Tooltip: debajo si cabe, si no encima
+                var tipRect = tip.getBoundingClientRect();
+                var tipW = tipRect.width || 320;
+                var tipH = tipRect.height || 160;
+                var gap = 14;
+                var vw = window.innerWidth, vh = window.innerHeight;
+
+                var placeBelow = (r.bottom + gap + tipH) <= vh;
+                var top, left;
+                if (placeBelow) {
+                    top = r.bottom + gap;
+                } else {
+                    top = r.top - gap - tipH;
+                    if (top < 8) top = Math.max(8, (vh - tipH) / 2);
+                }
+                // Centrar horizontalmente sobre el elemento, con clamp a viewport
+                left = r.left + (r.width / 2) - (tipW / 2);
+                if (left < 8) left = 8;
+                if (left + tipW > vw - 8) left = vw - 8 - tipW;
+                tip.style.top = Math.max(8, top) + 'px';
+                tip.style.left = left + 'px';
+
+                // Flecha apuntando al elemento
+                var arrowLeft = (r.left + r.width / 2) - left - 7;
+                arrowLeft = Math.max(12, Math.min(tipW - 26, arrowLeft));
+                arrow.style.left = arrowLeft + 'px';
+                if (placeBelow) {
+                    arrow.style.top = '-7px';
+                    arrow.style.bottom = '';
+                    arrow.style.borderRight = 'none';
+                    arrow.style.borderBottom = 'none';
+                } else {
+                    arrow.style.bottom = '-7px';
+                    arrow.style.top = '';
+                    arrow.style.borderLeft = 'none';
+                    arrow.style.borderTop = 'none';
+                }
+            }
+
+            function reposition() {
+                try {
+                    var step = steps[current];
+                    if (step && step.el) positionFor(step.el);
+                } catch (e) {}
+            }
+
+            function render() {
+                var step = steps[current];
+                if (!step || !step.el) { teardown(true); return; }
+                if (typeof step.onShow === 'function') { try { step.onShow(); } catch (e) {} }
+
+                iconEl.setAttribute('data-lucide', step.icon || 'info');
+                titleEl.textContent = step.title || '';
+                bodyEl.innerHTML = step.body || '';
+                stepsEl.textContent = (steps.length > 1) ? (current + 1) + ' / ' + steps.length : '';
+                var last = current === steps.length - 1;
+                nextBtn.textContent = last ? 'Entendido' : 'Siguiente';
+                skipBtn.textContent = 'Saltar';
+                skipBtn.style.display = last ? 'none' : '';
+                refreshIcons();
+
+                // Reposicionar tras pintar (dos rAF para medir el tooltip ya renderizado)
+                requestAnimationFrame(function () {
+                    reposition();
+                    requestAnimationFrame(reposition);
+                });
+                // Llevar el elemento a la vista si está fuera de pantalla
+                try {
+                    var rr = step.el.getBoundingClientRect();
+                    if (rr.top < 0 || rr.bottom > window.innerHeight) {
+                        step.el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                        setTimeout(reposition, 350);
+                    }
+                } catch (e) {}
+                nextBtn.focus();
+            }
+
+            function nextStep() {
+                if (current < steps.length - 1) { current++; render(); }
+                else teardown(true);
+            }
+
+            function onKey(e) {
+                if (e.key === 'Escape') { e.preventDefault(); teardown(true); }
+                else if (e.key === 'Enter') { e.preventDefault(); nextStep(); }
+            }
+
+            // --- Mostrar --------------------------------------------------------
+            function mount() {
+                if (mounted) return;
+                document.body.appendChild(overlay);
+                document.body.appendChild(hole);
+                document.body.appendChild(tip);
+                mounted = true;
+
+                nextBtn.addEventListener('click', nextStep);
+                skipBtn.addEventListener('click', function () { teardown(true); });
+                closeBtn.addEventListener('click', function () { teardown(true); });
+                overlay.addEventListener('click', function () { teardown(true); });
+                document.addEventListener('keydown', onKey, true);
+                window.addEventListener('resize', reposition);
+                window.addEventListener('scroll', reposition, true);
+
+                render();
+                requestAnimationFrame(function () {
+                    overlay.classList.add('tpob-show');
+                    tip.classList.add('tpob-show');
+                });
+            }
+
+            // Pequeño delay para que layout/iconos estén asentados
+            var startTour = function () { try { mount(); } catch (e) {} };
+            if (document.readyState === 'loading') {
+                window.addEventListener('DOMContentLoaded', function () { setTimeout(startTour, 1100); });
+            } else {
+                setTimeout(startTour, 1100);
+            }
+        } catch (e) {
+            /* Falla en silencio: nunca debe romper el visor */
+        }
+    })();
+    </script>
 </body>
 
 </html>
