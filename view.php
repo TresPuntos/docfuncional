@@ -4078,6 +4078,21 @@ if ($is_unlocked) {
 
             // --- Construir la lista de pasos (solo los que existen) ------------
             var steps = [];
+
+            // Paso 1: el documento funcional (la primera pestaña, el alcance a aprobar)
+            var documentoTab = document.querySelector('.doc-tab[data-tab-target="documento"]');
+            if (documentoTab) {
+                steps.push({
+                    el: documentoTab,
+                    icon: 'file-text',
+                    title: 'Este es el documento funcional',
+                    body: 'Aquí tenéis el <strong>alcance del proyecto</strong>: lo que vamos a hacer, para que lo reviséis y lo aprobéis. Echadle un vistazo con calma.',
+                    onShow: function () {
+                        try { if (documentoTab && !documentoTab.classList.contains('is-active')) documentoTab.click(); } catch (e) {}
+                    }
+                });
+            }
+
             steps.push({
                 el: presupuestoTab,
                 icon: 'file-spreadsheet',
@@ -4172,6 +4187,11 @@ if ($is_unlocked) {
                     if (n && n.parentNode) n.parentNode.removeChild(n);
                 });
                 mounted = false;
+                // Dejar al cliente en la primera pestaña (Documento), no en Presupuesto
+                try {
+                    var dt = document.querySelector('.doc-tab[data-tab-target="documento"]');
+                    if (dt && !dt.classList.contains('is-active')) dt.click();
+                } catch (e) {}
             }
 
             function positionFor(el) {
