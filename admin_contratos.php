@@ -23,6 +23,9 @@ require __DIR__ . '/api/contratos_lib.php';
 session_start();
 
 // Auth
+// Sesión admin unificada: acepta también la sesión iniciada en admin.php (is_admin).
+if (!empty($_SESSION['is_admin']))     { $_SESSION['admin_logged'] = true; }
+if (!empty($_SESSION['admin_logged'])) { $_SESSION['is_admin']     = true; }
 if (!isset($_SESSION['admin_logged']) || $_SESSION['admin_logged'] !== true) {
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['admin_password'])) {
         if ($_POST['admin_password'] === ADMIN_PASSWORD) {

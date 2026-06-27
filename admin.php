@@ -1,5 +1,9 @@
 <?php
 session_start();
+// Sesión admin unificada: is_admin y admin_logged son equivalentes
+// (evita que Analytics/Comentarios/etc. vuelvan a pedir la contraseña al saltar entre vistas).
+if (!empty($_SESSION['is_admin']))     { $_SESSION['admin_logged'] = true; }
+if (!empty($_SESSION['admin_logged'])) { $_SESSION['is_admin']     = true; }
 // Habilitar errores temporalmente para debug en Hostinger
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
