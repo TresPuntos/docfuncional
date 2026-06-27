@@ -677,6 +677,7 @@ table tr:last-child td { border-bottom: 0; }
 <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
+<?php include __DIR__ . '/master/admin-faceid.php'; ?>
 <?php
 $adminSidebarActive = 'comentarios';
 $adminSidebarPropuestaId = $filterPropuesta;

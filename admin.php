@@ -936,6 +936,7 @@ if ($is_logged_in) {
 
 <body
     class="bg-bg-base text-text-primary antialiased min-h-screen flex flex-col selection:bg-tp-primary selection:text-bg-base">
+    <?php include __DIR__ . '/master/admin-faceid.php'; ?>
 
     <?php if (!$is_logged_in): ?>
     <main class="w-full max-w-md mx-auto p-6 flex flex-col justify-center min-h-screen">

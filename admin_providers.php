@@ -988,6 +988,7 @@ if ($detailProv > 0) {
     body.tp-tab-identidad .pv-detail-grid > div[data-col="right"]{display:none;}
     body.tp-tab-identidad .pv-detail-grid > div[data-col="left"] section[data-tab="presupuestos"]{display:none;}
     </style></head><body>
+    <?php include __DIR__ . '/master/admin-faceid.php'; ?>
 
     <?php
     // Sidebar para la vista detalle del proveedor
@@ -2209,6 +2210,7 @@ tr:last-child td{border-bottom:0;} tr.inactive{opacity:.4;}
 </style>
 <script src="https://unpkg.com/lucide@latest"></script>
 </head><body>
+<?php include __DIR__ . '/master/admin-faceid.php'; ?>
 
 <?php
 $adminSidebarActive = 'proveedores';

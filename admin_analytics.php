@@ -225,6 +225,7 @@ function render_layout(string $title, callable $body): void {
     </style>
     <script src="https://unpkg.com/lucide@latest"></script>
     </head><body>
+    <?php include __DIR__ . '/master/admin-faceid.php'; ?>
     <?php
     global $pdo;
     $adminSidebarActive = 'analytics';

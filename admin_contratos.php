@@ -708,6 +708,7 @@ table.contratos tr:hover td { background: var(--bg-subtle); }
 </style>
 </head>
 <body>
+<?php include __DIR__ . '/master/admin-faceid.php'; ?>
 
 <?php
 $adminSidebarActive = 'contratos';

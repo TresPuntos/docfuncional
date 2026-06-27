@@ -303,6 +303,7 @@ table.plantillas tr:hover td { background: var(--bg-subtle); }
 </style>
 </head>
 <body>
+<?php include __DIR__ . '/master/admin-faceid.php'; ?>
 <?php
 $adminSidebarActive = 'plantillas';
 $adminSidebarPropuestas = $pdo->query("SELECT id, slug, client_name FROM propuestas WHERE status = 1 ORDER BY id DESC")->fetchAll(PDO::FETCH_ASSOC);
