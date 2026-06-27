@@ -1098,7 +1098,7 @@ else: ?>
 
             <div class="bg-bg-surface border border-border-subtle rounded-2xl shadow-surface overflow-hidden">
                 <div class="overflow-x-auto">
-                    <table class="min-w-full divide-y divide-border-subtle">
+                    <table class="min-w-full divide-y divide-border-subtle tp-table-cards">
                         <thead class="bg-bg-subtle/50">
                             <tr>
                                 <th class="px-6 py-4 text-start text-xs font-semibold text-text-muted uppercase tracking-wider">Cliente</th>

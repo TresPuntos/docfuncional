@@ -922,6 +922,40 @@ svg.prop__chevron.lucide {
     .nav-item.is-active::before, .prop.is-active::before { display: none; }
     body.admin-nav-open { overflow: hidden; }
 }
+
+/* =========================================================
+   Tablas → tarjetas apiladas en móvil (clase reutilizable
+   .tp-table-cards en cualquier <table> del admin)
+   ========================================================= */
+@media (max-width: 900px) {
+    .tp-table-cards { display: block; width: 100%; min-width: 0 !important; }
+    .tp-table-cards thead { display: none; }
+    .tp-table-cards tbody { display: block; width: 100%; }
+    .tp-table-cards tr {
+        display: block;
+        margin: 0 0 12px;
+        background: var(--bg-surface, #141414);
+        border: 1px solid var(--border-base, #1f1f1f) !important;
+        border-radius: 12px;
+        overflow: hidden;
+    }
+    .tp-table-cards td {
+        display: block;
+        width: auto !important;
+        white-space: normal !important;
+        text-align: left !important;
+        padding: 10px 16px !important;
+        border: 0 !important;
+    }
+    /* Línea sutil entre celdas dentro de la misma tarjeta */
+    .tp-table-cards td + td { border-top: 1px solid var(--border-subtle, #1a1a1a) !important; }
+    .tp-table-cards td:first-child { padding-top: 14px !important; }
+    .tp-table-cards td:last-child  { padding-bottom: 14px !important; }
+    /* Acciones: que los botones quepan y se alineen a la izquierda */
+    .tp-table-cards td:last-child > * { justify-content: flex-start !important; }
+    /* Fila vacía con colspan (“No hay propuestas”) se deja centrada */
+    .tp-table-cards td[colspan] { text-align: center !important; }
+}
 </style>
 
 <button class="admin-sidebar-backdrop" id="adminNavBackdrop" aria-hidden="true" tabindex="-1"></button>
