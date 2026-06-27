@@ -869,23 +869,70 @@ svg.prop__chevron.lucide {
 }
 .admin-main-actions { display: flex; gap: 8px; align-items: center; }
 
+/* ----- Barra superior móvil + hamburguesa (ocultas en escritorio) ----- */
+.admin-mobile-topbar { display: none; }
+.admin-sidebar-backdrop { display: none; }
+.admin-mobile-topbar {
+    position: fixed; top: 0; left: 0; right: 0; height: 52px; z-index: 1100;
+    align-items: center; gap: 12px; padding: 0 14px;
+    background: color-mix(in srgb, var(--bg-surface, #141414) 94%, transparent);
+    backdrop-filter: saturate(140%) blur(8px);
+    -webkit-backdrop-filter: saturate(140%) blur(8px);
+    border-bottom: 1px solid var(--border-base, #1f1f1f);
+    font-family: var(--font-body, 'Inter', sans-serif);
+}
+.admin-mobile-burger {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 40px; height: 40px; flex: 0 0 auto;
+    background: transparent; border: 1px solid var(--border-base, #1f1f1f);
+    border-radius: 10px; color: var(--text-primary, #f5f5f5); cursor: pointer;
+}
+.admin-mobile-burger:active { background: var(--bg-subtle, #191919); }
+.admin-mobile-burger i { width: 20px; height: 20px; }
+.admin-mobile-topbar__brand {
+    font-size: 13px; font-weight: 600; letter-spacing: .01em;
+    color: var(--text-primary, #f5f5f5);
+}
+
 /* Responsive */
 @media (max-width: 900px) {
+    .admin-mobile-topbar { display: flex; }
     .admin-layout { flex-direction: column; }
+    /* El sidebar pasa a panel deslizante (off-canvas), oculto por defecto */
     .admin-sidebar {
-        width: 100%;
-        height: auto;
-        position: static;
-        border-right: 0;
-        border-bottom: 1px solid var(--border-base);
+        position: fixed; top: 0; left: 0;
+        width: min(300px, 86vw); height: 100vh; height: 100dvh;
+        transform: translateX(-100%);
+        transition: transform .25s ease;
+        z-index: 1200;
+        border-right: 1px solid var(--border-base);
+        border-bottom: 0;
+        box-shadow: 4px 0 30px rgba(0,0,0,.45);
     }
+    .admin-sidebar.is-open { transform: translateX(0); }
+    .admin-sidebar-backdrop {
+        display: block; position: fixed; inset: 0; border: 0; padding: 0;
+        background: rgba(0,0,0,.55);
+        opacity: 0; pointer-events: none; transition: opacity .2s ease; z-index: 1150;
+    }
+    .admin-sidebar-backdrop.is-open { opacity: 1; pointer-events: auto; }
     .admin-sidebar__scroll { padding-bottom: 8px; }
-    .admin-main { padding: 16px; }
+    /* El contenido sube al top; deja hueco para la barra fija (52px) */
+    .admin-main { padding: 16px; padding-top: 68px; }
     .nav-item.is-active::before, .prop.is-active::before { display: none; }
+    body.admin-nav-open { overflow: hidden; }
 }
 </style>
 
-<aside class="admin-sidebar" aria-label="Navegación admin">
+<button class="admin-sidebar-backdrop" id="adminNavBackdrop" aria-hidden="true" tabindex="-1"></button>
+<header class="admin-mobile-topbar">
+    <button class="admin-mobile-burger" id="adminNavToggle" type="button" aria-label="Abrir navegación" aria-expanded="false" aria-controls="adminNavSidebar">
+        <i data-lucide="menu"></i>
+    </button>
+    <span class="admin-mobile-topbar__brand">Tres Puntos · Proposals</span>
+</header>
+
+<aside class="admin-sidebar" id="adminNavSidebar" aria-label="Navegación admin">
     <div class="admin-sidebar__scroll">
 
         <!-- Brand -->
@@ -1255,5 +1302,34 @@ svg.prop__chevron.lucide {
             })
             .catch(() => location.reload());
     };
+
+    /* ----- Drawer móvil: abrir/cerrar el sidebar off-canvas ----- */
+    (function () {
+        var toggle   = document.getElementById('adminNavToggle');
+        var sidebar  = document.getElementById('adminNavSidebar');
+        var backdrop = document.getElementById('adminNavBackdrop');
+        if (!toggle || !sidebar) return;
+        function open() {
+            sidebar.classList.add('is-open');
+            if (backdrop) backdrop.classList.add('is-open');
+            document.body.classList.add('admin-nav-open');
+            toggle.setAttribute('aria-expanded', 'true');
+        }
+        function close() {
+            sidebar.classList.remove('is-open');
+            if (backdrop) backdrop.classList.remove('is-open');
+            document.body.classList.remove('admin-nav-open');
+            toggle.setAttribute('aria-expanded', 'false');
+        }
+        toggle.addEventListener('click', function () {
+            sidebar.classList.contains('is-open') ? close() : open();
+        });
+        if (backdrop) backdrop.addEventListener('click', close);
+        document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
+        // Al pulsar un enlace de navegación, cerrar el drawer
+        sidebar.addEventListener('click', function (e) { if (e.target.closest('a')) close(); });
+        // Si se agranda a escritorio, resetear estado
+        window.addEventListener('resize', function () { if (window.innerWidth > 900) close(); });
+    })();
 })();
 </script>
