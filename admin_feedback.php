@@ -735,7 +735,7 @@ $adminSidebarPropuestas = $propuestas;
         <?php if (!$aprobaciones): ?>
             <div class="empty">Sin firmas todavía.</div>
         <?php else: ?>
-        <table>
+        <table class="tp-table-cards">
             <thead><tr>
                 <th>Fecha</th><th>Cliente / Propuesta</th><th>Tipo</th><th>Firmante</th><th>Email</th><th>Versión</th><th>Hash</th><th>IP</th>
             </tr></thead>

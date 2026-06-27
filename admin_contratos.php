@@ -767,7 +767,7 @@ if ($contratoIdView && $contratoView) {
         <div>No hay contratos todavía. Pulsa <strong>Nuevo contrato</strong> para crear el primero.</div>
     </div>
 <?php else: ?>
-    <table class="contratos">
+    <table class="contratos tp-table-cards">
         <thead><tr>
             <th style="padding-left:1.4rem">Contrato</th>
             <th>Tipo</th>

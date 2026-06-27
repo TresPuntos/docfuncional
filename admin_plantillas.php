@@ -348,7 +348,7 @@ if ($creatingNew) $adminBreadcrumbItems[] = ['label' => 'Nueva plantilla', 'href
         <div>No hay plantillas. Pulsa <strong>Nueva plantilla</strong> para crear la primera.</div>
     </div>
 <?php else: ?>
-<table class="plantillas">
+<table class="plantillas tp-table-cards">
     <thead><tr>
         <th style="padding-left:1.4rem">Plantilla</th>
         <th>Tipo</th>
