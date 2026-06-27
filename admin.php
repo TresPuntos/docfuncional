@@ -1015,7 +1015,7 @@ else: ?>
     endif; ?>
 
         <!-- 4 KPIs uniformes (sin destacado) · reverted Fix 4 feedback 2026-04-24 -->
-        <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
             <!-- KPI 1 · Propuestas Activas -->
             <div class="bg-bg-surface border border-border-subtle/70 rounded-2xl p-5 shadow-[0_1px_2px_rgba(0,0,0,0.15)]">
                 <p class="text-xs uppercase tracking-wider text-text-muted font-semibold mb-3">Propuestas Activas</p>
