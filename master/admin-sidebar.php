@@ -951,10 +951,42 @@ svg.prop__chevron.lucide {
     .tp-table-cards td + td { border-top: 1px solid var(--border-subtle, #1a1a1a) !important; }
     .tp-table-cards td:first-child { padding-top: 14px !important; }
     .tp-table-cards td:last-child  { padding-bottom: 14px !important; }
-    /* Acciones: que los botones quepan y se alineen a la izquierda */
-    .tp-table-cards td:last-child > * { justify-content: flex-start !important; }
+    /* Las celdas estaban maquetadas para tabla (centradas / a la derecha).
+       En modo tarjeta hay que alinear TODO a la izquierda o el contenido
+       (toggles, números, acciones) flota desordenado. */
+    .tp-table-cards td > div { justify-content: flex-start !important; }
+    .tp-table-cards td .justify-center,
+    .tp-table-cards td .justify-end { justify-content: flex-start !important; }
+    .tp-table-cards td .text-center,
+    .tp-table-cards td .text-end { text-align: left !important; }
+    .tp-table-cards td .mx-auto { margin-left: 0 !important; margin-right: 0 !important; }
+    .tp-table-cards td .flex-wrap { row-gap: 8px; }
+    /* Acciones con buen target táctil */
+    .tp-table-cards td:last-child button,
+    .tp-table-cards td:last-child a { min-height: 40px; min-width: 40px; }
     /* Fila vacía con colspan (“No hay propuestas”) se deja centrada */
     .tp-table-cards td[colspan] { text-align: center !important; }
+
+    /* ----- Tarjeta del DASHBOARD: etiqueta por bloque + agrupación ----- */
+    .tp-cards-dashboard td:nth-child(2)::before { content: 'Documento'; }
+    .tp-cards-dashboard td:nth-child(3)::before { content: 'Publicación'; }
+    .tp-cards-dashboard td:nth-child(4)::before { content: 'Tráfico'; }
+    .tp-cards-dashboard td:nth-child(2)::before,
+    .tp-cards-dashboard td:nth-child(3)::before,
+    .tp-cards-dashboard td:nth-child(4)::before {
+        display: block;
+        font-size: .62rem; font-weight: 700;
+        letter-spacing: .09em; text-transform: uppercase;
+        color: var(--text-muted, #8a8a8a);
+        margin-bottom: 8px;
+    }
+    /* Quitar divisores verticales internos (border-left) que quedan raros apilados */
+    .tp-cards-dashboard td .border-l,
+    .tp-cards-dashboard td [class*="border-l"] {
+        border-left: 0 !important; padding-left: 0 !important; margin-left: 0 !important;
+    }
+    /* Toggles y “live” en columna, alineados a la izquierda */
+    .tp-cards-dashboard td:nth-child(3) > div { flex-direction: column; align-items: flex-start !important; gap: 10px !important; }
 }
 </style>
 
