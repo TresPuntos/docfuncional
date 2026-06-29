@@ -1688,6 +1688,8 @@ if ($is_unlocked) {
             align-items: center;
             gap: .5rem;
             padding: .6rem 1rem;
+            min-height: 44px;
+            scroll-snap-align: start;
             border: 0;
             background: transparent;
             color: var(--text-secondary);
@@ -1731,8 +1733,42 @@ if ($is_unlocked) {
         body.is-tab-firmas .sidebar-nav-container { display: none; }
 
         @media (max-width: 768px) {
-            .doc-tabs { margin: 0 0 2rem; border-radius: 12px; }
-            .doc-tab { padding: .55rem .8rem; font-size: .82rem; }
+            .doc-tabs { margin: 0 0 2rem; border-radius: 12px; scroll-snap-type: x proximity; }
+            .doc-tab { padding: .55rem .8rem; font-size: .82rem; min-height: 44px; }
+            /* En móvil el nº de presupuesto (· E170387) se omite para acortar la pestaña */
+            .doc-tab__docnum { display: none; }
+
+            /* ── Legibilidad: subir mínimos de texto en chrome de componentes ── */
+            .tp-tag, .tp-tag--muted { font-size: .8rem !important; }
+            .tp-modal-eyebrow { font-size: .78rem !important; }
+            .beta-badge-sub { font-size: .72rem; }
+
+            /* ── Tablas densas del contenido: legibles y con scroll claro ── */
+            .table-scroll {
+                position: relative;
+                -webkit-overflow-scrolling: touch;
+                scroll-snap-type: x proximity;
+            }
+            .table-scroll table { font-size: .86rem; }
+            .table-scroll th, .table-scroll td { padding: .6rem .7rem; }
+            /* Primera columna fija para no perder el contexto al deslizar */
+            .table-scroll th:first-child,
+            .table-scroll td:first-child {
+                position: sticky; left: 0; z-index: 1;
+                background: var(--bg-surface);
+                box-shadow: 1px 0 0 var(--border-base);
+            }
+            /* Hint "desliza" sobre tablas que desbordan */
+            .table-scroll::after {
+                content: '⇆';
+                position: absolute; top: .5rem; right: .5rem;
+                font-size: .8rem; line-height: 1;
+                color: var(--text-muted);
+                background: color-mix(in srgb, var(--bg-base) 80%, transparent);
+                border: 1px solid var(--border-base);
+                border-radius: 999px; padding: .15rem .4rem;
+                pointer-events: none;
+            }
         }
 
         /* ========================================================
@@ -2939,7 +2975,7 @@ if ($is_unlocked) {
                     $hasPresupuestoTab = ($hasHolded || $hasPdf) && !$isProviderMode;
                     $hasFirmasTab      = !empty($firmas) && !$isProviderMode;
                     $showTabs          = $hasPresupuestoTab || $hasFirmasTab;
-                    $presupuestoLabel  = $hasHolded ? ('Presupuesto · ' . htmlspecialchars($holdedDoc['docNumber'] ?? '', ENT_QUOTES, 'UTF-8')) : 'Presupuesto';
+                    $presupuestoDocNum = $hasHolded ? (' · ' . htmlspecialchars($holdedDoc['docNumber'] ?? '', ENT_QUOTES, 'UTF-8')) : '';
                 ?>
                 <?php if ($showTabs): ?>
                 <nav class="doc-tabs" role="tablist" aria-label="Vistas del documento">
@@ -2950,7 +2986,7 @@ if ($is_unlocked) {
                     <?php if ($hasPresupuestoTab): ?>
                     <button class="doc-tab" type="button" role="tab" data-tab-target="presupuesto" aria-selected="false">
                         <i data-lucide="file-spreadsheet"></i>
-                        <span><?php echo $presupuestoLabel; ?></span>
+                        <span>Presupuesto<span class="doc-tab__docnum"><?php echo $presupuestoDocNum; ?></span></span>
                     </button>
                     <?php endif; ?>
                     <?php if ($hasFirmasTab): ?>
@@ -3702,6 +3738,11 @@ if ($is_unlocked) {
                     const active = t.dataset.tabTarget === tab;
                     t.classList.toggle('is-active', active);
                     t.setAttribute('aria-selected', active ? 'true' : 'false');
+                    // En móvil la barra de tabs hace scroll horizontal: centra la activa
+                    // para que pestañas como «Firmas» no queden fuera de pantalla.
+                    if (active && t.scrollIntoView) {
+                        try { t.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' }); } catch (e) {}
+                    }
                 });
                 views.forEach(v => {
                     const show = v.dataset.tab === tab;

@@ -62,7 +62,8 @@
 h2:hover > .tp-sec-btn, h3:hover > .tp-sec-btn { opacity: 1; }
 
 @media (max-width: 720px) {
-    .tp-sec-btn { display: inline-flex; margin-left: .5rem; opacity: 1; font-size: .65rem; padding: .3rem .55rem; }
+    /* Target táctil mayor (antes ~25px). Sigue compacto pero pulsable. */
+    .tp-sec-btn { display: inline-flex; margin-left: .5rem; opacity: 1; font-size: .72rem; padding: .5rem .8rem; min-height: 40px; }
     .tp-sec-btn span:not(.tp-sec-count) { display: none; }
 }
 
@@ -209,7 +210,7 @@ h2:hover > .tp-sec-btn, h3:hover > .tp-sec-btn { opacity: 1; }
 
 @media (max-width: 600px) {
     .tp-drawer-form .row { grid-template-columns: 1fr; }
-    .tp-fab { right: .75rem; bottom: .75rem; padding: .75rem .9rem; font-size: .82rem; }
+    .tp-fab { right: .75rem; bottom: .75rem; padding: .85rem 1rem; min-height: 44px; font-size: .82rem; }
 }
 
 /* ═══════════════════════════════════════════════════
