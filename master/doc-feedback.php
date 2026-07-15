@@ -84,6 +84,22 @@ h2:hover > .tp-sec-btn, h3:hover > .tp-sec-btn { opacity: 1; }
     100% { box-shadow: 0 6px 20px rgba(0,0,0,.35), 0 0 0 0 rgba(var(--mint-rgb, 93,255,191), 0); }
 }
 
+/* --- FAB flotante "Aprobar funcional" (espejo del FAB de comentarios, esquina izquierda) --- */
+.tp-fab-approve {
+    left: 1.25rem; right: auto;
+}
+.tp-fab-approve .tp-fab-approve-label-short { display: none; }
+.tp-fab-approve.is-approved {
+    background: var(--bg-surface); color: var(--mint, var(--tp-primary));
+    border: 1.5px solid var(--mint, var(--tp-primary));
+    box-shadow: 0 4px 14px rgba(0,0,0,.25);
+}
+.tp-fab-approve.is-approved:hover { background: var(--bg-subtle); }
+@media (max-width: 480px) {
+    .tp-fab-approve .tp-fab-approve-label-full { display: none; }
+    .tp-fab-approve .tp-fab-approve-label-short { display: inline; }
+}
+
 /* --- Drawer lateral --- */
 .tp-drawer-backdrop {
     position: fixed; inset: 0; background: rgba(0,0,0,.55); opacity: 0; pointer-events: none;
@@ -211,6 +227,7 @@ h2:hover > .tp-sec-btn, h3:hover > .tp-sec-btn { opacity: 1; }
 @media (max-width: 600px) {
     .tp-drawer-form .row { grid-template-columns: 1fr; }
     .tp-fab { right: .75rem; bottom: .75rem; padding: .85rem 1rem; min-height: 44px; font-size: .82rem; }
+    .tp-fab-approve { left: .75rem; right: auto; }
 }
 
 /* ═══════════════════════════════════════════════════
@@ -352,6 +369,17 @@ h2:hover > .tp-sec-btn, h3:hover > .tp-sec-btn { opacity: 1; }
     <span>Comentarios</span>
     <span class="tp-fab-count" id="tp-fab-count" style="display:none">0</span>
 </button>
+
+<?php if (!$isProviderMode): ?>
+<button class="tp-fab tp-fab-approve<?= $isDocApproved ? ' is-approved' : '' ?>" type="button" id="tp-fab-approve"
+    onclick="var t=document.getElementById('sec-avanzamos-doc'); if(t) t.scrollIntoView({behavior:'smooth', block:'start'});"
+    aria-label="<?= $isDocApproved ? 'Documento aprobado — ver detalle' : 'Ir a aprobar el documento funcional' ?>"
+    title="<?= $isDocApproved ? 'Documento aprobado' : 'Aprobar documento funcional' ?>">
+    <i data-lucide="check-circle" style="width:18px;height:18px;"></i>
+    <span class="tp-fab-approve-label-full"><?= $isDocApproved ? 'Documento aprobado' : 'Aprobar funcional' ?></span>
+    <span class="tp-fab-approve-label-short"><?= $isDocApproved ? 'Aprobado' : 'Aprobar' ?></span>
+</button>
+<?php endif; ?>
 
 <div class="tp-drawer-backdrop" id="tp-drawer-backdrop" hidden></div>
 <aside class="tp-drawer" id="tp-drawer" role="dialog" aria-labelledby="tp-drawer-title" hidden>
