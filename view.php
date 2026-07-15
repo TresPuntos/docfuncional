@@ -2080,30 +2080,35 @@ if ($is_unlocked) {
             .progress-label { display: none; }
         }
 
-        /* Theme toggle · en sidebar */
+        /* Theme toggle · icono flotante, apilado encima del FAB "Aprobar funcional"
+           (antes era un botón de texto al final del sidebar; chocaba con los FABs) */
         .theme-toggle {
+            position: fixed;
+            left: 1.25rem;
+            bottom: 5.25rem;
+            z-index: 499;
             display: flex;
             align-items: center;
-            gap: .65rem;
-            padding: .7rem .9rem;
-            margin-top: 1rem;
-            background: transparent;
+            justify-content: center;
+            width: 42px;
+            height: 42px;
+            padding: 0;
+            margin: 0;
+            background: var(--bg-surface);
             border: 1px solid var(--border-base);
-            border-radius: 8px;
+            border-radius: 999px;
             color: var(--text-muted);
             font-family: inherit;
-            font-size: .8rem;
-            font-weight: 500;
             cursor: pointer;
             transition: all .18s ease;
-            width: 100%;
-            text-align: left;
+            box-shadow: 0 4px 14px rgba(0,0,0,.25);
         }
         .theme-toggle:hover {
             color: var(--text-primary);
             border-color: var(--border-strong);
             background: var(--bg-nav-hover);
         }
+        .theme-toggle__label { display: none; }
         .theme-toggle__icon {
             display: inline-flex;
             align-items: center;
