@@ -122,6 +122,9 @@ if ($method === 'POST' && $action === 'resolve' && $id) {
 if ($method === 'POST' && $action === 'notify' && $id) {
     handleMarkNotified($pdo, $id);
 }
+if ($method === 'POST' && $action === 'delete_comment' && $id) {
+    handleDeleteComment($pdo, $id);
+}
 
 // --- Provider messages (mismo patrón que comments, pero contra proveedor_mensajes) ---
 if ($method === 'GET' && $action === 'provider_messages' && $id) {
@@ -810,6 +813,32 @@ function handleResolveComment(PDO $pdo, int $rootId): void {
     }
 
     jsonSuccess(['id' => $rootId, 'resuelto' => $newState]);
+}
+
+/**
+ * POST /api/proposals.php?id=COMMENT_ID&action=delete_comment
+ * Borra un comentario de forma permanente (no deja rastro, a diferencia de resolve).
+ * Si es un hilo raíz (parent_id NULL), borra también todas sus respuestas.
+ * Acción de staff: borra tanto comentarios de cliente como respuestas de staff.
+ */
+function handleDeleteComment(PDO $pdo, int $commentId): void {
+    $row = $pdo->prepare("SELECT parent_id, section_anchor, section_title FROM comentarios_seccion WHERE id = ?");
+    $row->execute([$commentId]);
+    $c = $row->fetch(PDO::FETCH_ASSOC);
+    if (!$c) jsonError('Comentario no encontrado', 404);
+
+    $isRoot = empty($c['parent_id']);
+    $repliesDeleted = 0;
+    if ($isRoot) {
+        $stmt = $pdo->prepare("DELETE FROM comentarios_seccion WHERE parent_id = ?");
+        $stmt->execute([$commentId]);
+        $repliesDeleted = $stmt->rowCount();
+    }
+    $pdo->prepare("DELETE FROM comentarios_seccion WHERE id = ?")->execute([$commentId]);
+
+    notifyTelegram("🗑️ Comentario eliminado via API · <i>" . htmlspecialchars($c['section_title'] ?: $c['section_anchor']) . "</i>");
+
+    jsonSuccess(['id' => $commentId, 'deleted' => true, 'was_root' => $isRoot, 'replies_deleted' => $repliesDeleted]);
 }
 
 function handleMarkNotified(PDO $pdo, int $propuestaId): void {
