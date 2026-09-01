@@ -2,7 +2,28 @@
 
 > **Origen:** al preparar el contrato de Dixie (1-sep-2026) se detectó que el documento funcional que el cliente aprobó **no es el que está publicado**. El contrato necesitaba poder señalar «esto es exactamente lo que se firmó» y la aplicación no lo permite hoy.
 >
-> **Estado:** especificado, sin implementar. El contrato de Dixie se resolvió por redacción y **no depende de esto**.
+> **Estado (1-sep-2026): IMPLEMENTADO y desplegado** — commit `bdc62db`. Ver la sección
+> "✅ DESPLEGADO 2026-09-01 · Registro de versiones aprobadas" de `CLAUDE.md` para lo que
+> se construyó realmente, y `REFERENCIA-CONTRATO-DIXIE.md` para la referencia y la cláusula.
+>
+> **Correcciones a este plan, comprobadas contra el código y la BD de producción:**
+>
+> 1. En Dixie **no hubo suerte**: la fila "v1.0" del historial se archivó el 22-jul y ya
+>    contiene texto de la reunión del 22-jul, posterior a la firma del 17-jul. El documento
+>    que Claudia firmó no existe. El contrato remite a la v1.2, no a la v1.0.
+> 2. **Las re-firmas no se registraban** (`view.php` solo insertaba si no había ninguna
+>    aprobación previa de ese tipo). No estaba en este plan y era lo primero que fallaba.
+> 3. **`?v=` por etiqueta es ambiguo**: `propuestas_history` no tiene UNIQUE y tanto
+>    `restore_version` como el `new_version` de `admin.php` pueden crear filas repetidas con
+>    la misma etiqueta. Se resuelve por `history_id`, y se añadió `aprobaciones.history_id`
+>    para que la aprobación apunte a la fila concreta.
+> 4. **La vista `?v=` tenía efectos secundarios**: `view.php` hace `tasks_sync` y
+>    `respuestas_sync` (UPSERT de lo declarado en el HTML) y tracking. Servir un HTML viejo
+>    sin blindar eso habría sembrado tareas y preguntas antiguas en las tablas vivas.
+> 5. El gate de PIN **se comía el `?v=`** al redirigir tras el login.
+>
+> Pendiente del plan original, no bloqueante: D (aviso al editar propuesta aprobada) y
+> E (exponer la huella en la API).
 
 ---
 

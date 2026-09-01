@@ -14,6 +14,54 @@ Aplica también al detallar entregables Fase 2: no decimos "entregamos UI maquet
 
 ---
 
+## ✅ DESPLEGADO 2026-09-01 · Registro de versiones aprobadas — los contratos remiten a la app
+
+> **Para qué:** que un contrato con cliente pueda señalar "el alcance es exactamente esto" con una URL, en vez de adjuntar 20 páginas de funcional en PDF. Detonante: el contrato de Dixie.
+
+### El problema que había
+
+1. **El `firma_hash` no probaba el contenido.** Se construía con `propId|tipo|nombre|apellidos|version|fecha` — metadatos de la firma. Probaba quién firmó y cuándo, **no qué firmó**. Si el documento cambiaba, el hash seguía siendo válido.
+2. **La etiqueta de versión no identifica un documento.** Un `PUT` sin `save_version` sobrescribe dentro de la misma etiqueta, así que "v1.2" pueden ser diez documentos distintos. Y `propuestas_history` no tiene UNIQUE: `restore_version` y el `new_version` de `admin.php` pueden crear dos filas con la misma etiqueta.
+3. **Las re-firmas se perdían.** `view.php` solo insertaba en `aprobaciones` si `$isFirst` (ninguna aprobación previa de ese tipo). Aprobar una versión posterior mandaba el Telegram de "re-firma" y **no guardaba nada**.
+
+**Caso Dixie, con datos:** Claudia Pérez (`claudia.perez@quimunsa.com`) aprobó el 17-jul-2026 la v1.0. Esa v1.0 se siguió editando en borrador y se archivó el 22-jul — la fila del historial **ya contiene texto de la reunión del 22-jul**, posterior a la firma. El documento que firmó no existe en ninguna parte, y el alcance cambió después (las dos "preguntas abiertas" pasaron a "alcance cerrado"; reseñas y cross-sell pasaron de "ya existe hoy, se mantiene" a "lo incluimos"). Por eso el contrato remite a la v1.2, no a la v1.0 firmada.
+
+### Qué se desplegó (commit `bdc62db`)
+
+**`database/migrate_versiones.php`** (nuevo, idempotente) — `aprobaciones.contenido_hash` + `aprobaciones.history_id`; `propuestas_history.contenido_hash` + `propuestas_history.origen` (`save_version` | `aprobacion` | `referencia` | `restore`); índice `idx_hist_prop_hash`; backfill de huellas de las 41 filas ya archivadas. **No rellena las huellas de las 4 aprobaciones antiguas a propósito**: no son reconstruibles con garantías y falsearlas sería peor.
+
+**`view.php`**
+- Helper `$freezeVersion()`: congela el HTML vigente en `propuestas_history` y devuelve `['hash','history_id']`. **Reutiliza la fila si ya existe una con esa misma huella** — así una re-firma no duplica y una URL ya citada en un contrato no cambia.
+- `approve_doc` / `approve_pdf`: guardan `contenido_hash` (+ `history_id` en el doc) y **registran las re-firmas**. La condición de inserción pasa de "no hay ninguna de este tipo" a "nadie ha aprobado todavía este contenido exacto". Para el presupuesto la huella es del `holded_json` (o de la ruta del PDF legacy), que es lo que realmente se firma. Todo con `try/catch` + fallback al INSERT antiguo si la migración no estuviera aplicada.
+- **Modo archivo `/p/{slug}?v={history_id|etiqueta}`**: sirve una versión congelada en solo lectura. Banner con versión, fecha, firmante (si lo hay) y huella completa. Sin comentarios, tareas, respuestas, tracking, Jordan, tabs, CTA de aprobación ni panel de proveedor. Mismo gate de PIN. 404 si no existe. Los POST `api_action` se rechazan. No cuenta visitas.
+- **Fix del redirect del PIN**: conservaba `/p/{slug}` a secas y se comía el `?v=`, así que quien entrara por el enlace de un contrato sin sesión acababa en la versión vigente. Detectado probando en navegador.
+
+**`admin.php`**
+- Endpoint `POST admin.php?action=freeze_version` (body `{id}`): congela la versión vigente con `origen='referencia'` y devuelve `history_id`, versión, huella, fecha, URL y firma asociada si existe. Idempotente por huella.
+- Botón **"Referencia para contrato"** (icono `file-lock-2`) en la fila de cada propuesta → modal con el bloque listo para copiar + "Abrir versión".
+
+### Estado de Dixie al cierre
+
+- Cabecera del HTML corregida **v1.1 → v1.2** (rotulaba mal). Vía API `PUT` sin `save_version` — errata, no versión nueva. **El orden importa: corregir SIEMPRE antes de congelar**, porque congelar fija la huella.
+- v1.2 congelada → `history_id=51` · huella `c8c88b74e156e05ea8b39410cee5a0709c15b768fbd21708f1ba0be6f34c5774` · URL `https://doc.trespuntos-lab.com/p/dixie?v=51`.
+- Presupuesto E170396 vinculado. Pendiente: que Claudia apruebe la v1.2 (la aprobación se enlazará sola a la referencia 51 por huella, sin cambiar la URL).
+- Texto de la cláusula del contrato en `REFERENCIA-CONTRATO-DIXIE.md`.
+
+### Verificación
+
+Local con copia de la BD de prod: firma → congela → re-firma idéntica no duplica → edición + firma sí registra fila nueva → `?v=` inexistente 404 → POST rechazado en modo archivo → banner correcto en oscuro y claro → sin FAB, tabs, botones "Comentar" ni tracking en la vista archivada.
+Producción: 5 propuestas activas HTTP 200 con 0 errores PHP, admin 200, API schema 200, `database/migrate_versiones.php` 403 por `.htaccess`, la URL archivada exige PIN y sin sesión no filtra ni una línea del documento.
+
+**Backup de rollback:** `/tmp/tp-prod-backup-20260901-190307-versiones/` (view.php, admin.php, database.sqlite 9,3 MB pre-migración).
+
+### Deuda que esto NO resuelve
+
+Las 4 aprobaciones anteriores siguen sin huella de contenido: h2b (v1.5, en historial), diptron (v1.2, en historial pero pudo editarse tras la firma), dixie (v1.0, contaminada — ver arriba) y **gibobs, que se aprobó sin registrar versión** (`version_firmada` vacío; se podría inferir cruzando `aprobado_at` con los `created_at` del historial). Lo honesto es anotarlo, no inventar la huella.
+
+Pendientes menores del plan original, no bloqueantes: aviso en `admin.php` al editar una propuesta aprobada, y exponer `contenido_hash` en `GET /api/proposals.php?id=X&history=1`.
+
+---
+
 ## 🆕 2026-06-14 · Cajas de respuesta del cliente (`tp-respuesta`) — texto libre + Guardar
 
 Nueva funcionalidad para bloques de "dudas/preguntas para el cliente": una **caja de texto con botón Guardar** embebible en cualquier punto del `html_content`. El cliente escribe su respuesta dentro del propio documento y la guarda; queda persistida, editable (se puede volver a guardar) y precargada al recargar. Al guardar, ping Telegram al equipo. Modelada sobre el patrón de `tp-tasks`.
