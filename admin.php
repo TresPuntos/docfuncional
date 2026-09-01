@@ -150,6 +150,72 @@ if (isset($_GET['action'])) {
         exit;
     }
 
+    // ===== REFERENCIA PARA CONTRATO — congelar la versión vigente =====
+    // Deja el documento tal y como está ahora en propuestas_history y devuelve la
+    // referencia citable: versión, huella SHA-256, fecha y URL de solo lectura.
+    // Es idempotente: si ese contenido exacto ya está congelado, reutiliza la fila
+    // (y por tanto la URL), así una referencia ya escrita en un contrato no cambia.
+    if ($_GET['action'] === 'freeze_version' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        if (empty($_SESSION['admin_logged'])) {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'message' => 'No autorizado']);
+            exit;
+        }
+        $data = json_decode(file_get_contents('php://input'), true) ?: [];
+        $pid  = (int)($data['id'] ?? 0);
+        if ($pid <= 0) { echo json_encode(['success' => false, 'message' => 'Falta el id']); exit; }
+        try {
+            $st = $pdo->prepare("SELECT id, slug, client_name, version, html_content FROM propuestas WHERE id = ?");
+            $st->execute([$pid]);
+            $prop = $st->fetch(PDO::FETCH_ASSOC);
+            if (!$prop) { echo json_encode(['success' => false, 'message' => 'Propuesta no encontrada']); exit; }
+
+            $hash = hash('sha256', (string)$prop['html_content']);
+            $stH = $pdo->prepare("SELECT id, created_at FROM propuestas_history WHERE propuesta_id = ? AND contenido_hash = ? ORDER BY id DESC LIMIT 1");
+            $stH->execute([$pid, $hash]);
+            $row = $stH->fetch(PDO::FETCH_ASSOC);
+            $reused = (bool)$row;
+            if (!$row) {
+                $pdo->prepare("INSERT INTO propuestas_history (propuesta_id, version, html_content, contenido_hash, origen) VALUES (?, ?, ?, ?, 'referencia')")
+                    ->execute([$pid, $prop['version'], $prop['html_content'], $hash]);
+                $hid = (int)$pdo->lastInsertId();
+                $stH2 = $pdo->prepare("SELECT created_at FROM propuestas_history WHERE id = ?");
+                $stH2->execute([$hid]);
+                $createdAt = $stH2->fetchColumn();
+            } else {
+                $hid = (int)$row['id'];
+                $createdAt = $row['created_at'];
+            }
+
+            // Firma asociada a este contenido exacto, si la hay.
+            $firma = null;
+            try {
+                $stF = $pdo->prepare("SELECT firmante_nombre, firmante_apellidos, firmante_email, aprobado_at FROM aprobaciones WHERE propuesta_id = ? AND tipo = 'documento_funcional' AND (history_id = ? OR contenido_hash = ?) ORDER BY aprobado_at ASC LIMIT 1");
+                $stF->execute([$pid, $hid, $hash]);
+                $firma = $stF->fetch(PDO::FETCH_ASSOC) ?: null;
+            } catch (Throwable $e) { /* migración no aplicada */ }
+
+            $host = $_SERVER['HTTP_HOST'] ?? 'doc.trespuntos-lab.com';
+            $url  = 'https://' . $host . '/p/' . $prop['slug'] . '?v=' . $hid;
+
+            echo json_encode([
+                'success'    => true,
+                'reused'     => $reused,
+                'history_id' => $hid,
+                'slug'       => $prop['slug'],
+                'cliente'    => $prop['client_name'],
+                'version'    => $prop['version'],
+                'hash'       => $hash,
+                'fecha'      => $createdAt,
+                'url'        => $url,
+                'firma'      => $firma,
+            ]);
+        } catch (Exception $e) {
+            echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+        }
+        exit;
+    }
+
     // ===== HOLDED — vincular presupuesto Holded a propuesta =====
     if (in_array($_GET['action'] ?? '', ['holded_search', 'holded_preview', 'holded_link', 'holded_sync', 'holded_unlink'], true)) {
         require_once __DIR__ . '/api/holded_client.php';
@@ -1408,6 +1474,11 @@ else: ?>
                                 <!-- Col 5 · ACCIONES -->
                                 <td class="px-6 py-5 whitespace-nowrap text-end">
                                     <div class="flex items-center justify-end gap-2">
+                                        <button onclick="freezeVersion(<?= $p['id'] ?>)"
+                                                class="text-text-secondary hover:text-tp-primary transition-colors p-1.5 rounded hover:bg-bg-subtle"
+                                                title="Referencia para contrato (congela esta versión)">
+                                            <i data-lucide="file-lock-2" class="w-4 h-4"></i>
+                                        </button>
                                         <button onclick="editProposal(JSON.parse(this.dataset.proposal))"
                                                 data-proposal="<?= htmlspecialchars(json_encode($p), ENT_QUOTES, 'UTF-8') ?>"
                                                 class="text-text-secondary hover:text-tp-primary transition-colors p-1.5 rounded hover:bg-bg-subtle"
@@ -2051,6 +2122,72 @@ else: ?>
 
         function copyToClipboard(text) {
             navigator.clipboard.writeText(text).then(() => alert('Enlace copiado'));
+        }
+
+        // Congela la versión vigente y muestra la referencia citable en un contrato.
+        // Idempotente: si ese contenido ya estaba congelado devuelve la misma URL.
+        async function freezeVersion(id) {
+            try {
+                const res = await fetch('admin.php?action=freeze_version', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id })
+                });
+                const d = await res.json();
+                if (!d.success) { alert(d.message || 'No se ha podido congelar la versión'); return; }
+
+                const fecha = (d.fecha || '').substring(0, 10).split('-').reverse().join('/');
+                let bloque =
+                    'Documento funcional · ' + d.cliente + '\n' +
+                    'Versión: ' + d.version + ' (referencia ' + d.history_id + ')\n' +
+                    'Congelado el: ' + fecha + '\n' +
+                    'Huella SHA-256: ' + d.hash + '\n' +
+                    'Consulta: ' + d.url + ' (acceso con el PIN facilitado)';
+                if (d.firma) {
+                    const fFirma = (d.firma.aprobado_at || '').substring(0, 10).split('-').reverse().join('/');
+                    bloque += '\nAprobado por: ' + [d.firma.firmante_nombre, d.firma.firmante_apellidos].filter(Boolean).join(' ') +
+                              ' (' + d.firma.firmante_email + ') el ' + fFirma;
+                } else {
+                    bloque += '\nAprobación registrada en la aplicación: pendiente';
+                }
+
+                const scrim = document.createElement('div');
+                scrim.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;display:flex;align-items:center;justify-content:center;padding:1.5rem';
+                const box = document.createElement('div');
+                box.style.cssText = 'background:#141414;border:1px solid #2a2a2a;border-radius:14px;max-width:640px;width:100%;padding:1.5rem;color:#f5f5f5;font-family:Inter,system-ui,sans-serif';
+                const ta = document.createElement('textarea');
+                ta.value = bloque;
+                ta.readOnly = true;
+                ta.style.cssText = 'width:100%;height:170px;background:#0e0e0e;color:#f5f5f5;border:1px solid #1f1f1f;border-radius:8px;padding:.75rem;font-family:ui-monospace,monospace;font-size:.78rem;line-height:1.6;resize:vertical';
+                box.innerHTML = '<h3 style="margin:0 0 .35rem;font-size:1.05rem;font-weight:700">Referencia para el contrato</h3>' +
+                    '<p style="margin:0 0 .9rem;font-size:.8rem;color:#b3b3b3">' +
+                    (d.reused ? 'Esta versión ya estaba congelada: se reutiliza la misma referencia.' : 'Versión congelada ahora. El historial no se edita, así que esta URL servirá siempre este documento.') +
+                    '</p>';
+                box.appendChild(ta);
+                const row = document.createElement('div');
+                row.style.cssText = 'display:flex;gap:.6rem;margin-top:1rem;justify-content:flex-end';
+                const bCopy = document.createElement('button');
+                bCopy.textContent = 'Copiar';
+                bCopy.style.cssText = 'background:#5dffbf;color:#0e0e0e;border:0;border-radius:8px;padding:.55rem 1.1rem;font-weight:700;cursor:pointer';
+                bCopy.onclick = () => navigator.clipboard.writeText(bloque).then(() => { bCopy.textContent = 'Copiado'; });
+                const bOpen = document.createElement('a');
+                bOpen.textContent = 'Abrir versión';
+                bOpen.href = d.url; bOpen.target = '_blank'; bOpen.rel = 'noopener';
+                bOpen.style.cssText = 'background:#1f1f1f;color:#f5f5f5;border:1px solid #2a2a2a;border-radius:8px;padding:.55rem 1.1rem;font-weight:600;text-decoration:none';
+                const bClose = document.createElement('button');
+                bClose.textContent = 'Cerrar';
+                bClose.style.cssText = 'background:transparent;color:#b3b3b3;border:1px solid #2a2a2a;border-radius:8px;padding:.55rem 1.1rem;cursor:pointer';
+                bClose.onclick = () => scrim.remove();
+                row.append(bCopy, bOpen, bClose);
+                box.appendChild(row);
+                scrim.appendChild(box);
+                scrim.addEventListener('click', (e) => { if (e.target === scrim) scrim.remove(); });
+                document.body.appendChild(scrim);
+                ta.focus(); ta.select();
+            } catch (err) {
+                console.error(err);
+                alert('Error de conexión al congelar la versión.');
+            }
         }
 
         async function resetViews(id, name) {

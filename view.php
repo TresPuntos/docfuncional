@@ -112,7 +112,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['pin'])) {
             'identified_at' => date('Y-m-d H:i:s'),
         ];
         $protocol = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http';
-        header("Location: $protocol://" . $_SERVER['HTTP_HOST'] . $base_path . "/p/" . $slug);
+        // Conservar la versión archivada pedida (?v=): si el enlace de un contrato
+        // apunta a una versión concreta, el login por PIN no debe devolver a la vigente.
+        $redirQs = '';
+        if (isset($_GET['v']) && trim((string)$_GET['v']) !== '') {
+            $redirQs = '?v=' . rawurlencode(trim((string)$_GET['v']));
+        }
+        header("Location: $protocol://" . $_SERVER['HTTP_HOST'] . $base_path . "/p/" . $slug . $redirQs);
         exit;
     }
 }
@@ -190,13 +196,69 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['api_action'] ?? '') === 's
 if ($is_unlocked) {
     $view_timer_key = 'last_view_time_' . $proposal['id'];
     $user_ip = $_SERVER['REMOTE_ADDR'] ?? '';
-    // No contar visitas de la IP del administrador
-    if ($user_ip !== '85.51.255.66' && (!isset($_SESSION[$view_timer_key]) || (time() - $_SESSION[$view_timer_key] > 300))) {
+    // No contar visitas de la IP del administrador ni las de una versión archivada
+    if (!isset($_GET['v']) && $user_ip !== '85.51.255.66' && (!isset($_SESSION[$view_timer_key]) || (time() - $_SESSION[$view_timer_key] > 300))) {
         $pdo->prepare("UPDATE propuestas SET views_count = views_count + 1, last_accessed_at = CURRENT_TIMESTAMP WHERE id = ?")->execute([$proposal['id']]);
         $_SESSION[$view_timer_key] = time();
     }
 
+    // ---- Modo archivo · /p/{slug}?v={history_id|etiqueta} ----------------------
+    // Sirve, en solo lectura, una versión congelada del documento. Es la URL que se
+    // cita en un contrato: el historial no se edita, así que lo que se ve ahí es
+    // exactamente lo que se aprobó. Se resuelve preferentemente por history_id
+    // porque la etiqueta de versión no identifica un documento (dentro de una misma
+    // etiqueta el contenido puede haberse editado en borrador).
+    $archive = null;
+    if (isset($_GET['v']) && trim((string)$_GET['v']) !== '') {
+        $vParam = trim((string)$_GET['v']);
+        $archiveRow = null;
+        try {
+            if (ctype_digit($vParam)) {
+                $stmtV = $pdo->prepare("SELECT * FROM propuestas_history WHERE id = ? AND propuesta_id = ?");
+                $stmtV->execute([(int)$vParam, $proposal['id']]);
+            } else {
+                $stmtV = $pdo->prepare("SELECT * FROM propuestas_history WHERE propuesta_id = ? AND version = ? ORDER BY created_at DESC, id DESC LIMIT 1");
+                $stmtV->execute([$proposal['id'], $vParam]);
+            }
+            $archiveRow = $stmtV->fetch(PDO::FETCH_ASSOC) ?: null;
+        } catch (Throwable $e) {
+            $archiveRow = null;
+        }
+        if (!$archiveRow) {
+            http_response_code(404);
+            showError("Versión no encontrada", "Esa versión del documento no existe. Puedes abrir la versión vigente en el enlace habitual.");
+        }
+        $hashArchivo = $archiveRow['contenido_hash'] ?? '';
+        if ($hashArchivo === '' || $hashArchivo === null) {
+            $hashArchivo = hash('sha256', (string)$archiveRow['html_content']);
+        }
+        // Firma asociada a esta versión concreta, si la hay.
+        $firmaArchivo = null;
+        try {
+            $stmtFA = $pdo->prepare("SELECT firmante_nombre, firmante_apellidos, firmante_email, aprobado_at FROM aprobaciones WHERE propuesta_id = ? AND tipo = 'documento_funcional' AND (history_id = ? OR contenido_hash = ?) ORDER BY aprobado_at ASC LIMIT 1");
+            $stmtFA->execute([$proposal['id'], $archiveRow['id'], $hashArchivo]);
+            $firmaArchivo = $stmtFA->fetch(PDO::FETCH_ASSOC) ?: null;
+        } catch (Throwable $e) { /* migración no aplicada */ }
+
+        $archive = [
+            'id'      => (int)$archiveRow['id'],
+            'version' => (string)$archiveRow['version'],
+            'fecha'   => (string)$archiveRow['created_at'],
+            'hash'    => $hashArchivo,
+            'firma'   => $firmaArchivo,
+        ];
+        $proposal['html_content'] = $archiveRow['html_content'];
+        $proposal['version']      = $archiveRow['version'];
+    }
+
     $content = $proposal['html_content'];
+
+    // En modo archivo no se escribe nada: ni firmas, ni comentarios, ni tareas.
+    if ($archive && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['api_action'])) {
+        header('Content-Type: application/json');
+        echo json_encode(['success' => false, 'error' => 'Estás viendo una versión archivada en solo lectura.']);
+        exit;
+    }
 
     // AJAX Handler for approvals — bloquear todos los endpoints de cliente si estamos en provider mode
     if ($isProviderMode && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['api_action'])) {
@@ -244,6 +306,30 @@ if ($is_unlocked) {
             return hash('sha256', $payload);
         };
 
+        // Congela el contenido vigente en propuestas_history y devuelve
+        // ['hash' => sha256 del HTML, 'history_id' => fila congelada].
+        // Si ya hay una fila archivada con esa misma huella, la reutiliza: así una
+        // re-firma del mismo documento no duplica filas, y la URL que ya esté citada
+        // en un contrato sigue siendo válida.
+        $freezeVersion = function (PDO $pdo, array $prop, string $origen = 'aprobacion') {
+            $html = (string)$prop['html_content'];
+            $hash = hash('sha256', $html);
+            try {
+                $st = $pdo->prepare("SELECT id FROM propuestas_history WHERE propuesta_id = ? AND contenido_hash = ? ORDER BY id DESC LIMIT 1");
+                $st->execute([$prop['id'], $hash]);
+                $hid = $st->fetchColumn();
+                if (!$hid) {
+                    $ins = $pdo->prepare("INSERT INTO propuestas_history (propuesta_id, version, html_content, contenido_hash, origen) VALUES (?, ?, ?, ?, ?)");
+                    $ins->execute([$prop['id'], $prop['version'], $html, $hash, $origen]);
+                    $hid = (int)$pdo->lastInsertId();
+                }
+                return ['hash' => $hash, 'history_id' => (int)$hid];
+            } catch (Throwable $e) {
+                // Si la migración de versiones no está aplicada, no romper la firma.
+                return ['hash' => $hash, 'history_id' => null];
+            }
+        };
+
         // Helper: URL pública para deep-link en notificaciones
         $adminFeedbackUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? 'doc.trespuntos-lab.com') . '/admin_feedback.php?propuesta_id=' . $proposal['id'];
         $viewUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? 'doc.trespuntos-lab.com') . '/p/' . $slug;
@@ -255,20 +341,54 @@ if ($is_unlocked) {
             $stmtObj->execute([$proposal['id']]);
             $isFirst = ($stmtObj->fetchColumn() == 0);
             $hash = $buildHash($proposal['id'], 'documento_funcional', $signer, $proposal['version']);
-            if ($isFirst) {
-                $pdo->prepare("INSERT INTO aprobaciones (propuesta_id, tipo, ip_address, firmante_nombre, firmante_apellidos, firmante_email, firma_hash, version_firmada, user_agent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-                    ->execute([$proposal['id'], 'documento_funcional', $_SERVER['REMOTE_ADDR'], $signer['nombre'], $signer['apellidos'], $signer['email'], $hash, $proposal['version'], mb_substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255)]);
+
+            // Congelar el documento tal y como se está firmando y quedarse con su huella.
+            $frozen = $freezeVersion($pdo, $proposal, 'aprobacion');
+
+            // Se registra una fila nueva cuando NADIE ha aprobado todavía este contenido
+            // exacto. Volver a firmar el mismo documento no duplica; firmar un documento
+            // distinto (versión nueva, o borrador editado) sí queda registrado — antes se
+            // perdía, porque solo se guardaba la primera aprobación del tipo.
+            $alreadySigned = false;
+            try {
+                $stDup = $pdo->prepare("SELECT COUNT(*) FROM aprobaciones WHERE propuesta_id = ? AND tipo = 'documento_funcional' AND contenido_hash = ?");
+                $stDup->execute([$proposal['id'], $frozen['hash']]);
+                $alreadySigned = ($stDup->fetchColumn() > 0);
+            } catch (Throwable $e) {
+                $alreadySigned = !$isFirst; // sin migración aplicada, comportamiento anterior
             }
-            $prefix = $isFirst ? "✅ <b>Documento Aprobado</b>" : "🔁 <b>Re-firma Documento</b> <i>(ya estaba aprobado)</i>";
+            if (!$alreadySigned) {
+                try {
+                    $pdo->prepare("INSERT INTO aprobaciones (propuesta_id, tipo, ip_address, firmante_nombre, firmante_apellidos, firmante_email, firma_hash, version_firmada, user_agent, contenido_hash, history_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                        ->execute([$proposal['id'], 'documento_funcional', $_SERVER['REMOTE_ADDR'], $signer['nombre'], $signer['apellidos'], $signer['email'], $hash, $proposal['version'], mb_substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255), $frozen['hash'], $frozen['history_id']]);
+                } catch (Throwable $e) {
+                    $pdo->prepare("INSERT INTO aprobaciones (propuesta_id, tipo, ip_address, firmante_nombre, firmante_apellidos, firmante_email, firma_hash, version_firmada, user_agent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                        ->execute([$proposal['id'], 'documento_funcional', $_SERVER['REMOTE_ADDR'], $signer['nombre'], $signer['apellidos'], $signer['email'], $hash, $proposal['version'], mb_substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255)]);
+                }
+            }
+            $prefix = $isFirst
+                ? "✅ <b>Documento Aprobado</b>"
+                : (!$alreadySigned
+                    ? "✅ <b>Documento Aprobado</b> <i>(versión nueva — ya había una aprobación anterior)</i>"
+                    : "🔁 <b>Re-firma Documento</b> <i>(mismo documento ya aprobado)</i>");
             sendTelegramNotification(
                 $prefix
                 . "\nCliente: <b>" . htmlspecialchars($clientName, ENT_QUOTES, 'UTF-8') . "</b>"
                 . "\nFirmado por: <b>" . htmlspecialchars($signer['nombre'] . ' ' . $signer['apellidos'], ENT_QUOTES, 'UTF-8') . "</b>"
                 . "\nVersión: " . htmlspecialchars($proposal['version'])
-                . "\nHash: <code>" . substr($hash, 0, 16) . "…</code>"
+                . "\nHash firma: <code>" . substr($hash, 0, 16) . "…</code>"
+                . "\nHuella documento: <code>" . substr($frozen['hash'], 0, 16) . "…</code>"
+                . ($frozen['history_id'] ? "\nVersión congelada: <a href=\"" . htmlspecialchars($viewUrl . '?v=' . $frozen['history_id'], ENT_QUOTES) . "\">ver documento firmado</a>" : "")
                 . "\n\n<a href=\"" . htmlspecialchars($adminFeedbackUrl, ENT_QUOTES) . "\">Abrir en admin</a> · <a href=\"" . htmlspecialchars($viewUrl, ENT_QUOTES) . "\">Ver propuesta</a>"
             );
-            echo json_encode(['success' => true, 'hash' => $hash, 'already' => !$isFirst]);
+            echo json_encode([
+                'success'        => true,
+                'hash'           => $hash,
+                'already'        => $alreadySigned,
+                'version'        => $proposal['version'],
+                'contenido_hash' => $frozen['hash'],
+                'history_id'     => $frozen['history_id'],
+            ]);
             exit;
         }
         if ($_POST['api_action'] === 'approve_pdf') {
@@ -278,20 +398,52 @@ if ($is_unlocked) {
             $stmtObj->execute([$proposal['id']]);
             $isFirst = ($stmtObj->fetchColumn() == 0);
             $hash = $buildHash($proposal['id'], 'presupuesto', $signer, $proposal['version']);
-            if ($isFirst) {
-                $pdo->prepare("INSERT INTO aprobaciones (propuesta_id, tipo, ip_address, firmante_nombre, firmante_apellidos, firmante_email, firma_hash, version_firmada, user_agent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-                    ->execute([$proposal['id'], 'presupuesto', $_SERVER['REMOTE_ADDR'], $signer['nombre'], $signer['apellidos'], $signer['email'], $hash, $proposal['version'], mb_substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255)]);
+
+            // Huella de lo que se está aprobando. En el presupuesto lo firmado no es el
+            // documento funcional sino el presupuesto: el JSON de Holded si está vinculado,
+            // o la ruta del PDF legacy si no.
+            $presuFuente = '';
+            try {
+                $stP = $pdo->prepare("SELECT holded_doc_number, holded_json FROM presupuestos_holded WHERE propuesta_id = ?");
+                $stP->execute([$proposal['id']]);
+                $rowP = $stP->fetch(PDO::FETCH_ASSOC);
+                if ($rowP) $presuFuente = (string)$rowP['holded_doc_number'] . '|' . (string)$rowP['holded_json'];
+            } catch (Throwable $e) { /* sin tabla Holded */ }
+            if ($presuFuente === '') $presuFuente = 'pdf|' . (string)($proposal['presupuesto_pdf'] ?? '');
+            $presuHash = hash('sha256', $presuFuente);
+
+            $alreadySigned = false;
+            try {
+                $stDup = $pdo->prepare("SELECT COUNT(*) FROM aprobaciones WHERE propuesta_id = ? AND tipo = 'presupuesto' AND contenido_hash = ?");
+                $stDup->execute([$proposal['id'], $presuHash]);
+                $alreadySigned = ($stDup->fetchColumn() > 0);
+            } catch (Throwable $e) {
+                $alreadySigned = !$isFirst;
             }
-            $prefix = $isFirst ? "✅💰 <b>Presupuesto Aprobado</b>" : "🔁💰 <b>Re-firma Presupuesto</b> <i>(ya estaba aprobado)</i>";
+            if (!$alreadySigned) {
+                try {
+                    $pdo->prepare("INSERT INTO aprobaciones (propuesta_id, tipo, ip_address, firmante_nombre, firmante_apellidos, firmante_email, firma_hash, version_firmada, user_agent, contenido_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                        ->execute([$proposal['id'], 'presupuesto', $_SERVER['REMOTE_ADDR'], $signer['nombre'], $signer['apellidos'], $signer['email'], $hash, $proposal['version'], mb_substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255), $presuHash]);
+                } catch (Throwable $e) {
+                    $pdo->prepare("INSERT INTO aprobaciones (propuesta_id, tipo, ip_address, firmante_nombre, firmante_apellidos, firmante_email, firma_hash, version_firmada, user_agent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                        ->execute([$proposal['id'], 'presupuesto', $_SERVER['REMOTE_ADDR'], $signer['nombre'], $signer['apellidos'], $signer['email'], $hash, $proposal['version'], mb_substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255)]);
+                }
+            }
+            $prefix = $isFirst
+                ? "✅💰 <b>Presupuesto Aprobado</b>"
+                : (!$alreadySigned
+                    ? "✅💰 <b>Presupuesto Aprobado</b> <i>(presupuesto distinto al ya aprobado)</i>"
+                    : "🔁💰 <b>Re-firma Presupuesto</b> <i>(mismo presupuesto ya aprobado)</i>");
             sendTelegramNotification(
                 $prefix
                 . "\nCliente: <b>" . htmlspecialchars($clientName, ENT_QUOTES, 'UTF-8') . "</b>"
                 . "\nFirmado por: <b>" . htmlspecialchars($signer['nombre'] . ' ' . $signer['apellidos'], ENT_QUOTES, 'UTF-8') . "</b>"
                 . "\nVersión: " . htmlspecialchars($proposal['version'])
-                . "\nHash: <code>" . substr($hash, 0, 16) . "…</code>"
+                . "\nHash firma: <code>" . substr($hash, 0, 16) . "…</code>"
+                . "\nHuella presupuesto: <code>" . substr($presuHash, 0, 16) . "…</code>"
                 . "\n\n<a href=\"" . htmlspecialchars($adminFeedbackUrl, ENT_QUOTES) . "\">Abrir en admin</a> · <a href=\"" . htmlspecialchars($viewUrl, ENT_QUOTES) . "\">Ver propuesta</a>"
             );
-            echo json_encode(['success' => true, 'hash' => $hash, 'already' => !$isFirst]);
+            echo json_encode(['success' => true, 'hash' => $hash, 'already' => $alreadySigned, 'contenido_hash' => $presuHash]);
             exit;
         }
         if ($_POST['api_action'] === 'reject_pdf') {
@@ -808,7 +960,7 @@ if ($is_unlocked) {
             $stmtTeam -> execute($equipo_ids);
             $team = $stmtTeam -> fetchAll(PDO:: FETCH_ASSOC);
         }
-        renderWrappedContent($proposal, $slug, $isDocApproved, $isPdfApproved, $hasPdf, $team, $base_path, $hasHolded, $holdedDoc, $firmas, $isProviderMode, $__provider, $isAdminMode, $visitorIdentity);
+        renderWrappedContent($proposal, $slug, $isDocApproved, $isPdfApproved, $hasPdf, $team, $base_path, $hasHolded, $holdedDoc, $firmas, $isProviderMode, $__provider, $isAdminMode, $visitorIdentity, $archive);
         exit;
 }
 
@@ -1084,7 +1236,7 @@ if ($is_unlocked) {
 <?php
 }
 
-                            function renderWrappedContent($proposal, $slug, $isDocApproved = false, $isPdfApproved = false, $hasPdf = false, $team = [], $base_path = '', $hasHolded = false, $holdedDoc = null, $firmas = [], $isProviderMode = false, $__provider = null, $isAdminMode = false, $visitorIdentity = null)
+                            function renderWrappedContent($proposal, $slug, $isDocApproved = false, $isPdfApproved = false, $hasPdf = false, $team = [], $base_path = '', $hasHolded = false, $holdedDoc = null, $firmas = [], $isProviderMode = false, $__provider = null, $isAdminMode = false, $visitorIdentity = null, $archive = null)
                             {
 ?>
 <!DOCTYPE html>
@@ -2977,11 +3129,63 @@ if ($is_unlocked) {
                 </p>
 
                 <?php
-                    $hasPresupuestoTab = ($hasHolded || $hasPdf) && !$isProviderMode;
-                    $hasFirmasTab      = !empty($firmas) && !$isProviderMode;
+                    $isArchive         = !empty($archive);
+                    $hasPresupuestoTab = ($hasHolded || $hasPdf) && !$isProviderMode && !$isArchive;
+                    $hasFirmasTab      = !empty($firmas) && !$isProviderMode && !$isArchive;
                     $showTabs          = $hasPresupuestoTab || $hasFirmasTab;
                     $presupuestoDocNum = $hasHolded ? (' · ' . htmlspecialchars($holdedDoc['docNumber'] ?? '', ENT_QUOTES, 'UTF-8')) : '';
                 ?>
+                <?php if ($isArchive):
+                    $arFecha = $archive['fecha'] ? date('d/m/Y', strtotime($archive['fecha'])) : '';
+                    $arFirma = $archive['firma'] ?? null;
+                ?>
+                <div class="tp-archive-banner">
+                    <i data-lucide="archive"></i>
+                    <div class="tp-archive-banner__body">
+                        <strong>Versión archivada <?= htmlspecialchars($archive['version']) ?></strong> · solo lectura.
+                        <?php if ($arFirma): ?>
+                            Aprobada por <?= htmlspecialchars(trim($arFirma['firmante_nombre'] . ' ' . $arFirma['firmante_apellidos'])) ?>
+                            el <?= htmlspecialchars(date('d/m/Y', strtotime($arFirma['aprobado_at']))) ?>.
+                        <?php else: ?>
+                            Congelada el <?= htmlspecialchars($arFecha) ?>.
+                        <?php endif; ?>
+                        <span class="tp-archive-banner__hash">Huella SHA-256: <code><?= htmlspecialchars($archive['hash']) ?></code></span>
+                    </div>
+                    <a class="tp-archive-banner__live" href="<?= htmlspecialchars($base_path . '/p/' . $slug) ?>">Ver versión vigente</a>
+                </div>
+                <style>
+                    .tp-archive-banner {
+                        background: linear-gradient(135deg, rgba(var(--mint-rgb, 93,255,191), .14), rgba(var(--mint-rgb, 93,255,191), .03));
+                        border: 1px solid rgba(var(--mint-rgb, 93,255,191), .38);
+                        border-radius: 10px;
+                        padding: .85rem 1rem;
+                        margin: 0 0 1.75rem;
+                        display: flex; align-items: flex-start; gap: .75rem;
+                        font-size: .85rem; color: var(--text-primary, #f5f5f5);
+                    }
+                    .tp-archive-banner i[data-lucide], .tp-archive-banner svg.lucide {
+                        width: 18px; height: 18px; flex: 0 0 18px; margin-top: .1rem;
+                        color: var(--tp-primary, #5dffbf);
+                    }
+                    .tp-archive-banner__body { flex: 1 1 auto; line-height: 1.5; }
+                    .tp-archive-banner__hash { display: block; margin-top: .3rem; color: var(--text-secondary, #b3b3b3); }
+                    .tp-archive-banner__hash code {
+                        font-family: var(--font-mono, monospace); font-size: .72rem;
+                        word-break: break-all; color: var(--text-secondary, #b3b3b3);
+                    }
+                    .tp-archive-banner__live {
+                        flex: 0 0 auto; white-space: nowrap; align-self: center;
+                        color: var(--tp-primary, #5dffbf); text-decoration: none; font-weight: 600;
+                    }
+                    .tp-archive-banner__live:hover { text-decoration: underline; }
+                    @media (max-width: 720px) {
+                        .tp-archive-banner { flex-wrap: wrap; }
+                        .tp-archive-banner__live { align-self: flex-start; }
+                    }
+                    @media print { .tp-archive-banner__live { display: none; } }
+                </style>
+                <?php endif; ?>
+
                 <?php if ($showTabs): ?>
                 <nav class="doc-tabs" role="tablist" aria-label="Vistas del documento">
                     <button class="doc-tab is-active" type="button" role="tab" data-tab-target="documento" aria-selected="true">
@@ -3031,7 +3235,7 @@ if ($is_unlocked) {
                         .tp-admin-banner-exit:hover { background: rgba(192,132,252,.15); }
                     </style>
                 <?php endif; ?>
-                <?php if ($isProviderMode && !$isAdminMode): include __DIR__ . '/master/provider-upload.php'; endif; ?>
+                <?php if ($isProviderMode && !$isAdminMode && !$isArchive): include __DIR__ . '/master/provider-upload.php'; endif; ?>
 
                 <div id="content-area" class="doc-view" data-tab="documento">
                     <?php echo $proposal['html_content']; ?>
@@ -3041,7 +3245,7 @@ if ($is_unlocked) {
                     <div class="doc-view" data-tab="documento">
                     <?php if (strpos($proposal['html_content'], 'tp-hide-metodologia') === false): include __DIR__ . '/metodologia.php'; endif; ?>
                     <div id="equipo-extension-area" style="margin-top: 4rem;"></div>
-                    <div class="cta-block" id="sec-avanzamos-doc"<?= $isProviderMode ? ' hidden' : '' ?>>
+                    <div class="cta-block" id="sec-avanzamos-doc"<?= ($isProviderMode || $isArchive) ? ' hidden' : '' ?>>
                         <?php if (!$isDocApproved): ?>
                         <h2
                             style="font-family: var(--font-heading); font-size: 2.5rem; color: var(--text-primary); margin-bottom: 1rem; margin-top: 0; display: block;">
@@ -3965,11 +4169,12 @@ if ($is_unlocked) {
     <script src="https://assets.calendly.com/assets/external/widget.js" type="text/javascript" async></script>
 
     <!-- Feature: comentarios por sección + firma ligera -->
-    <?php if (!$isProviderMode) include __DIR__ . '/master/doc-tracking.php'; ?>
+    <?php if (!$isProviderMode && !$isArchive) include __DIR__ . '/master/doc-tracking.php'; ?>
     <?php if ($isAdminMode): ?>
         <script>window.__isAdminViewing = true;</script>
     <?php endif; ?>
-    <?php if ($isProviderMode): ?>
+    <?php if ($isArchive): /* versión archivada: sin comentarios, tareas, respuestas ni tracking */ ?>
+    <?php elseif ($isProviderMode): ?>
         <script>window.__providerApiUrl = <?= json_encode('/s/' . $__provider['token']) ?>;</script>
         <?php include __DIR__ . '/master/doc-feedback-provider.php'; ?>
     <?php else: ?>
@@ -3979,6 +4184,7 @@ if ($is_unlocked) {
     <?php endif; ?>
 
     <!-- Onboarding primera visita: apunta al FAB de comentarios -->
+    <?php if (!$isArchive): ?>
     <div class="tp-onboarding" id="tp-onboarding" role="dialog" aria-labelledby="tp-onb-title" hidden>
         <button class="tp-onboarding__dismiss" type="button" id="tp-onb-dismiss" aria-label="Cerrar">
             <i data-lucide="x"></i>
@@ -3994,13 +4200,14 @@ if ($is_unlocked) {
         </div>
         <button class="tp-onboarding__ok" type="button" id="tp-onb-ok">Entendido</button>
     </div>
+    <?php endif; ?>
     <script>window.tpSlug = <?php echo json_encode($slug); ?>;</script>
 
     <!-- Jordan-doc: agente conversacional (Haiku) — solo si habilitado global y por propuesta -->
     <?php
     $jordanAllowed = defined('JORDAN_DOC_ENABLED') && JORDAN_DOC_ENABLED
         && (!isset($proposal['enable_ai_assistant']) || (int)$proposal['enable_ai_assistant'] === 1);
-    if ($jordanAllowed && !$isProviderMode) {
+    if ($jordanAllowed && !$isProviderMode && !$isArchive) {
         include __DIR__ . '/master/jordan-widget.php';
     }
     ?>
